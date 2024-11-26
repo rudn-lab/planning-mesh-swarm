@@ -1,13 +1,16 @@
-use embassy_embedded_hal::shared_bus::{asynch::i2c::I2cDevice, I2cDeviceError};
-use embassy_sync::blocking_mutex::raw::RawMutex;
-use embedded_hal_async::i2c::I2c;
-
 pub struct GpioExpander<I2C>
 where
     I2C: embedded_hal_async::i2c::I2c,
 {
     pub device: I2C,
     pub address: u8,
+}
+
+pub enum PinMode {
+    Input,
+    InputPullup,
+    InputPulldown,
+    Output,
 }
 
 // https://github.com/amperka/OctolinerPi/blob/master/octoliner/gpioexp.py
@@ -55,6 +58,80 @@ where
         self.device
             .write_read(self.address, &[GPIO_EXPANDER_DIGITAL_READ], &mut buf)
             .await?;
-        Ok(u16::from_be_bytes(buf))
+        Ok(u16::from_le_bytes(buf))
+    }
+
+    pub async fn digital_write_port(&mut self, value: u16) -> Result<(), E> {
+        let buf = value.to_le_bytes();
+        self.device
+            .write(
+                self.address,
+                &[
+                    GPIO_EXPANDER_DIGITAL_WRITE_HIGH,
+                    buf[0],
+                    buf[1],
+                    GPIO_EXPANDER_DIGITAL_WRITE_LOW,
+                    !buf[0],
+                    !buf[1],
+                ],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn digital_write(&mut self, pin: u8, value: bool) -> Result<(), E> {
+        let send_data = (0x0001u16 << pin).to_le_bytes();
+        let reg = if value {
+            GPIO_EXPANDER_DIGITAL_WRITE_HIGH
+        } else {
+            GPIO_EXPANDER_DIGITAL_WRITE_LOW
+        };
+        self.device
+            .write(self.address, &[reg, send_data[0], send_data[1]])
+            .await?;
+        Ok(())
+    }
+
+    pub async fn pin_mode(&mut self, pin: u8, mode: PinMode) -> Result<(), E> {
+        let send_data = (0x0001u16 << pin).to_le_bytes();
+        let reg = match mode {
+            PinMode::Input => GPIO_EXPANDER_PORT_MODE_INPUT,
+            PinMode::InputPullup => GPIO_EXPANDER_PORT_MODE_PULLUP,
+            PinMode::InputPulldown => GPIO_EXPANDER_PORT_MODE_PULLDOWN,
+            PinMode::Output => GPIO_EXPANDER_PORT_MODE_OUTPUT,
+        };
+
+        self.device
+            .write(self.address, &[reg, send_data[0], send_data[1]])
+            .await?;
+        Ok(())
+    }
+
+    pub async fn pwm_freq(&mut self, freq: u16) -> Result<(), E> {
+        let buf = freq.to_le_bytes();
+        self.device
+            .write(self.address, &[GPIO_EXPANDER_PWM_FREQ, buf[0], buf[1]])
+            .await?;
+        Ok(())
+    }
+
+    /// returns from 0 to 4095
+    pub async fn analog_read(&mut self, pin: u8) -> Result<u16, E> {
+        let mut read_data = [0u8; 2];
+        self.device
+            .write_read(
+                self.address,
+                &[GPIO_EXPANDER_ANALOG_READ, pin, GPIO_EXPANDER_ANALOG_READ],
+                &mut read_data,
+            )
+            .await?;
+        Ok(u16::from_be_bytes(read_data))
+    }
+
+    pub async fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), E> {
+        self.device
+            .write(self.address, &[GPIO_EXPANDER_ANALOG_WRITE, value, pin])
+            .await?;
+        Ok(())
     }
 }

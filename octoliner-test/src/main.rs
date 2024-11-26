@@ -13,6 +13,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use gpio::{Level, Output};
 use octoliner_embassy_driver::gpioexp::GpioExpander;
+use octoliner_embassy_driver::Octoliner;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -29,21 +30,41 @@ async fn main(_spawner: Spawner) {
     let mutexed_i2c = Mutex::<CriticalSectionRawMutex, _>::new(i2c);
 
     let device = I2cDevice::new(&mutexed_i2c);
-    let mut gpioexp = GpioExpander::new(device);
-    gpioexp.reset().await.unwrap();
+    let mut octoliner = Octoliner::new(device);
+    octoliner.init().await.unwrap();
     Timer::after_millis(100).await;
+    let mut counter = 0;
 
     loop {
         info!("led on!");
         led.set_high();
-        let data = gpioexp.digital_read_port().await.unwrap();
-        info!("data: {}", data);
+        octoliner.set_ir_leds(true).await.unwrap();
+        let data = octoliner.analog_read_all().await.unwrap();
+        info!("data: {:?}", data);
+        let count = octoliner.count_of_black().await.unwrap();
+        info!("count of black: {}", count);
+        // let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
+        // info!("calibration result: {:?}", calibration_result);
         Timer::after(Duration::from_secs(1)).await;
 
         info!("led off!");
         led.set_low();
-        let data = gpioexp.digital_read_port().await.unwrap();
-        info!("data: {}", data);
+        octoliner.set_ir_leds(false).await.unwrap();
+        let data = octoliner.analog_read_all().await.unwrap();
+        info!("data: {:?}", data);
+        let count = octoliner.count_of_black().await.unwrap();
+        info!("count of black: {}", count);
+        // let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
+        // info!("calibration result: {:?}", calibration_result);
         Timer::after(Duration::from_secs(1)).await;
+
+        counter += 1;
+        info!("counter: {}", counter);
+        if counter % 5 == 0 {
+            info!("Calibrating");
+            octoliner.set_ir_leds(true);
+            let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
+            info!("calibration result: {:?}", calibration_result);
+        }
     }
 }
