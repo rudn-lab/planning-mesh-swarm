@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+embassy-embedded-hal = "0.2.0"
+embassy-sync = "0.6.1"
+embedded-hal-async = "1.0.0"
