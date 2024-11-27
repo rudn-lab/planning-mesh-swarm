@@ -66,14 +66,13 @@ where
         self.device
             .write(
                 self.address,
-                &[
-                    GPIO_EXPANDER_DIGITAL_WRITE_HIGH,
-                    buf[0],
-                    buf[1],
-                    GPIO_EXPANDER_DIGITAL_WRITE_LOW,
-                    !buf[0],
-                    !buf[1],
-                ],
+                &[GPIO_EXPANDER_DIGITAL_WRITE_HIGH, buf[1], buf[0]],
+            )
+            .await?;
+        self.device
+            .write(
+                self.address,
+                &[GPIO_EXPANDER_DIGITAL_WRITE_LOW, !buf[1], !buf[0]],
             )
             .await?;
         Ok(())

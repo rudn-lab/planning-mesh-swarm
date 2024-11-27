@@ -17,7 +17,7 @@ impl<I2C: embedded_hal_async::i2c::I2c> Octoliner<I2C> {
     pub fn new(device: I2C) -> Self {
         Self {
             gpioexp: gpioexp::GpioExpander::new(device),
-            sensitivity: 204, // 0.8 of 255
+            sensitivity: 205, // 0.8 of 255
         }
     }
 
@@ -29,6 +29,7 @@ impl<I2C: embedded_hal_async::i2c::I2c> Octoliner<I2C> {
             .await?;
         self.gpioexp.digital_write(IR_LEDS_PIN, true).await?;
         self.gpioexp.pwm_freq(8000).await?;
+        self.set_sensitivity(self.sensitivity).await?;
         Ok(())
     }
 
@@ -61,6 +62,7 @@ impl<I2C: embedded_hal_async::i2c::I2c> Octoliner<I2C> {
     }
 
     pub async fn set_sensitivity(&mut self, sensitivity: u8) -> Result<(), I2C::Error> {
+        self.sensitivity = sensitivity;
         self.gpioexp.analog_write(SENSE_PIN, sensitivity).await?;
         Ok(())
     }
@@ -76,11 +78,16 @@ impl<I2C: embedded_hal_async::i2c::I2c> Octoliner<I2C> {
         Ok(count)
     }
 
+    pub async fn get_blacks(&mut self) -> Result<[bool; 8], I2C::Error> {
+        let data = self.analog_read_all().await?;
+        Ok(data.map(|x| x / 16 < BLACK_THRESHOLD.into()))
+    }
+
     // If OK, then returns Some(sensitivity).
     // If error in calibration, returns None.
     pub async fn calibrate_sensitivity(&mut self) -> Result<Option<u8>, I2C::Error> {
         let sensitivity_backup = self.get_sensitivity();
-        const MIN_SENSITIVITY: u8 = 119; // 0.47 of 255
+        const MIN_SENSITIVITY: u8 = 0; // 0.47 of 255
 
         self.set_sensitivity(255).await?;
         Timer::after_millis(200).await;
@@ -99,8 +106,9 @@ impl<I2C: embedded_hal_async::i2c::I2c> Octoliner<I2C> {
         }
 
         // Something is broken
-        if sens <= MIN_SENSITIVITY {
+        if sens == MIN_SENSITIVITY {
             self.set_sensitivity(sensitivity_backup).await?;
+            defmt::warn!("sensitivity less than: {}", MIN_SENSITIVITY);
             return Ok(None);
         }
 
@@ -116,8 +124,9 @@ impl<I2C: embedded_hal_async::i2c::I2c> Octoliner<I2C> {
         }
 
         // Environment has changed since the start of the process
-        if sens >= 255 {
+        if sens == 255 {
             self.set_sensitivity(sensitivity_backup).await?;
+            defmt::warn!("sensitivity more than: 255");
             return Ok(None);
         }
 

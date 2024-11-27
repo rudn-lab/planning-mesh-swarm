@@ -35,36 +35,49 @@ async fn main(_spawner: Spawner) {
     Timer::after_millis(100).await;
     let mut counter = 0;
 
+    // loop {
+    //     led.set_high();
+    //     octoliner.set_ir_leds(true).await.unwrap();
+    //     let data = octoliner.analog_read_all().await.unwrap();
+    //     info!("data: {:?}", data);
+    //     let count = octoliner.count_of_black().await.unwrap();
+    //     info!("count of black: {}", count);
+    //     let blacks = octoliner.get_blacks().await.unwrap();
+    //     info!("count of black: {}", blacks);
+    //     // let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
+    //     // info!("calibration result: {:?}", calibration_result);
+    //     Timer::after(Duration::from_secs(1)).await;
+    //
+    //     led.set_low();
+    //     // octoliner.set_ir_leds(false).await.unwrap();
+    //     // let data = octoliner.analog_read_all().await.unwrap();
+    //     // info!("data: {:?}", data);
+    //     // let count = octoliner.count_of_black().await.unwrap();
+    //     // info!("count of black: {}", count);
+    //     // // let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
+    //     // // info!("calibration result: {:?}", calibration_result);
+    //     // Timer::after(Duration::from_secs(1)).await;
+    //
+    //     let sens = octoliner.get_sensitivity();
+    //     info!("sensitivity: {}", sens);
+    //
+    //     counter += 1;
+    //     info!("counter: {}", counter);
+    //     if counter % 5 == 0 {
+    //         info!("Calibrating");
+    //         octoliner.set_ir_leds(true);
+    //         let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
+    //         info!("calibration result: {:?}", calibration_result);
+    //     }
+    // }
+
     loop {
-        info!("led on!");
-        led.set_high();
-        octoliner.set_ir_leds(true).await.unwrap();
-        let data = octoliner.analog_read_all().await.unwrap();
-        info!("data: {:?}", data);
-        let count = octoliner.count_of_black().await.unwrap();
-        info!("count of black: {}", count);
-        // let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
-        // info!("calibration result: {:?}", calibration_result);
-        Timer::after(Duration::from_secs(1)).await;
-
-        info!("led off!");
-        led.set_low();
-        octoliner.set_ir_leds(false).await.unwrap();
-        let data = octoliner.analog_read_all().await.unwrap();
-        info!("data: {:?}", data);
-        let count = octoliner.count_of_black().await.unwrap();
-        info!("count of black: {}", count);
-        // let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
-        // info!("calibration result: {:?}", calibration_result);
-        Timer::after(Duration::from_secs(1)).await;
-
-        counter += 1;
-        info!("counter: {}", counter);
-        if counter % 5 == 0 {
-            info!("Calibrating");
-            octoliner.set_ir_leds(true);
-            let calibration_result = octoliner.calibrate_sensitivity().await.unwrap();
-            info!("calibration result: {:?}", calibration_result);
+        for i in 0..255 {
+            octoliner.set_sensitivity(i);
+            let data = octoliner.analog_read_all().await.unwrap();
+            info!("Sensitivity: {}", i);
+            info!("Data: {:?}", data);
+            Timer::after(Duration::from_millis(50)).await;
         }
     }
 }
