@@ -1,3 +1,5 @@
+use defmt::{dbg, debug};
+
 pub struct GpioExpander<I2C>
 where
     I2C: embedded_hal_async::i2c::I2c,
@@ -31,6 +33,9 @@ const GPIO_EXPANDER_ANALOG_READ: u8 = 0x0C;
 const GPIO_EXPANDER_PWM_FREQ: u8 = 0x0D;
 const GPIO_EXPANDER_ADC_SPEED: u8 = 0x0E;
 
+const ANALOG_READ_RESOLUTION: u8 = 10;
+const ANALOG_WRITE_RESOLUTION: u8 = 8;
+
 impl<I2C, E> GpioExpander<I2C>
 where
     I2C: embedded_hal_async::i2c::I2c<Error = E>,
@@ -55,9 +60,11 @@ where
 
     pub async fn digital_read_port(&mut self) -> Result<u16, E> {
         let mut buf = [0u8; 2];
-        self.device
-            .write_read(self.address, &[GPIO_EXPANDER_DIGITAL_READ], &mut buf)
-            .await?;
+        // self.device
+        //     .write_read(self.address, &[GPIO_EXPANDER_DIGITAL_READ], &mut buf)
+        //     .await?;
+        self.device.write(self.address, &[GPIO_EXPANDER_DIGITAL_READ]).await?;
+        self.device.read(self.address, &mut buf).await?;
         Ok(u16::from_le_bytes(buf))
     }
 
@@ -79,7 +86,7 @@ where
     }
 
     pub async fn digital_write(&mut self, pin: u8, value: bool) -> Result<(), E> {
-        let send_data = (0x0001u16 << pin).to_le_bytes();
+        let send_data = (0x0001u16 << pin).to_be_bytes();
         let reg = if value {
             GPIO_EXPANDER_DIGITAL_WRITE_HIGH
         } else {
@@ -117,20 +124,39 @@ where
     /// returns from 0 to 4095
     pub async fn analog_read(&mut self, pin: u8) -> Result<u16, E> {
         let mut read_data = [0u8; 2];
+        // self.device
+        //     .write_read(
+        //         self.address,
+        //         &[GPIO_EXPANDER_ANALOG_READ, pin, GPIO_EXPANDER_ANALOG_READ],
+        //         &mut read_data,
+        //     )
+        //     .await?;
         self.device
-            .write_read(
-                self.address,
-                &[GPIO_EXPANDER_ANALOG_READ, pin, GPIO_EXPANDER_ANALOG_READ],
-                &mut read_data,
-            )
+            .write(self.address, &[GPIO_EXPANDER_ANALOG_READ, pin])
             .await?;
-        Ok(u16::from_be_bytes(read_data))
+        // debug!("analog_read: ->{}", pin);
+        self.device.read(self.address, &mut read_data).await?;
+        let read_data = u16::from_be_bytes(read_data);
+        // debug!("analog_read: <-{} (before mapping)", read_data);
+
+        Ok(Self::map_resolution(read_data, 12, ANALOG_READ_RESOLUTION))
     }
 
+    // only accepts u8 because that's what is observed in practice for the Octoliner board and driver
     pub async fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), E> {
+        let data = [GPIO_EXPANDER_ANALOG_WRITE, pin, value, 0];
+        debug!("analog_write: {:?}", data);
         self.device
-            .write(self.address, &[GPIO_EXPANDER_ANALOG_WRITE, value, pin])
+            .write(self.address, &data)
             .await?;
         Ok(())
+    }
+
+    fn map_resolution(value: u16, from: u8, to: u8) -> u16 {
+        match from.cmp(&to) {
+            core::cmp::Ordering::Equal => value,
+            core::cmp::Ordering::Greater => value >> (from - to),
+            core::cmp::Ordering::Less => value << (to - from),
+        }
     }
 }
