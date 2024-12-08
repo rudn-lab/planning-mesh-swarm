@@ -1,0 +1,8 @@
+[package]
+name = "motion-hardware"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embedded-hal = "1.0.0"
+typebool = "0.1.0"

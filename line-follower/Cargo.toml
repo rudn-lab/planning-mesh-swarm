@@ -1,10 +1,7 @@
 [package]
-edition = "2021"
-name = "octoliner_test"
+name = "line-follower"
 version = "0.1.0"
-license = "MIT OR Apache-2.0"
-resolver = "2"
-
+edition = "2021"
 
 [dependencies]
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }
@@ -24,4 +21,6 @@ embassy-time = { git="https://github.com/embassy-rs/embassy", features = ["defmt
 embassy-rp = { git="https://github.com/embassy-rs/embassy", features = ["rp2040", "defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
 log = "0.4"
 portable-atomic = { version = "1.5.1", features = ["critical-section"] }
-octoliner-embassy-driver = { version = "0.1.0", path = "../octoliner-embassy-driver" }
+motion-hardware = { version = "0.1.0", path = "../motion-hardware" }
+typebool = "0.1.0"
+embedded-hal = "1.0.0"

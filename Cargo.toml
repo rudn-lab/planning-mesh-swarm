@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
+members = [ "line-follower", "motion-hardware",
     "octoliner-embassy-driver",
     "octoliner-test",
 ]
