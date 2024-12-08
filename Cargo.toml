@@ -2,7 +2,7 @@
 resolver = "2"
 members = [ "line-follower", "motion-hardware",
     "octoliner-embassy-driver",
-    "octoliner-test",
+    "octoliner-test", "playground",
 ]
 
 # cargo build/run

@@ -1,0 +1,11 @@
+[package]
+name = "playground"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.15.0"
+bevy_egui = { version = "0.31.1", default-features = false, features = ["render", "webbrowser"] }
+egui = "0.29.1"
+log = "0.4.22"
+wasm-logger = "0.2.0"
