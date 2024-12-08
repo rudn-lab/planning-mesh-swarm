@@ -1,22 +1,17 @@
-use bevy::{
-    prelude::*,
-    window::{PresentMode, PrimaryWindow},
-    winit::WinitSettings,
-};
-use bevy_egui::{EguiContexts, EguiPlugin};
+pub mod bg_grid;
 
-#[derive(Default, Resource)]
+use bevy::{input::common_conditions::input_toggle_active, prelude::*, winit::WinitSettings};
+use bevy_egui::{EguiContexts, EguiPlugin};
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_pancam::{PanCam, PanCamPlugin};
+
+#[derive(Default, Resource, Debug)]
 struct OccupiedScreenSpace {
     left: f32,
     top: f32,
     right: f32,
     bottom: f32,
 }
-
-const CAMERA_TARGET: Vec3 = Vec3::ZERO;
-
-#[derive(Resource, Deref, DerefMut)]
-struct OriginalCameraTransform(Transform);
 
 fn main() {
     App::new()
@@ -29,10 +24,14 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin)
+        .add_plugins(PanCamPlugin::default())
+        .add_plugins(
+            WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
+        )
         .init_resource::<OccupiedScreenSpace>()
         .add_systems(Startup, setup_system)
         .add_systems(Update, ui_example_system)
-        .add_systems(Update, update_camera_transform_system)
+        .add_systems(Update, bg_grid::update_grid)
         .run();
 }
 
@@ -68,6 +67,7 @@ fn ui_example_system(
         .resizable(true)
         .show(ctx, |ui| {
             ui.label("Right resizeable panel");
+            ui.label(format!("space: {occupied_screen_space:?}"));
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         })
         .response
@@ -96,59 +96,44 @@ fn ui_example_system(
 fn setup_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(5.0, 5.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.3, 0.5, 0.3))),
-    ));
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_xyz(0.0, 0.5, 0.0),
-    ));
-    commands.spawn((
-        PointLight {
-            intensity: 1500.0,
-            shadows_enabled: true,
-            ..Default::default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0),
-    ));
+    const X_EXTENT: f32 = 900.;
 
-    let camera_pos = Vec3::new(-2.0, 2.5, 5.0);
-    let camera_transform =
-        Transform::from_translation(camera_pos).looking_at(CAMERA_TARGET, Vec3::Y);
-    commands.insert_resource(OriginalCameraTransform(camera_transform));
+    //commands.spawn(Camera2d);
+    commands.spawn(PanCam::default());
 
-    commands.spawn((Camera3d::default(), camera_transform));
-}
+    let shapes = [
+        meshes.add(Circle::new(50.0)),
+        meshes.add(CircularSector::new(50.0, 1.0)),
+        meshes.add(CircularSegment::new(50.0, 1.25)),
+        meshes.add(Ellipse::new(25.0, 50.0)),
+        meshes.add(Annulus::new(25.0, 50.0)),
+        meshes.add(Capsule2d::new(25.0, 50.0)),
+        meshes.add(Rhombus::new(75.0, 100.0)),
+        meshes.add(Rectangle::new(50.0, 100.0)),
+        meshes.add(RegularPolygon::new(50.0, 6)),
+        meshes.add(Triangle2d::new(
+            Vec2::Y * 50.0,
+            Vec2::new(-50.0, -50.0),
+            Vec2::new(50.0, -50.0),
+        )),
+    ];
+    let num_shapes = shapes.len();
 
-fn update_camera_transform_system(
-    occupied_screen_space: Res<OccupiedScreenSpace>,
-    original_camera_transform: Res<OriginalCameraTransform>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut camera_query: Query<(&Projection, &mut Transform)>,
-) {
-    let (camera_projection, mut transform) = match camera_query.get_single_mut() {
-        Ok((Projection::Perspective(projection), transform)) => (projection, transform),
-        _ => unreachable!(),
-    };
+    for (i, shape) in shapes.into_iter().enumerate() {
+        // Distribute colors evenly across the rainbow.
+        let color = Color::hsl(360. * i as f32 / num_shapes as f32, 0.95, 0.7);
 
-    let distance_to_target = (CAMERA_TARGET - original_camera_transform.translation).length();
-    let frustum_height = 2.0 * distance_to_target * (camera_projection.fov * 0.5).tan();
-    let frustum_width = frustum_height * camera_projection.aspect_ratio;
-
-    let window = windows.single();
-
-    let left_taken = occupied_screen_space.left / window.width();
-    let right_taken = occupied_screen_space.right / window.width();
-    let top_taken = occupied_screen_space.top / window.height();
-    let bottom_taken = occupied_screen_space.bottom / window.height();
-    transform.translation = original_camera_transform.translation
-        + transform.rotation.mul_vec3(Vec3::new(
-            (right_taken - left_taken) * frustum_width * 0.5,
-            (top_taken - bottom_taken) * frustum_height * 0.5,
-            0.0,
+        commands.spawn((
+            Mesh2d(shape),
+            MeshMaterial2d(materials.add(color)),
+            Transform::from_xyz(
+                // Distribute shapes from -X_EXTENT/2 to +X_EXTENT/2.
+                -X_EXTENT / 2. + i as f32 / (num_shapes - 1) as f32 * X_EXTENT,
+                0.0,
+                0.0,
+            ),
         ));
+    }
 }
