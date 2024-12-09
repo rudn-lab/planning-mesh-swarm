@@ -44,7 +44,13 @@ fn main() {
         .init_resource::<OccupiedScreenSpace>()
         .add_systems(Startup, setup_system)
         .add_systems(Update, ui_example_system)
-        .add_plugins(Grid)
+        .add_plugins(Grid {
+            size: Vec2::new(1000f32, 1000f32),
+            num_cells: Vec2::new(1000f32, 1000f32),
+            line_thickness: 0.05f32,
+            line_color: Color::BLACK,
+            bg_color: Color::NONE,
+        })
         .run();
 }
 
@@ -111,6 +117,7 @@ fn setup_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    log::info!("Preparing shapes");
     const X_EXTENT: f32 = 900.;
 
     //commands.spawn(Camera2d);
