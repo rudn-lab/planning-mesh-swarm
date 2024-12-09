@@ -1,9 +1,14 @@
 pub mod bg_grid;
+pub mod bg_grid_mat;
 
-use bevy::{input::common_conditions::input_toggle_active, prelude::*, winit::WinitSettings};
+use bevy::{
+    asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*,
+    sprite::Material2dPlugin, winit::WinitSettings,
+};
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{PanCam, PanCamPlugin};
+use bg_grid::Grid;
 
 #[derive(Default, Resource, Debug)]
 struct OccupiedScreenSpace {
@@ -16,13 +21,21 @@ struct OccupiedScreenSpace {
 fn main() {
     App::new()
         .insert_resource(WinitSettings::desktop_app())
-        .add_plugins(DefaultPlugins.build().set(WindowPlugin {
-            primary_window: Some(Window {
-                fit_canvas_to_parent: true,
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .build()
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        fit_canvas_to_parent: true,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    meta_check: AssetMetaCheck::Never,
+                    ..default()
+                }),
+        )
         .add_plugins(EguiPlugin)
         .add_plugins(PanCamPlugin::default())
         .add_plugins(
@@ -31,7 +44,7 @@ fn main() {
         .init_resource::<OccupiedScreenSpace>()
         .add_systems(Startup, setup_system)
         .add_systems(Update, ui_example_system)
-        .add_systems(Update, bg_grid::update_grid)
+        .add_plugins(Grid)
         .run();
 }
 

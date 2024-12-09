@@ -1,76 +1,64 @@
 use std::collections::HashSet;
 
-use bevy::prelude::*;
+use bevy::{prelude::*, sprite::Material2dPlugin};
 
-#[derive(Component, Clone, Copy, Hash, PartialEq, Eq, Debug, Reflect)]
-pub struct GridPosition {
-    pub x: i32,
-    pub y: i32,
-}
+use crate::bg_grid_mat::{self, GridMaterial};
 
-#[derive(Bundle)]
-pub struct GridSquare {
-    pub transform: Transform,
-}
+#[derive(Component, Hash, PartialEq, Eq, Debug, Reflect)]
+pub struct GridMarker {}
 
-impl GridSquare {
-    pub fn new(x: f32, y: f32) -> Self {
-        Self {
-            transform: Transform::from_xyz(x, y, 0.0),
-        }
+pub struct Grid;
+
+impl Plugin for Grid {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(Material2dPlugin::<bg_grid_mat::GridMaterial>::default())
+            .add_systems(Startup, prepare_grid)
+            .add_systems(Update, update_grid);
     }
 }
 
-// Create new entities for the grid, delete any that are outside the camera bounds
+#[derive(Resource, Copy, Clone, Default)]
+pub struct GridMaterialId(AssetId<GridMaterial>);
+
+fn prepare_grid(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<GridMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    log::info!("Preparing grid");
+    let mat = materials.add(GridMaterial { ..default() });
+
+    commands.insert_resource(GridMaterialId(mat.id()));
+    commands
+        .spawn(GridMarker {})
+        .insert(Transform::default().with_scale(Vec3::splat(10.0)))
+        .insert(MeshMaterial2d(mat))
+        .insert(Mesh2d(meshes.add(Rectangle::new(100.0, 100.0))))
+        .insert(Name::new("GridQuad"));
+}
+
 pub fn update_grid(
     mut commands: Commands,
-    mut grid_squares: Query<(Entity, &mut Transform, &GridPosition)>,
-    camera_query: Query<(&Transform, &Camera, &OrthographicProjection), (Without<GridPosition>)>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut grid_query: Query<(&mut Transform, &mut MeshMaterial2d<GridMaterial>), With<GridMarker>>,
+    camera_query: Query<(&Transform, &Camera, &OrthographicProjection), (Without<GridMarker>)>,
+    mut materials: ResMut<Assets<GridMaterial>>,
+    mat_id: Res<GridMaterialId>,
 ) {
     let (camera_transform, camera, projection) = camera_query.single();
 
-    let x_top = camera_transform.translation.x + projection.area.min.x;
-    let x_bottom = camera_transform.translation.x + projection.area.max.x;
-    let y_top = camera_transform.translation.y + projection.area.min.y;
-    let y_bottom = camera_transform.translation.y + projection.area.max.y;
-
-    //log::info!("Bounds: {}, {}, {}, {}", x_top, x_bottom, y_top, y_bottom);
-
-    let grid_step = 100.0;
-
-    let grid_x_top = (x_top / grid_step).ceil() as i32;
-    let grid_x_bottom = (x_bottom / grid_step).floor() as i32;
-    let grid_y_top = (y_top / grid_step).ceil() as i32;
-    let grid_y_bottom = (y_bottom / grid_step).floor() as i32;
-
-    let mut grid_positions: Vec<GridPosition> = Vec::new();
-    for (entity, mut transform, grid_position) in grid_squares.iter_mut() {
-        if grid_position.x < grid_x_top
-            || grid_position.x > grid_x_bottom
-            || grid_position.y < grid_y_top
-            || grid_position.y > grid_y_bottom
-        {
-            commands.entity(entity).despawn();
-        }
-        grid_positions.push(*grid_position);
-    }
-
-    let grid_positions = HashSet::<GridPosition>::from_iter(grid_positions.into_iter());
-
-    for x in grid_x_top..=grid_x_bottom {
-        for y in grid_y_top..=grid_y_bottom {
-            if grid_positions.contains(&GridPosition { x, y }) {
-                continue;
-            }
-            commands
-                .spawn(GridSquare::new(x as f32 * grid_step, y as f32 * grid_step))
-                .insert(GridPosition { x, y })
-                .insert(Mesh2d(meshes.add(Rectangle::new(grid_step, grid_step))))
-                .insert(MeshMaterial2d(materials.add(
-                    Color::hsl(360. * x as f32 / 10.0, 1.0, 0.5).with_alpha(0.1),
-                )));
-        }
+    // Update the entity's transform to match the camera's XY
+    let (x, y) = (
+        camera_transform.translation.x,
+        camera_transform.translation.y,
+    );
+    let (mut grid, mut grid_material) = grid_query.single_mut();
+    grid.translation.x = x;
+    grid.translation.y = y;
+    if let Some(prev) = materials.get(mat_id.0) {
+        let mut mat = prev.clone();
+        mat.pan.x = (x / 2.0);
+        mat.pan.y = (-y / 2.0);
+        mat.size = Vec4::splat(projection.scale);
+        materials.insert(mat_id.0, mat);
     }
 }
