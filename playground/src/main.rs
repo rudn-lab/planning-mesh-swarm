@@ -1,22 +1,24 @@
 pub mod bg_grid;
 pub mod bg_grid_mat;
+pub mod ui;
+
+use core::f32;
 
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*,
-    sprite::Material2dPlugin, winit::WinitSettings,
+    winit::WinitSettings,
 };
-use bevy_egui::{EguiContexts, EguiPlugin};
+use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_pancam::{PanCam, PanCamPlugin};
+use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
 use bg_grid::Grid;
+use ui::Ui;
 
-#[derive(Default, Resource, Debug)]
-struct OccupiedScreenSpace {
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
-}
+/// The number of game units in 1 millimeter
+pub const MILLIMETER: f32 = 10.0;
+
+/// The number of game units in 1 centimeter
+pub const CENTIMETER: f32 = MILLIMETER * 10.0;
 
 fn main() {
     App::new()
@@ -37,79 +39,20 @@ fn main() {
                 }),
         )
         .add_plugins(EguiPlugin)
+        .add_plugins(Ui)
         .add_plugins(PanCamPlugin::default())
         .add_plugins(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
-        .init_resource::<OccupiedScreenSpace>()
         .add_systems(Startup, setup_system)
-        .add_systems(Update, ui_example_system)
         .add_plugins(Grid {
-            size: Vec2::new(1000f32, 1000f32),
-            num_cells: Vec2::new(1000f32, 1000f32),
+            mesh_size: Vec2::new(100f32 * CENTIMETER, 100f32 * CENTIMETER),
+            num_cells: Vec2::new(100f32, 100f32),
             line_thickness: 0.05f32,
             line_color: Color::BLACK,
             bg_color: Color::NONE,
         })
         .run();
-}
-
-fn ui_example_system(
-    mut is_last_selected: Local<bool>,
-    mut contexts: EguiContexts,
-    mut occupied_screen_space: ResMut<OccupiedScreenSpace>,
-) {
-    let ctx = contexts.ctx_mut();
-
-    occupied_screen_space.left = egui::SidePanel::left("left_panel")
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.label("Left resizeable panel");
-            if ui
-                .add(egui::widgets::Button::new("A button").selected(!*is_last_selected))
-                .clicked()
-            {
-                *is_last_selected = false;
-            }
-            if ui
-                .add(egui::widgets::Button::new("Another button").selected(*is_last_selected))
-                .clicked()
-            {
-                *is_last_selected = true;
-            }
-            ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
-        })
-        .response
-        .rect
-        .width();
-    occupied_screen_space.right = egui::SidePanel::right("right_panel")
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.label("Right resizeable panel");
-            ui.label(format!("space: {occupied_screen_space:?}"));
-            ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
-        })
-        .response
-        .rect
-        .width();
-    occupied_screen_space.top = egui::TopBottomPanel::top("top_panel")
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.label("Top resizeable panel");
-            ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
-        })
-        .response
-        .rect
-        .height();
-    occupied_screen_space.bottom = egui::TopBottomPanel::bottom("bottom_panel")
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.label("Bottom resizeable panel");
-            ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
-        })
-        .response
-        .rect
-        .height();
 }
 
 fn setup_system(
@@ -121,22 +64,31 @@ fn setup_system(
     const X_EXTENT: f32 = 900.;
 
     //commands.spawn(Camera2d);
-    commands.spawn(PanCam::default());
+    commands.spawn(PanCam {
+        grab_buttons: vec![MouseButton::Right, MouseButton::Middle, MouseButton::Left],
+        move_keys: DirectionKeys::arrows_and_wasd(),
+        speed: 200.0,
+        enabled: true,
+        zoom_to_cursor: true,
+        min_scale: 1.0,
+        max_scale: 10.0,
+        ..Default::default()
+    });
 
     let shapes = [
-        meshes.add(Circle::new(50.0)),
-        meshes.add(CircularSector::new(50.0, 1.0)),
-        meshes.add(CircularSegment::new(50.0, 1.25)),
-        meshes.add(Ellipse::new(25.0, 50.0)),
-        meshes.add(Annulus::new(25.0, 50.0)),
-        meshes.add(Capsule2d::new(25.0, 50.0)),
-        meshes.add(Rhombus::new(75.0, 100.0)),
-        meshes.add(Rectangle::new(50.0, 100.0)),
-        meshes.add(RegularPolygon::new(50.0, 6)),
+        meshes.add(Circle::new(5.0)),
+        meshes.add(CircularSector::new(5.0, 1.0)),
+        meshes.add(CircularSegment::new(5.0, 1.25)),
+        meshes.add(Ellipse::new(2.5, 5.0)),
+        meshes.add(Annulus::new(2.5, 5.0)),
+        meshes.add(Capsule2d::new(2.5, 5.0)),
+        meshes.add(Rhombus::new(7.5, 10.0)),
+        meshes.add(Rectangle::new(5.0, 10.0)),
+        meshes.add(RegularPolygon::new(5.0, 6)),
         meshes.add(Triangle2d::new(
-            Vec2::Y * 50.0,
-            Vec2::new(-50.0, -50.0),
-            Vec2::new(50.0, -50.0),
+            Vec2::Y * 5.0,
+            Vec2::new(-5.0, -5.0),
+            Vec2::new(5.0, -5.0),
         )),
     ];
     let num_shapes = shapes.len();
