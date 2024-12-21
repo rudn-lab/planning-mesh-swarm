@@ -2,6 +2,8 @@ pub mod bg_grid;
 pub mod bg_grid_mat;
 pub mod fps_monitor;
 pub mod robot;
+pub mod robot_motion_anim;
+pub mod robot_motion_types;
 pub mod ui;
 
 use core::f32;
@@ -13,6 +15,7 @@ use bevy::{
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
+use bevy_tweening::TweeningPlugin;
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
 use robot::{RobotBehaviorPlugin, RobotBundle};
@@ -48,6 +51,7 @@ fn main() {
                 }),
         )
         .add_plugins(EguiPlugin)
+        .add_plugins(TweeningPlugin)
         .insert_resource(WinitSettings::game())
         .add_plugins(Ui)
         .add_plugins(PanCamPlugin::default())
@@ -90,11 +94,7 @@ fn setup_system(
         ..Default::default()
     });
 
-    commands.spawn(RobotBundle::new(
-        Vec2::new(3.0, 2.0),
-        &mut meshes,
-        &mut materials,
-    ));
+    commands.spawn(RobotBundle::new(0, (3, 2), &mut meshes, &mut materials));
 
     let shapes = [
         meshes.add(Circle::new(5.0)),

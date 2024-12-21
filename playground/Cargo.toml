@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-channel = "2.3.1"
+async-std = "1.13.0"
 bevy = "0.15.0"
 bevy-inspector-egui = { version = "0.28.0", default-features = false, features = ["bevy_render"] }
 bevy_egui = { version = "0.31.1", default-features = false, features = ["render", "webbrowser"] }
 bevy_pancam = { version = "0.16.0", features = ["bevy_egui"] }
+bevy_tweening = "0.12.0"
 egui = "0.29.1"
 log = "0.4.22"
+motion-high-level = { version = "0.1.0", path = "../motion-high-level" }
 wasm-logger = "0.2.0"
