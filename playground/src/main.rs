@@ -1,17 +1,21 @@
 pub mod bg_grid;
 pub mod bg_grid_mat;
+pub mod fps_monitor;
+pub mod robot;
 pub mod ui;
 
 use core::f32;
 
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*,
-    winit::WinitSettings,
+    window::WindowResolution, winit::WinitSettings,
 };
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
 use bg_grid::Grid;
+use fps_monitor::FpsMonitorPlugin;
+use robot::{RobotBehaviorPlugin, RobotBundle};
 use ui::Ui;
 
 /// The number of game units in 1 millimeter
@@ -19,6 +23,9 @@ pub const MILLIMETER: f32 = 10.0;
 
 /// The number of game units in 1 centimeter
 pub const CENTIMETER: f32 = MILLIMETER * 10.0;
+
+// The width/height of a single grid cell, in game units
+pub const CELL_SIZE: f32 = CENTIMETER;
 
 fn main() {
     App::new()
@@ -29,6 +36,8 @@ fn main() {
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         fit_canvas_to_parent: true,
+                        resolution: WindowResolution::new(1280.0, 720.0)
+                            .with_scale_factor_override(1.0),
                         ..default()
                     }),
                     ..default()
@@ -39,19 +48,25 @@ fn main() {
                 }),
         )
         .add_plugins(EguiPlugin)
+        .insert_resource(WinitSettings::game())
         .add_plugins(Ui)
         .add_plugins(PanCamPlugin::default())
         .add_plugins(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
         .add_systems(Startup, setup_system)
-        .add_plugins(Grid {
-            mesh_size: Vec2::new(100f32 * CENTIMETER, 100f32 * CENTIMETER),
-            num_cells: Vec2::new(100f32, 100f32),
-            line_thickness: 0.05f32,
-            line_color: Color::BLACK,
-            bg_color: Color::NONE,
+        .add_plugins({
+            let grid_size = 100f32 * CENTIMETER;
+            Grid {
+                mesh_size: Vec2::new(grid_size, grid_size),
+                num_cells: Vec2::new(grid_size / CELL_SIZE, grid_size / CELL_SIZE),
+                line_thickness: 0.05f32,
+                line_color: Color::BLACK,
+                bg_color: Color::NONE,
+            }
         })
+        .add_plugins(RobotBehaviorPlugin)
+        .add_plugins(FpsMonitorPlugin)
         .run();
 }
 
@@ -74,6 +89,12 @@ fn setup_system(
         max_scale: 10.0,
         ..Default::default()
     });
+
+    commands.spawn(RobotBundle::new(
+        Vec2::new(3.0, 2.0),
+        &mut meshes,
+        &mut materials,
+    ));
 
     let shapes = [
         meshes.add(Circle::new(5.0)),
