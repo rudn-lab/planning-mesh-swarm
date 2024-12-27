@@ -2,8 +2,6 @@ pub mod bg_grid;
 pub mod bg_grid_mat;
 pub mod fps_monitor;
 pub mod robot;
-pub mod robot_motion_anim;
-pub mod robot_motion_types;
 pub mod ui;
 
 use core::f32;
@@ -94,7 +92,23 @@ fn setup_system(
         ..Default::default()
     });
 
-    commands.spawn(RobotBundle::new(0, (3, 2), &mut meshes, &mut materials));
+    commands.spawn(RobotBundle::new(
+        0,
+        (3, 2),
+        &mut meshes,
+        &mut materials,
+        1.0,
+        0.5,
+    ));
+
+    commands.spawn(RobotBundle::new(
+        1,
+        (-3, 2),
+        &mut meshes,
+        &mut materials,
+        0.5,
+        1.0,
+    ));
 
     let shapes = [
         meshes.add(Circle::new(5.0)),

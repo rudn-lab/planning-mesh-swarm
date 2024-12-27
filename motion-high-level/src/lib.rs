@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod chassis;
+
 use core::num::NonZeroU8;
 
 /// Enum represents what high-level motion command to execute

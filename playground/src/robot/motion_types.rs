@@ -1,5 +1,8 @@
-use bevy::prelude::*;
+use async_channel::{Receiver, Sender};
+use bevy::{prelude::*, tasks::Task};
 use motion_high_level::MotionCommand;
+
+use crate::CELL_SIZE;
 
 #[derive(Copy, Clone, Debug)]
 pub enum RobotOrientation {
@@ -80,4 +83,61 @@ pub struct IdleRobot;
 #[derive(Component)]
 pub struct BusyRobot {
     pub command: MotionCommand,
+}
+
+#[derive(Component)]
+pub struct RobotState {
+    pub id: u64,
+    pub grid_pos: (i32, i32),
+    pub orientation: RobotOrientation,
+
+    pub from_chassis: Receiver<MotionCommand>,
+    pub into_chassis: Sender<()>,
+    pub task: Task<()>,
+
+    /// Number of seconds per single tile
+    pub drive_rate: f32,
+
+    /// Number of seconds per quarter turn
+    pub turn_rate: f32,
+}
+
+impl RobotState {
+    pub fn get_translation(&self) -> Vec3 {
+        Vec3::new(
+            self.grid_pos.0 as f32 * CELL_SIZE,
+            self.grid_pos.1 as f32 * CELL_SIZE,
+            0.0,
+        )
+    }
+
+    pub fn get_rotation(&self) -> Quat {
+        match self.orientation {
+            RobotOrientation::Up => Quat::IDENTITY,
+            RobotOrientation::Down => Quat::from_rotation_z(std::f32::consts::PI),
+            RobotOrientation::Left => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+            RobotOrientation::Right => Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2),
+        }
+    }
+
+    pub fn update(&mut self, command: MotionCommand) {
+        match command {
+            MotionCommand::Forward(n) => {
+                let n = n.get() as i32;
+                self.grid_pos.0 += self.orientation.to_numeric_vector(n).0;
+                self.grid_pos.1 += self.orientation.to_numeric_vector(n).1;
+            }
+            MotionCommand::Backward(n) => {
+                let n = n.get() as i32;
+                self.grid_pos.0 -= self.orientation.to_numeric_vector(n).0;
+                self.grid_pos.1 -= self.orientation.to_numeric_vector(n).1;
+            }
+            MotionCommand::TurnLeft(n) => {
+                self.orientation = self.orientation.plus_quarter_turns(-(n.get() as i32));
+            }
+            MotionCommand::TurnRight(n) => {
+                self.orientation = self.orientation.plus_quarter_turns(n.get() as i32);
+            }
+        }
+    }
 }

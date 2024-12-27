@@ -1,19 +1,16 @@
-use std::{num::NonZero, time::Duration};
+use bevy::{prelude::*, tasks::IoTaskPool};
+use bevy_tweening::{Animator, TweenCompleted};
+use motion_anim::get_tween;
+use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotState};
+use virtual_chassis::VirtualChassis;
 
-use async_channel::{Receiver, Sender};
-use bevy::{
-    prelude::*,
-    tasks::{IoTaskPool, Task},
-    utils::HashMap,
-};
-use bevy_tweening::{lens::TransformPositionLens, Animator, AnimatorState, Tween, TweenCompleted};
-use motion_high_level::MotionCommand;
+use crate::CELL_SIZE;
 
-use crate::{
-    robot_motion_anim::get_tween,
-    robot_motion_types::{BusyRobot, IdleRobot, RobotOrientation},
-    CELL_SIZE, CENTIMETER,
-};
+mod async_queue_wrapper;
+mod business_logic;
+mod motion_anim;
+mod motion_types;
+pub mod virtual_chassis;
 
 #[derive(Bundle)]
 pub struct RobotBundle {
@@ -33,7 +30,19 @@ impl RobotBundle {
         grid_pos: (i32, i32),
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<ColorMaterial>,
+        drive_rate: f32,
+        turn_rate: f32,
     ) -> Self {
+        let (from_robot_sender, from_robot_receiver) = async_channel::unbounded();
+        let (to_robot_sender, to_robot_receiver) = async_channel::unbounded();
+
+        let chassis = VirtualChassis {
+            tx: from_robot_sender,
+            rx: to_robot_receiver,
+        };
+
+        let my_logic = IoTaskPool::get().spawn(business_logic::simple_business_logic(chassis));
+
         Self {
             name: Name::new(format!("Robot {}", id)),
             location: Transform::from_translation(
@@ -41,161 +50,47 @@ impl RobotBundle {
             ),
             mesh: Mesh2d(meshes.add(Triangle2d::new(
                 Vec2::Y * ROBOT_WIDTH / 2.0,
-                Vec2::new(-ROBOT_WIDTH / 2.0, -ROBOT_WIDTH / 2.0),
-                Vec2::new(ROBOT_WIDTH / 2.0, -ROBOT_WIDTH / 2.0),
+                Vec2::new(-ROBOT_WIDTH / 4.0, -ROBOT_WIDTH / 2.0),
+                Vec2::new(ROBOT_WIDTH / 4.0, -ROBOT_WIDTH / 2.0),
             ))),
             material: MeshMaterial2d(materials.add(ColorMaterial::from(Color::hsl(0.0, 1.0, 1.0)))),
             robot_state: RobotState {
                 id,
                 grid_pos,
                 orientation: RobotOrientation::Up,
+
+                from_chassis: from_robot_receiver,
+                into_chassis: to_robot_sender,
+                task: my_logic,
+
+                drive_rate,
+                turn_rate,
             },
             idle_robot: IdleRobot,
         }
     }
 }
 
-#[derive(Component)]
-pub struct RobotState {
-    pub id: u64,
-    pub grid_pos: (i32, i32),
-    pub orientation: RobotOrientation,
-}
-
-impl RobotState {
-    pub fn get_translation(&self) -> Vec3 {
-        Vec3::new(
-            self.grid_pos.0 as f32 * CELL_SIZE,
-            self.grid_pos.1 as f32 * CELL_SIZE,
-            0.0,
-        )
-    }
-
-    pub fn get_rotation(&self) -> Quat {
-        match self.orientation {
-            RobotOrientation::Up => Quat::IDENTITY,
-            RobotOrientation::Down => Quat::from_rotation_z(std::f32::consts::PI),
-            RobotOrientation::Left => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
-            RobotOrientation::Right => Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2),
-        }
-    }
-
-    pub fn update(&mut self, command: MotionCommand) {
-        match command {
-            MotionCommand::Forward(n) => {
-                let n = n.get() as i32;
-                self.grid_pos.0 += self.orientation.to_numeric_vector(n).0;
-                self.grid_pos.1 += self.orientation.to_numeric_vector(n).1;
-            }
-            MotionCommand::Backward(n) => {
-                let n = n.get() as i32;
-                self.grid_pos.0 += self.orientation.to_numeric_vector(n).0;
-                self.grid_pos.1 += self.orientation.to_numeric_vector(n).1;
-            }
-            MotionCommand::TurnLeft(n) => {
-                self.orientation = self.orientation.plus_quarter_turns(-(n.get() as i32));
-            }
-            MotionCommand::TurnRight(n) => {
-                self.orientation = self.orientation.plus_quarter_turns(n.get() as i32);
-            }
-        }
-    }
-}
-
-#[derive(Resource)]
-pub struct RobotTaskHandle {
-    pub receiver: Receiver<WithRobotId<MotionCommand>>,
-    pub sender: Sender<WithRobotId<()>>,
-    pub handle: Task<()>,
-}
-
-#[derive(Debug)]
-pub struct WithRobotId<T> {
-    pub robot_id: u64,
-    pub value: T,
-}
-
-fn setup_system(mut commands: Commands) {
-    let (send_tx, send_rx) = async_channel::unbounded();
-    let (recv_tx, recv_rx) = async_channel::unbounded();
-    let handle = IoTaskPool::get().spawn(robot_async_reactor(send_rx, recv_tx));
-
-    commands.insert_resource(RobotTaskHandle {
-        receiver: recv_rx,
-        sender: send_tx,
-        handle,
-    });
-}
-
-async fn robot_async_reactor(
-    mut from_environment: Receiver<WithRobotId<()>>,
-    mut into_environment: Sender<WithRobotId<MotionCommand>>,
-) {
-    // TODO: just one robot doing a simple loop for now
-    let robot_id = 0;
-    loop {
-        use MotionCommand as M;
-        let cmds = [
-            M::Forward(NonZero::new(1).unwrap()),
-            M::TurnRight(NonZero::new(1).unwrap()),
-        ];
-
-        for cmd in cmds {
-            into_environment
-                .send(WithRobotId {
-                    robot_id,
-                    value: cmd,
-                })
-                .await
-                .unwrap();
-            from_environment.recv().await.unwrap();
-
-            // This delay is necessary so that the new command does not arrive during the same frame
-            // as the previous command.
-            // If this happens, then there is a race condition:
-            // first, update_busy_robots will wake the robot up
-            // and add a command to delete BusyRobot and add IdleRobot to the entity.
-            // Then, on the same frame (before the command is processed),
-            // update_idle_robots will run, receive the event referencing robot 1234,
-            // and try to find robot 1234 from the query,
-            // but the query only includes robots with IdleRobot, while robot 1234 (still) has BusyRobot,
-            // so it will not find robot 1234 and crash.
-            async_std::task::sleep(Duration::from_secs(1)).await;
-        }
-    }
-}
+fn setup_system(mut commands: Commands) {}
 
 fn update_idle_robots(
     mut robot_query: Query<(Entity, &mut RobotState), With<IdleRobot>>,
-    handle: ResMut<RobotTaskHandle>,
     mut commands: Commands,
 ) {
-    if handle.handle.is_finished() {
-        panic!("Robot task finished, but was supposed to run forever");
-    }
-    loop {
-        let new_event = match handle.receiver.try_recv() {
-            Ok(event) => event,
-            Err(async_channel::TryRecvError::Empty) => return,
-            Err(async_channel::TryRecvError::Closed) => {
-                panic!("Robot task closed the channel, but was supposed to run forever");
-            }
-        };
+    // For every robot that is idle, check whether they have sent us any commands
+    // If they have, move them to the busy state
+    // and start the animation
+    for (entity, robot_state) in robot_query.iter_mut() {
+        if let Ok(message) = robot_state.from_chassis.try_recv() {
+            println!("Received message: {message:?}");
+            commands.entity(entity).remove::<IdleRobot>();
+            commands
+                .entity(entity)
+                .insert(BusyRobot { command: message });
 
-        println!("Got command from robot: {:#?}", new_event);
-
-        let (entity, robot_state) = robot_query
-            .iter_mut()
-            .find(|(_, s)| s.id == new_event.robot_id)
-            .unwrap();
-
-        commands.entity(entity).remove::<IdleRobot>();
-        commands.entity(entity).insert(BusyRobot {
-            command: new_event.value,
-        });
-
-        let tween = get_tween(new_event.value, &robot_state).with_completed_event(robot_state.id);
-        commands.entity(entity).insert(Animator::new(tween));
+            let tween = get_tween(message, &robot_state).with_completed_event(robot_state.id);
+            commands.entity(entity).insert(Animator::new(tween));
+        }
     }
 }
 
@@ -207,14 +102,9 @@ fn update_busy_robots(
         &BusyRobot,
         &Animator<Transform>,
     )>,
-    handle: ResMut<RobotTaskHandle>,
     mut commands: Commands,
     mut event_reader: EventReader<TweenCompleted>,
 ) {
-    if handle.handle.is_finished() {
-        panic!("Robot task finished, but was supposed to run forever");
-    }
-
     let mut robot_ids_to_update = vec![];
 
     for event in event_reader.read() {
@@ -225,7 +115,7 @@ fn update_busy_robots(
         return;
     }
 
-    for (entity, mut transform, mut robot_state, busy_robot, animator) in robot_query.iter_mut() {
+    for (entity, mut transform, mut robot_state, busy_robot, _animator) in robot_query.iter_mut() {
         if robot_ids_to_update.contains(&robot_state.id) {
             // The animation has completed, so the robot is now in its new position
             // Finalize the animation by moving the robot to its final position
@@ -239,18 +129,9 @@ fn update_busy_robots(
             commands.entity(entity).remove::<BusyRobot>();
             commands.entity(entity).insert(IdleRobot);
 
-            println!(
-                "Finished executing robot command: {:#?}",
-                busy_robot.command
-            );
+            println!("Finished executing robot command: {:?}", busy_robot.command);
 
-            handle
-                .sender
-                .try_send(WithRobotId {
-                    robot_id: robot_state.id,
-                    value: (),
-                })
-                .unwrap();
+            robot_state.into_chassis.try_send(()).unwrap();
         }
     }
 }
