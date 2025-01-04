@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 use egui::Color32;
 
-use super::{motion_types::RobotState, onclick_handling::SelectedRobotMarker};
+use super::{
+    motion_types::RobotState,
+    onclick_handling::{SelectedRobotMarker, SelectionChanged},
+};
 
 pub struct InternalStatePlugin;
 
@@ -17,20 +20,20 @@ fn visualize_internal_state(
     selected_robot: Query<(Entity, &mut RobotState), With<SelectedRobotMarker>>,
     mut should_be_open: Local<bool>,
     mut did_initialize: Local<bool>,
+    mut writer: EventWriter<SelectionChanged>,
 ) {
+    // By default, the Local variables are set to false.
+    // However, the egui window is open iff the variable is true; egui will set it to false to signal a closure.
+    // So, we first initialize it to true.
     if !*did_initialize {
         *did_initialize = true;
         *should_be_open = true;
     }
 
-    if !*should_be_open {
-        
-    }
-
     for (entity, robot_state) in selected_robot.iter().take(1) {
         let ctx = ctxs.ctx_mut();
 
-        egui::Window::new("Robot State")
+        let window = egui::Window::new("Robot State")
             .open(&mut should_be_open)
             .show(ctx, |ui| {
                 ui.columns(2, |col| {
@@ -62,5 +65,18 @@ fn visualize_internal_state(
                         }
                     });
             });
+
+        if let Some(window) = window {
+            println!("Window hover: {:?}", window.response.hover_pos());
+        }
+
+        // After egui runs, if should_be_open gets updated to false, then we need to emit the deselect event.
+        // We also reset the did_initialize variable:
+        // on the next frame, we will reset to the initial state, but there will be no entity selected.
+        // As a result, we will be ready for the next selection.
+        if !*should_be_open {
+            writer.send(SelectionChanged::DeselectedRobot(entity));
+            *did_initialize = false;
+        }
     }
 }

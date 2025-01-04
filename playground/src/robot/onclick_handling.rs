@@ -11,60 +11,83 @@ pub struct SelectedRobot {
 #[derive(Component)]
 pub struct SelectedRobotMarker;
 
-pub fn on_click_select(
+#[derive(Event)]
+pub enum SelectionChanged {
+    /// The robot with the given ID is now selected.
+    SelectedRobot(Entity),
+
+    /// No robots are selected now. The provided robot has just been deselected.
+    DeselectedRobot(Entity),
+}
+
+/// This system runs whenever a robot is clicked.
+pub fn on_click_robot(
     click: Trigger<Pointer<Click>>,
+    selected_robot_query: Query<Entity, With<SelectedRobotMarker>>,
+    mut writer: EventWriter<SelectionChanged>,
+) {
+    // If there was no robot selected, then select me
+    if selected_robot_query.is_empty() {
+        writer.send(SelectionChanged::SelectedRobot(click.entity()));
+    } else {
+        let old_selected_robot = selected_robot_query.single();
+        // If the robot that was just clicked is me, then deselect me
+        if old_selected_robot == click.entity() {
+            writer.send(SelectionChanged::DeselectedRobot(click.entity()));
+        } else {
+            // Otherwise, select me instead
+            writer.send(SelectionChanged::SelectedRobot(click.entity()));
+        }
+    }
+}
+
+/// This system updates the SelectedRobot resource, the selection reticle, and the marker components.
+pub fn on_selection_event(
+    mut reader: EventReader<SelectionChanged>,
+    mut commands: Commands,
     mut selected_robot: ResMut<SelectedRobot>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut commands: Commands,
 ) {
-    println!("click on entity {}", click.entity());
-    // If none selected, select me
-    // If already selected another, select me instead
-    // If already selected me, deselect
+    for event in reader.read() {
+        match event {
+            SelectionChanged::SelectedRobot(entity) => {
+                // The old robot, if any, needs to be unselected
+                if let Some(old_selected_robot) = selected_robot.robot {
+                    commands
+                        .entity(old_selected_robot)
+                        .remove::<SelectedRobotMarker>();
+                }
 
-    if selected_robot.robot.is_none() {
-        // Give me the selection component
-        commands.entity(click.entity()).insert(SelectedRobotMarker);
-        selected_robot.robot = Some(click.entity());
-    } else if selected_robot.robot != Some(click.entity()) {
-        // Remove the selection component from me, and give it to the new one
-        commands
-            .entity(selected_robot.robot.unwrap())
-            .remove::<SelectedRobotMarker>();
-        commands.entity(click.entity()).insert(SelectedRobotMarker);
-        selected_robot.robot = Some(click.entity());
-    } else {
-        // When deselecting me, remove the selection component from me.
-        commands
-            .entity(selected_robot.robot.unwrap())
-            .remove::<SelectedRobotMarker>();
-        selected_robot.robot = None;
-    }
-
-    // If the robot is selected, show the selection reticle parented to the robot
-    // If the robot is not selected, hide the selection reticle
-    if let Some(robot) = selected_robot.robot {
-        if let Some(selection_reticle) = selected_robot.selection_reticle {
-            // Parent the selection reticle to the robot
-            println!("Reparenting");
-            commands.entity(selection_reticle).set_parent(robot);
-        } else {
-            // Create the selection reticle, and parent it
-            let selection_reticle = commands
-                .spawn(ReticleBundle::new(asset_server, &mut materials))
-                .insert(Name::new("Selection Reticle"))
-                .set_parent(robot)
-                .id();
-            println!("Creating {selection_reticle:?}");
-            selected_robot.selection_reticle = Some(selection_reticle);
+                // The new robot is now selected
+                commands.entity(*entity).insert(SelectedRobotMarker);
+                selected_robot.robot = Some(*entity);
+            }
+            SelectionChanged::DeselectedRobot(entity) => {
+                commands.entity(*entity).remove::<SelectedRobotMarker>();
+                selected_robot.robot = None;
+            }
         }
-    } else {
-        // No robot is selected, hide the selection reticle
-        if let Some(selection_reticle) = selected_robot.selection_reticle {
-            println!("Despawning");
-            commands.entity(selection_reticle).remove_parent().despawn();
-            selected_robot.selection_reticle = None;
+
+        // If there is a selected robot now, then make it so that the selection reticle is parented to it.
+        if let Some(robot) = selected_robot.robot {
+            if let Some(selection_reticle) = selected_robot.selection_reticle {
+                // Parent the selection reticle to the current selection
+                commands.entity(selection_reticle).set_parent(robot);
+            } else {
+                // Create the selection reticle, and parent it
+                let selection_reticle = commands
+                    .spawn(ReticleBundle::new(&asset_server, &mut materials))
+                    .id();
+                commands.entity(robot).add_child(selection_reticle);
+                selected_robot.selection_reticle = Some(selection_reticle);
+            }
+        } else {
+            // No robot is selected, hide the selection reticle
+            if let Some(selection_reticle) = selected_robot.selection_reticle {
+                commands.entity(selection_reticle).despawn_recursive();
+                selected_robot.selection_reticle = None;
+            }
         }
     }
 }

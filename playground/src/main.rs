@@ -18,7 +18,7 @@ use bevy_tweening::TweeningPlugin;
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
 use pause_controller::PausePlugin;
-use robot::{onclick_handling::on_click_select, RobotBehaviorPlugin, RobotBundle};
+use robot::{onclick_handling::on_click_robot, RobotBehaviorPlugin, RobotBundle};
 use ui::Ui;
 
 /// The number of game units in 1 millimeter
@@ -106,7 +106,7 @@ fn setup_system(
             1.0,
             0.5,
         ))
-        .observe(on_click_select);
+        .observe(on_click_robot);
 
     commands
         .spawn(RobotBundle::new(
@@ -117,7 +117,7 @@ fn setup_system(
             0.5,
             1.0,
         ))
-        .observe(on_click_select);
+        .observe(on_click_robot);
 
     let shapes = [
         meshes.add(Circle::new(5.0)),

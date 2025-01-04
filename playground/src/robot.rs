@@ -3,7 +3,7 @@ use bevy_tweening::{Animator, TweenCompleted};
 use internal_state_vis::InternalStatePlugin;
 use motion_anim::get_tween;
 use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotState};
-use onclick_handling::SelectedRobot;
+use onclick_handling::{on_selection_event, SelectedRobot, SelectionChanged};
 use virtual_chassis::VirtualChassis;
 
 use crate::{pause_controller::PauseState, CELL_SIZE};
@@ -77,8 +77,6 @@ impl RobotBundle {
         }
     }
 }
-
-fn setup_system(mut commands: Commands) {}
 
 fn update_idle_robots(
     mut robot_query: Query<(Entity, &mut RobotState), With<IdleRobot>>,
@@ -169,10 +167,11 @@ pub struct RobotBehaviorPlugin;
 
 impl Plugin for RobotBehaviorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_system);
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
+        app.add_systems(FixedUpdate, on_selection_event);
         app.add_plugins(InternalStatePlugin);
         app.init_resource::<SelectedRobot>();
+        app.add_event::<SelectionChanged>();
     }
 }

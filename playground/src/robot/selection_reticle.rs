@@ -14,7 +14,7 @@ pub struct ReticleBundle {
 }
 
 impl ReticleBundle {
-    pub fn new(asset_server: Res<AssetServer>, materials: &mut Assets<ColorMaterial>) -> Self {
+    pub fn new(asset_server: &Res<AssetServer>, materials: &mut Assets<ColorMaterial>) -> Self {
         let handle = asset_server.load(
             GltfAssetLabel::Primitive {
                 mesh: 0,
