@@ -4,6 +4,8 @@ use motion_high_level::MotionCommand;
 
 use crate::CELL_SIZE;
 
+use super::virtual_chassis::VirtualChassisCommand;
+
 #[derive(Copy, Clone, Debug)]
 pub enum RobotOrientation {
     Up,
@@ -85,13 +87,13 @@ pub struct BusyRobot {
     pub command: MotionCommand,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct RobotState {
     pub id: u64,
     pub grid_pos: (i32, i32),
     pub orientation: RobotOrientation,
 
-    pub from_chassis: Receiver<MotionCommand>,
+    pub from_chassis: Receiver<VirtualChassisCommand>,
     pub into_chassis: Sender<()>,
     pub task: Task<()>,
 
@@ -100,6 +102,9 @@ pub struct RobotState {
 
     /// Number of seconds per quarter turn
     pub turn_rate: f32,
+
+    /// Log messages
+    pub log: Vec<String>,
 }
 
 impl RobotState {

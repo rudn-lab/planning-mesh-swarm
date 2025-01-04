@@ -8,6 +8,9 @@ pub struct SelectedRobot {
     pub selection_reticle: Option<Entity>,
 }
 
+#[derive(Component)]
+pub struct SelectedRobotMarker;
+
 pub fn on_click_select(
     click: Trigger<Pointer<Click>>,
     mut selected_robot: ResMut<SelectedRobot>,
@@ -21,10 +24,21 @@ pub fn on_click_select(
     // If already selected me, deselect
 
     if selected_robot.robot.is_none() {
+        // Give me the selection component
+        commands.entity(click.entity()).insert(SelectedRobotMarker);
         selected_robot.robot = Some(click.entity());
     } else if selected_robot.robot != Some(click.entity()) {
+        // Remove the selection component from me, and give it to the new one
+        commands
+            .entity(selected_robot.robot.unwrap())
+            .remove::<SelectedRobotMarker>();
+        commands.entity(click.entity()).insert(SelectedRobotMarker);
         selected_robot.robot = Some(click.entity());
     } else {
+        // When deselecting me, remove the selection component from me.
+        commands
+            .entity(selected_robot.robot.unwrap())
+            .remove::<SelectedRobotMarker>();
         selected_robot.robot = None;
     }
 

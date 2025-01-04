@@ -1,5 +1,6 @@
 use bevy::{prelude::*, tasks::IoTaskPool};
 use bevy_tweening::{Animator, TweenCompleted};
+use internal_state_vis::InternalStatePlugin;
 use motion_anim::get_tween;
 use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotState};
 use onclick_handling::SelectedRobot;
@@ -9,6 +10,7 @@ use crate::{pause_controller::PauseState, CELL_SIZE};
 
 mod async_queue_wrapper;
 mod business_logic;
+mod internal_state_vis;
 pub mod motion_anim;
 pub mod motion_types;
 pub mod onclick_handling;
@@ -68,6 +70,8 @@ impl RobotBundle {
 
                 drive_rate,
                 turn_rate,
+
+                log: vec![],
             },
             idle_robot: IdleRobot,
         }
@@ -83,24 +87,38 @@ fn update_idle_robots(
 ) {
     // If we are paused, do nothing
     // This will keep the robots from beginning to move,
-    // but not from thinking.
+    // but not from thinking;
+    // however, if any command is sent (including logging),
+    // then the robot will be blocked until it's unpaused.
     if pause_state.paused {
         return;
     }
 
     // For every robot that is idle, check whether they have sent us any commands
-    // If they have, move them to the busy state
+    // If they have sent motion commands, move them to the busy state
     // and start the animation
-    for (entity, robot_state) in robot_query.iter_mut() {
+    for (entity, mut robot_state) in robot_query.iter_mut() {
         if let Ok(message) = robot_state.from_chassis.try_recv() {
-            // println!("Received message: {message:?}");
-            commands.entity(entity).remove::<IdleRobot>();
-            commands
-                .entity(entity)
-                .insert(BusyRobot { command: message });
+            match message {
+                virtual_chassis::VirtualChassisCommand::Motion(motion_command) => {
+                    commands.entity(entity).remove::<IdleRobot>();
+                    commands.entity(entity).insert(BusyRobot {
+                        command: motion_command,
+                    });
 
-            let tween = get_tween(message, &robot_state).with_completed_event(robot_state.id);
-            commands.entity(entity).insert(Animator::new(tween));
+                    let tween = get_tween(motion_command, &robot_state)
+                        .with_completed_event(robot_state.id);
+                    commands.entity(entity).insert(Animator::new(tween));
+                }
+                virtual_chassis::VirtualChassisCommand::Log(message) => {
+                    // Add the log entry to the robot state's log
+                    robot_state.log.push(message);
+
+                    // Immediately acknowledge the message
+                    // (the acknowledgement could only be delayed if we had been paused when the message was sent)
+                    robot_state.into_chassis.try_send(()).unwrap();
+                }
+            }
         }
     }
 }
@@ -154,6 +172,7 @@ impl Plugin for RobotBehaviorPlugin {
         app.add_systems(Startup, setup_system);
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
+        app.add_plugins(InternalStatePlugin);
         app.init_resource::<SelectedRobot>();
     }
 }
