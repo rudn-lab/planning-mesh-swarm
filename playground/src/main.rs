@@ -16,7 +16,7 @@ use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
 use bevy_tweening::TweeningPlugin;
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
-use robot::{RobotBehaviorPlugin, RobotBundle};
+use robot::{onclick_handling::on_click_select, RobotBehaviorPlugin, RobotBundle};
 use ui::Ui;
 
 /// The number of game units in 1 millimeter
@@ -50,6 +50,8 @@ fn main() {
         )
         .add_plugins(EguiPlugin)
         .add_plugins(TweeningPlugin)
+        .add_plugins(MeshPickingPlugin)
+        .add_plugins(bevy_stl::StlPlugin)
         .insert_resource(WinitSettings::game())
         .add_plugins(Ui)
         .add_plugins(PanCamPlugin::default())
@@ -92,23 +94,27 @@ fn setup_system(
         ..Default::default()
     });
 
-    commands.spawn(RobotBundle::new(
-        0,
-        (3, 2),
-        &mut meshes,
-        &mut materials,
-        1.0,
-        0.5,
-    ));
+    commands
+        .spawn(RobotBundle::new(
+            0,
+            (3, 2),
+            &mut meshes,
+            &mut materials,
+            1.0,
+            0.5,
+        ))
+        .observe(on_click_select);
 
-    commands.spawn(RobotBundle::new(
-        1,
-        (-3, 2),
-        &mut meshes,
-        &mut materials,
-        0.5,
-        1.0,
-    ));
+    commands
+        .spawn(RobotBundle::new(
+            1,
+            (-3, 2),
+            &mut meshes,
+            &mut materials,
+            0.5,
+            1.0,
+        ))
+        .observe(on_click_select);
 
     let shapes = [
         meshes.add(Circle::new(5.0)),

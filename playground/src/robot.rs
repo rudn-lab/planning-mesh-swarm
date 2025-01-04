@@ -2,6 +2,7 @@ use bevy::{prelude::*, tasks::IoTaskPool};
 use bevy_tweening::{Animator, TweenCompleted};
 use motion_anim::get_tween;
 use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotState};
+use onclick_handling::SelectedRobot;
 use virtual_chassis::VirtualChassis;
 
 use crate::CELL_SIZE;
@@ -10,6 +11,8 @@ mod async_queue_wrapper;
 mod business_logic;
 mod motion_anim;
 mod motion_types;
+pub mod onclick_handling;
+mod selection_reticle;
 pub mod virtual_chassis;
 
 #[derive(Bundle)]
@@ -82,7 +85,7 @@ fn update_idle_robots(
     // and start the animation
     for (entity, robot_state) in robot_query.iter_mut() {
         if let Ok(message) = robot_state.from_chassis.try_recv() {
-            println!("Received message: {message:?}");
+            // println!("Received message: {message:?}");
             commands.entity(entity).remove::<IdleRobot>();
             commands
                 .entity(entity)
@@ -129,7 +132,7 @@ fn update_busy_robots(
             commands.entity(entity).remove::<BusyRobot>();
             commands.entity(entity).insert(IdleRobot);
 
-            println!("Finished executing robot command: {:?}", busy_robot.command);
+            // println!("Finished executing robot command: {:?}", busy_robot.command);
 
             robot_state.into_chassis.try_send(()).unwrap();
         }
@@ -143,5 +146,6 @@ impl Plugin for RobotBehaviorPlugin {
         app.add_systems(Startup, setup_system);
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
+        app.init_resource::<SelectedRobot>();
     }
 }
