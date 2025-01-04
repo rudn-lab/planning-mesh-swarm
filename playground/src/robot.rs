@@ -5,12 +5,12 @@ use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotState};
 use onclick_handling::SelectedRobot;
 use virtual_chassis::VirtualChassis;
 
-use crate::CELL_SIZE;
+use crate::{pause_controller::PauseState, CELL_SIZE};
 
 mod async_queue_wrapper;
 mod business_logic;
-mod motion_anim;
-mod motion_types;
+pub mod motion_anim;
+pub mod motion_types;
 pub mod onclick_handling;
 mod selection_reticle;
 pub mod virtual_chassis;
@@ -79,7 +79,15 @@ fn setup_system(mut commands: Commands) {}
 fn update_idle_robots(
     mut robot_query: Query<(Entity, &mut RobotState), With<IdleRobot>>,
     mut commands: Commands,
+    pause_state: Res<PauseState>,
 ) {
+    // If we are paused, do nothing
+    // This will keep the robots from beginning to move,
+    // but not from thinking.
+    if pause_state.paused {
+        return;
+    }
+
     // For every robot that is idle, check whether they have sent us any commands
     // If they have, move them to the busy state
     // and start the animation

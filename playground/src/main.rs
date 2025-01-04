@@ -1,6 +1,7 @@
 pub mod bg_grid;
 pub mod bg_grid_mat;
 pub mod fps_monitor;
+mod pause_controller;
 pub mod robot;
 pub mod ui;
 
@@ -16,6 +17,7 @@ use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
 use bevy_tweening::TweeningPlugin;
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
+use pause_controller::PausePlugin;
 use robot::{onclick_handling::on_click_select, RobotBehaviorPlugin, RobotBundle};
 use ui::Ui;
 
@@ -71,6 +73,7 @@ fn main() {
         })
         .add_plugins(RobotBehaviorPlugin)
         .add_plugins(FpsMonitorPlugin)
+        .add_plugins(PausePlugin)
         .run();
 }
 

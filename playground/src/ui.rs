@@ -1,9 +1,11 @@
 use bevy::{
     app::{Plugin, Update},
-    prelude::{Camera2d, Local, OrthographicProjection, Query, With},
+    prelude::{Camera2d, Local, OrthographicProjection, Query, Res, With},
 };
 use bevy_egui::EguiContexts;
 use bevy_pancam::PanCam;
+
+use crate::pause_controller::PauseState;
 
 pub struct Ui;
 
@@ -32,6 +34,7 @@ fn left_panel(mut contexts: EguiContexts, mut is_last_selected: Local<bool>) {
             {
                 *is_last_selected = true;
             }
+
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         });
 }
@@ -39,6 +42,7 @@ fn left_panel(mut contexts: EguiContexts, mut is_last_selected: Local<bool>) {
 fn top_panel(
     mut contexts: EguiContexts,
     camera: Query<(&PanCam, &OrthographicProjection), With<Camera2d>>,
+    pause_state: Res<PauseState>,
 ) {
     let ctx = contexts.ctx_mut();
     let camera = camera.single();
@@ -48,6 +52,7 @@ fn top_panel(
         .show(ctx, |ui| {
             ui.label("Top resizeable panel");
             ui.label(format!("{:?}", camera.1));
+            ui.label(format!("Paused: {:?}", pause_state.paused));
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         });
 }
