@@ -7,7 +7,7 @@ use bevy_pancam::PanCam;
 
 use crate::pause_controller::PauseState;
 
-pub struct Ui;
+pub(crate) struct Ui;
 
 impl Plugin for Ui {
     fn build(&self, app: &mut bevy::prelude::App) {

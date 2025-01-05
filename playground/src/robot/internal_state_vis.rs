@@ -1,13 +1,13 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use egui::{Color32, RichText, WidgetText};
+use egui::{Color32, RichText};
 
 use super::{
-    motion_types::RobotState,
+    motion_types::{RobotProps, RobotState},
     onclick_handling::{SelectedRobotMarker, SelectionChanged},
 };
 
-pub struct InternalStatePlugin;
+pub(crate) struct InternalStatePlugin;
 
 impl Plugin for InternalStatePlugin {
     fn build(&self, app: &mut App) {
@@ -17,7 +17,10 @@ impl Plugin for InternalStatePlugin {
 
 fn visualize_internal_state(
     mut ctxs: EguiContexts,
-    mut selected_robot: Query<(Entity, &mut RobotState), With<SelectedRobotMarker>>,
+    mut selected_robot: Query<
+        (Entity, &mut RobotState, &mut RobotProps),
+        With<SelectedRobotMarker>,
+    >,
     mut should_be_open: Local<bool>,
     mut did_initialize: Local<bool>,
     mut writer: EventWriter<SelectionChanged>,
@@ -30,7 +33,7 @@ fn visualize_internal_state(
         *should_be_open = true;
     }
 
-    for (entity, mut robot_state) in selected_robot.iter_mut().take(1) {
+    for (entity, mut robot_state, mut props) in selected_robot.iter_mut().take(1) {
         let ctx = ctxs.ctx_mut();
 
         egui::Window::new("Robot State")
@@ -51,15 +54,15 @@ fn visualize_internal_state(
 
                 ui.separator();
                 ui.columns(2, |col| {
-                    col[0].label("Drive rate");
+                    col[0].label("Drive speed, cm/s");
                     col[1].add(
-                        egui::widgets::Slider::new(&mut robot_state.drive_rate, -0.0..=5.0)
+                        egui::widgets::Slider::new(&mut props.drive_speed, 0.1..=500.0)
                             .show_value(true),
                     );
 
-                    col[0].label("Turn rate");
+                    col[0].label("Turn speed, rad/s");
                     col[1].add(
-                        egui::widgets::Slider::new(&mut robot_state.turn_rate, -0.0..=5.0)
+                        egui::widgets::Slider::new(&mut props.turn_speed, 0.1..=15.0)
                             .show_value(true),
                     );
                 });

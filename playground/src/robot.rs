@@ -1,8 +1,8 @@
 use bevy::{prelude::*, tasks::IoTaskPool};
 use bevy_tweening::{Animator, TweenCompleted};
 use internal_state_vis::InternalStatePlugin;
-use motion_anim::get_tween;
-use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotState};
+use motion_anim::{get_tween, update_robot_tweens_after_props_change};
+use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotProps, RobotState};
 use onclick_handling::{on_selection_event, SelectedRobot, SelectionChanged};
 use virtual_chassis::VirtualChassis;
 
@@ -11,32 +11,33 @@ use crate::{pause_controller::PauseState, CELL_SIZE};
 mod async_queue_wrapper;
 mod business_logic;
 mod internal_state_vis;
-pub mod motion_anim;
-pub mod motion_types;
-pub mod onclick_handling;
+pub(crate) mod motion_anim;
+pub(crate) mod motion_types;
+pub(crate) mod onclick_handling;
 mod selection_reticle;
-pub mod virtual_chassis;
+pub(crate) mod virtual_chassis;
 
 #[derive(Bundle)]
-pub struct RobotBundle {
+pub(crate) struct RobotBundle {
     name: Name,
     location: Transform,
     mesh: Mesh2d,
     material: MeshMaterial2d<ColorMaterial>,
     robot_state: RobotState,
+    robot_props: RobotProps,
     idle_robot: IdleRobot,
 }
 
-pub const ROBOT_WIDTH: f32 = 0.9 * (CELL_SIZE);
+pub(crate) const ROBOT_WIDTH: f32 = 0.9 * (CELL_SIZE);
 
 impl RobotBundle {
-    pub fn new(
+    pub(crate) fn new(
         id: u64,
         grid_pos: (i32, i32),
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<ColorMaterial>,
-        drive_rate: f32,
-        turn_rate: f32,
+        drive_speed: f32,
+        turn_speed: f32,
     ) -> Self {
         let (from_robot_sender, from_robot_receiver) = async_channel::unbounded();
         let (to_robot_sender, to_robot_receiver) = async_channel::unbounded();
@@ -68,10 +69,11 @@ impl RobotBundle {
                 into_chassis: to_robot_sender,
                 task: my_logic,
 
-                drive_rate,
-                turn_rate,
-
                 log: vec![],
+            },
+            robot_props: RobotProps {
+                drive_speed,
+                turn_speed,
             },
             idle_robot: IdleRobot,
         }
@@ -79,7 +81,7 @@ impl RobotBundle {
 }
 
 fn update_idle_robots(
-    mut robot_query: Query<(Entity, &mut RobotState), With<IdleRobot>>,
+    mut robot_query: Query<(Entity, &RobotProps, &mut RobotState), With<IdleRobot>>,
     mut commands: Commands,
     pause_state: Res<PauseState>,
 ) {
@@ -95,7 +97,7 @@ fn update_idle_robots(
     // For every robot that is idle, check whether they have sent us any commands
     // If they have sent motion commands, move them to the busy state
     // and start the animation
-    for (entity, mut robot_state) in robot_query.iter_mut() {
+    for (entity, props, mut robot_state) in robot_query.iter_mut() {
         if let Ok(message) = robot_state.from_chassis.try_recv() {
             match message {
                 virtual_chassis::VirtualChassisCommand::Motion(motion_command) => {
@@ -104,8 +106,7 @@ fn update_idle_robots(
                         command: motion_command,
                     });
 
-                    let tween = get_tween(motion_command, &robot_state)
-                        .with_completed_event(robot_state.id);
+                    let tween = get_tween(motion_command, &props, &robot_state);
                     commands.entity(entity).insert(Animator::new(tween));
                 }
                 virtual_chassis::VirtualChassisCommand::Log(message) => {
@@ -163,13 +164,14 @@ fn update_busy_robots(
     }
 }
 
-pub struct RobotBehaviorPlugin;
+pub(crate) struct RobotBehaviorPlugin;
 
 impl Plugin for RobotBehaviorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
         app.add_systems(FixedUpdate, on_selection_event);
+        app.add_systems(FixedUpdate, update_robot_tweens_after_props_change);
         app.add_plugins(InternalStatePlugin);
         app.init_resource::<SelectedRobot>();
         app.add_event::<SelectionChanged>();

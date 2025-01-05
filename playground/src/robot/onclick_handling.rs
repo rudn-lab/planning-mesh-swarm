@@ -3,16 +3,16 @@ use bevy::prelude::*;
 use crate::robot::selection_reticle::ReticleBundle;
 
 #[derive(Resource, Default)]
-pub struct SelectedRobot {
-    pub robot: Option<Entity>,
-    pub selection_reticle: Option<Entity>,
+pub(crate) struct SelectedRobot {
+    pub(crate) robot: Option<Entity>,
+    pub(crate) selection_reticle: Option<Entity>,
 }
 
 #[derive(Component)]
-pub struct SelectedRobotMarker;
+pub(crate) struct SelectedRobotMarker;
 
 #[derive(Event)]
-pub enum SelectionChanged {
+pub(crate) enum SelectionChanged {
     /// The robot with the given ID is now selected.
     SelectedRobot(Entity),
 
@@ -21,7 +21,7 @@ pub enum SelectionChanged {
 }
 
 /// This system runs whenever a robot is clicked.
-pub fn on_click_robot(
+pub(crate) fn on_click_robot(
     click: Trigger<Pointer<Click>>,
     selected_robot_query: Query<Entity, With<SelectedRobotMarker>>,
     mut writer: EventWriter<SelectionChanged>,
@@ -42,7 +42,7 @@ pub fn on_click_robot(
 }
 
 /// This system updates the SelectedRobot resource, the selection reticle, and the marker components.
-pub fn on_selection_event(
+pub(crate) fn on_selection_event(
     mut reader: EventReader<SelectionChanged>,
     mut commands: Commands,
     mut selected_robot: ResMut<SelectedRobot>,

@@ -3,9 +3,9 @@ use bevy::{prelude::*, sprite::Material2dPlugin};
 use crate::bg_grid_mat::{self, GridMaterial};
 
 #[derive(Component, Hash, PartialEq, Eq, Debug, Reflect)]
-pub struct GridMarker {}
+pub(crate) struct GridMarker {}
 
-pub struct Grid {
+pub(crate) struct Grid {
     pub(crate) mesh_size: Vec2,
     pub(crate) num_cells: Vec2,
     pub(crate) line_thickness: f32,
@@ -15,7 +15,7 @@ pub struct Grid {
 
 // There's probably a better way to do it
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
-pub struct GridConfig {
+pub(crate) struct GridConfig {
     mesh_size: Vec2,
     num_cells: Vec2,
     /// Fraction of a square covered by line in both direction.

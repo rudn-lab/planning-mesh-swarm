@@ -7,7 +7,7 @@ use crate::CELL_SIZE;
 use super::virtual_chassis::VirtualChassisCommand;
 
 #[derive(Copy, Clone, Debug)]
-pub enum RobotOrientation {
+pub(crate) enum RobotOrientation {
     Up,
     Down,
     Left,
@@ -15,7 +15,7 @@ pub enum RobotOrientation {
 }
 
 impl RobotOrientation {
-    pub fn to_vector(&self) -> Vec2 {
+    pub(crate) fn to_vector(&self) -> Vec2 {
         match self {
             RobotOrientation::Up => Vec2::Y,
             RobotOrientation::Down => -Vec2::Y,
@@ -24,7 +24,7 @@ impl RobotOrientation {
         }
     }
 
-    pub fn to_radians(&self) -> f32 {
+    pub(crate) fn to_radians(&self) -> f32 {
         match self {
             RobotOrientation::Up => 0.0,
             RobotOrientation::Down => std::f32::consts::PI,
@@ -33,7 +33,7 @@ impl RobotOrientation {
         }
     }
 
-    pub fn one_right(&self) -> Self {
+    pub(crate) fn one_right(&self) -> Self {
         match self {
             RobotOrientation::Up => RobotOrientation::Right,
             RobotOrientation::Right => RobotOrientation::Down,
@@ -41,7 +41,7 @@ impl RobotOrientation {
             RobotOrientation::Left => RobotOrientation::Up,
         }
     }
-    pub fn one_left(&self) -> Self {
+    pub(crate) fn one_left(&self) -> Self {
         match self {
             RobotOrientation::Up => RobotOrientation::Left,
             RobotOrientation::Left => RobotOrientation::Down,
@@ -49,7 +49,7 @@ impl RobotOrientation {
             RobotOrientation::Right => RobotOrientation::Up,
         }
     }
-    pub fn opposite(&self) -> Self {
+    pub(crate) fn opposite(&self) -> Self {
         match self {
             RobotOrientation::Up => RobotOrientation::Down,
             RobotOrientation::Down => RobotOrientation::Up,
@@ -58,7 +58,7 @@ impl RobotOrientation {
         }
     }
 
-    pub fn plus_quarter_turns(&self, count: i32) -> Self {
+    pub(crate) fn plus_quarter_turns(&self, count: i32) -> Self {
         let count = count.rem_euclid(4);
         match count {
             0 => *self,
@@ -69,7 +69,7 @@ impl RobotOrientation {
         }
     }
 
-    pub fn to_numeric_vector(&self, n: i32) -> (i32, i32) {
+    pub(crate) fn to_numeric_vector(&self, n: i32) -> (i32, i32) {
         match self {
             RobotOrientation::Up => (0, n),
             RobotOrientation::Down => (0, -n),
@@ -79,36 +79,49 @@ impl RobotOrientation {
     }
 }
 
+/// Component that marks robots that are not currently moving.
 #[derive(Component)]
-pub struct IdleRobot;
+pub(crate) struct IdleRobot;
 
+/// Component that marks robots that are currently performing an animation in response to a motion command.
 #[derive(Component)]
-pub struct BusyRobot {
-    pub command: MotionCommand,
+pub(crate) struct BusyRobot {
+    pub(crate) command: MotionCommand,
 }
 
+/// Values that are inherent to a robot's anatomy.
 #[derive(Component, Debug)]
-pub struct RobotState {
-    pub id: u64,
-    pub grid_pos: (i32, i32),
-    pub orientation: RobotOrientation,
+pub(crate) struct RobotProps {
+    /// The speed of the robot when moving in a line; in centimeters per second.
+    pub(crate) drive_speed: f32,
 
-    pub from_chassis: Receiver<VirtualChassisCommand>,
-    pub into_chassis: Sender<()>,
-    pub task: Task<()>,
+    /// The rotation speed of the robot; in radians per second.
+    pub(crate) turn_speed: f32,
+}
 
-    /// Number of seconds per single tile
-    pub drive_rate: f32,
+/// Values representing the robot's current position in the grid.
+/// Updated after the motion's animation completes;
+/// while the animation is running, the values represent its state at the start of the animation.
+#[derive(Component, Debug)]
+pub(crate) struct RobotState {
+    pub(crate) id: u64,
+    pub(crate) grid_pos: (i32, i32),
+    pub(crate) orientation: RobotOrientation,
 
-    /// Number of seconds per quarter turn
-    pub turn_rate: f32,
+    pub(crate) from_chassis: Receiver<VirtualChassisCommand>,
+    pub(crate) into_chassis: Sender<()>,
+
+    /// Task that is running the robot's business logic.
+    /// We don't need to touch it directly, but we need to prevent dropping it.
+    #[allow(dead_code)]
+    pub(crate) task: Task<()>,
 
     /// Log messages
-    pub log: Vec<String>,
+    pub(crate) log: Vec<String>,
 }
 
 impl RobotState {
-    pub fn get_translation(&self) -> Vec3 {
+    pub(crate) fn get_translation(&self) -> Vec3 {
         Vec3::new(
             self.grid_pos.0 as f32 * CELL_SIZE,
             self.grid_pos.1 as f32 * CELL_SIZE,
@@ -116,7 +129,7 @@ impl RobotState {
         )
     }
 
-    pub fn get_rotation(&self) -> Quat {
+    pub(crate) fn get_rotation(&self) -> Quat {
         match self.orientation {
             RobotOrientation::Up => Quat::IDENTITY,
             RobotOrientation::Down => Quat::from_rotation_z(std::f32::consts::PI),
@@ -125,7 +138,7 @@ impl RobotState {
         }
     }
 
-    pub fn update(&mut self, command: MotionCommand) {
+    pub(crate) fn update(&mut self, command: MotionCommand) {
         match command {
             MotionCommand::Forward(n) => {
                 let n = n.get() as i32;

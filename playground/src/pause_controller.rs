@@ -4,20 +4,20 @@ use bevy_tweening::{Animator, AnimatorState};
 use crate::robot::motion_types::BusyRobot;
 
 #[derive(Resource, Default)]
-pub struct PauseState {
-    pub paused: bool,
+pub(crate) struct PauseState {
+    pub(crate) paused: bool,
 }
 
 #[derive(Resource)]
-pub struct PauseHandlerSystems {
-    pub on_pause: SystemId,
-    pub on_unpause: SystemId,
+pub(crate) struct PauseHandlerSystems {
+    pub(crate) on_pause: SystemId,
+    pub(crate) on_unpause: SystemId,
 }
 
 impl PauseHandlerSystems {
     /// Returns the SystemId of the system we need to run when the pause state changes.
     /// For example: if the pause state became true, we need to run the `on_pause` system.
-    pub fn on_pause_state_changed(&self, new_state: bool) -> SystemId {
+    pub(crate) fn on_pause_state_changed(&self, new_state: bool) -> SystemId {
         if new_state {
             self.on_pause
         } else {
@@ -35,7 +35,7 @@ impl FromWorld for PauseHandlerSystems {
     }
 }
 
-pub struct PausePlugin;
+pub(crate) struct PausePlugin;
 
 impl Plugin for PausePlugin {
     fn build(&self, app: &mut App) {

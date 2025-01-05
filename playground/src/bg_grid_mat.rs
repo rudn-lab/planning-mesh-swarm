@@ -1,7 +1,7 @@
 use bevy::{prelude::*, render::render_resource::AsBindGroup, sprite::Material2d};
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub struct GridMaterial {
+pub(crate) struct GridMaterial {
     #[uniform(0)]
     pub(crate) line_color: Vec4,
     #[uniform(1)]

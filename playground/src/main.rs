@@ -1,9 +1,9 @@
-pub mod bg_grid;
-pub mod bg_grid_mat;
-pub mod fps_monitor;
+pub(crate) mod bg_grid;
+pub(crate) mod bg_grid_mat;
+pub(crate) mod fps_monitor;
 mod pause_controller;
-pub mod robot;
-pub mod ui;
+pub(crate) mod robot;
+pub(crate) mod ui;
 
 use core::f32;
 
@@ -22,13 +22,13 @@ use robot::{onclick_handling::on_click_robot, RobotBehaviorPlugin, RobotBundle};
 use ui::Ui;
 
 /// The number of game units in 1 millimeter
-pub const MILLIMETER: f32 = 10.0;
+pub(crate) const MILLIMETER: f32 = 10.0;
 
 /// The number of game units in 1 centimeter
-pub const CENTIMETER: f32 = MILLIMETER * 10.0;
+pub(crate) const CENTIMETER: f32 = MILLIMETER * 10.0;
 
 // The width/height of a single grid cell, in game units
-pub const CELL_SIZE: f32 = CENTIMETER;
+pub(crate) const CELL_SIZE: f32 = CENTIMETER;
 
 fn main() {
     App::new()

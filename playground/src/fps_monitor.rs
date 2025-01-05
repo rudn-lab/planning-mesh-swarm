@@ -5,7 +5,7 @@ use bevy_egui::EguiContexts;
 
 // Global resource for FPS window visibility flag
 #[derive(Resource)]
-pub struct FpsTextVisible(pub bool);
+pub(crate) struct FpsTextVisible(pub(crate) bool);
 
 fn fps_text_update_system(
     diagnostics: Res<DiagnosticsStore>,
@@ -71,7 +71,7 @@ fn fps_counter_showhide(mut state: ResMut<FpsTextVisible>, kbd: Res<ButtonInput<
     }
 }
 
-pub struct FpsMonitorPlugin;
+pub(crate) struct FpsMonitorPlugin;
 
 impl Plugin for FpsMonitorPlugin {
     fn build(&self, app: &mut App) {

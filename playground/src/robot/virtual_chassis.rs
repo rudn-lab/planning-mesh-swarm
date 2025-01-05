@@ -1,7 +1,7 @@
 use async_channel::{Receiver, Sender};
 use motion_high_level::{chassis::Chassis, MotionCommand};
 
-pub enum VirtualChassisCommand {
+pub(crate) enum VirtualChassisCommand {
     Motion(MotionCommand),
     Log(String),
 }
@@ -12,9 +12,9 @@ impl Into<VirtualChassisCommand> for MotionCommand {
     }
 }
 
-pub struct VirtualChassis {
-    pub tx: Sender<VirtualChassisCommand>,
-    pub rx: Receiver<()>,
+pub(crate) struct VirtualChassis {
+    pub(crate) tx: Sender<VirtualChassisCommand>,
+    pub(crate) rx: Receiver<()>,
 }
 
 impl Chassis for VirtualChassis {

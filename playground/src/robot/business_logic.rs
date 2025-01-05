@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use motion_high_level::chassis::Chassis;
 
-pub async fn simple_business_logic(mut chassis: impl Chassis) {
+pub(crate) async fn simple_business_logic(mut chassis: impl Chassis) {
     loop {
         chassis.log("Doing right turn").await;
         chassis.forward(NonZero::new(2).unwrap()).await;
