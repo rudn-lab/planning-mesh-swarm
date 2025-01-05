@@ -18,11 +18,16 @@ pub fn get_tween(cmd: MotionCommand, state: &RobotState) -> Tween<Transform> {
     }
 }
 
+/// The shortest possible duration for a tween. Should be almost instant.
+/// Used for rounding up shorter durations (like zero: this causes issues for the animation).
+const MIN_DURATION: Duration = Duration::from_millis(1);
+
 /// The tween representing a movement forward (or back, if negative).
 fn get_forward_back_tween(cells_moved_forward: i32, state: &RobotState) -> Tween<Transform> {
     let forward_back_tween = Tween::new(
         EaseFunction::QuadraticInOut,
-        Duration::from_secs_f32(cells_moved_forward.abs() as f32 * state.drive_rate),
+        Duration::from_secs_f32(cells_moved_forward.abs() as f32 * state.drive_rate)
+            .max(MIN_DURATION),
         TransformPositionLens {
             start: state.get_translation(),
             end: state.get_translation()
@@ -39,7 +44,7 @@ fn get_forward_back_tween(cells_moved_forward: i32, state: &RobotState) -> Tween
 fn get_turn_tween(turns_cw: i32, state: &RobotState) -> Tween<Transform> {
     let turn_tween = Tween::new(
         EaseFunction::QuadraticInOut,
-        Duration::from_secs_f32(turns_cw.abs() as f32 * state.turn_rate),
+        Duration::from_secs_f32(turns_cw.abs() as f32 * state.turn_rate).max(MIN_DURATION),
         TransformRotateZLens {
             start: state.orientation.to_radians(),
             end: state.orientation.to_radians() - turns_cw as f32 * std::f32::consts::FRAC_PI_2,

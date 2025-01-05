@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use egui::Color32;
+use egui::{Color32, RichText, WidgetText};
 
 use super::{
     motion_types::RobotState,
@@ -17,7 +17,7 @@ impl Plugin for InternalStatePlugin {
 
 fn visualize_internal_state(
     mut ctxs: EguiContexts,
-    selected_robot: Query<(Entity, &mut RobotState), With<SelectedRobotMarker>>,
+    mut selected_robot: Query<(Entity, &mut RobotState), With<SelectedRobotMarker>>,
     mut should_be_open: Local<bool>,
     mut did_initialize: Local<bool>,
     mut writer: EventWriter<SelectionChanged>,
@@ -30,11 +30,12 @@ fn visualize_internal_state(
         *should_be_open = true;
     }
 
-    for (entity, robot_state) in selected_robot.iter().take(1) {
+    for (entity, mut robot_state) in selected_robot.iter_mut().take(1) {
         let ctx = ctxs.ctx_mut();
 
-        let window = egui::Window::new("Robot State")
+        egui::Window::new("Robot State")
             .open(&mut should_be_open)
+            .max_height(300.0)
             .show(ctx, |ui| {
                 ui.columns(2, |col| {
                     let mut label = |text: &'static str, value: String| {
@@ -44,20 +45,43 @@ fn visualize_internal_state(
 
                     label("ID", robot_state.id.to_string());
                     label("Grid Position", format!("{:?}", robot_state.grid_pos));
-                    label("Drive rate", robot_state.drive_rate.to_string());
-                    label("Turn rate", robot_state.turn_rate.to_string());
+                    // label("Drive rate", robot_state.drive_rate.to_string());
+                    // label("Turn rate", robot_state.turn_rate.to_string());
                 });
 
                 ui.separator();
-                ui.label("Log");
+                ui.columns(2, |col| {
+                    col[0].label("Drive rate");
+                    col[1].add(
+                        egui::widgets::Slider::new(&mut robot_state.drive_rate, -0.0..=5.0)
+                            .show_value(true),
+                    );
+
+                    col[0].label("Turn rate");
+                    col[1].add(
+                        egui::widgets::Slider::new(&mut robot_state.turn_rate, -0.0..=5.0)
+                            .show_value(true),
+                    );
+                });
+
+                ui.separator();
+
+                ui.columns(2, |col| {
+                    col[0].label("Log");
+                    let btn = col[1].button("Clear");
+                    if btn.clicked() {
+                        robot_state.log.clear();
+                    }
+                });
 
                 egui::ScrollArea::vertical()
                     .animated(true)
                     .drag_to_scroll(true)
                     .stick_to_bottom(true)
+                    .auto_shrink([false, true]) // Shrink vertically, but not horizontally
                     .show(ui, |ui| {
                         for log in &robot_state.log {
-                            ui.label(format!("{}", log));
+                            ui.label(RichText::new(log).monospace());
                         }
 
                         if robot_state.log.is_empty() {
@@ -65,10 +89,6 @@ fn visualize_internal_state(
                         }
                     });
             });
-
-        if let Some(window) = window {
-            println!("Window hover: {:?}", window.response.hover_pos());
-        }
 
         // After egui runs, if should_be_open gets updated to false, then we need to emit the deselect event.
         // We also reset the did_initialize variable:
