@@ -1,5 +1,5 @@
 use async_channel::{Receiver, Sender};
-use motion_high_level::{chassis::Chassis, MotionCommand};
+use high_level_cmds::{chassis::Chassis, MotionCommand};
 
 pub(crate) enum VirtualChassisCommand {
     Motion(MotionCommand),

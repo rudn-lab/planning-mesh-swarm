@@ -5,7 +5,7 @@ use bevy_tweening::{
     lens::{TransformPositionLens, TransformRotateZLens},
     Animator, Tween, Tweenable,
 };
-use motion_high_level::MotionCommand;
+use high_level_cmds::MotionCommand;
 
 use crate::{robot::RobotState, CELL_SIZE};
 

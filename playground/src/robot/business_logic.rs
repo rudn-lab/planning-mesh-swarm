@@ -1,6 +1,6 @@
 use std::num::NonZero;
 
-use motion_high_level::chassis::Chassis;
+use high_level_cmds::chassis::Chassis;
 
 pub(crate) async fn simple_business_logic(mut chassis: impl Chassis) {
     loop {

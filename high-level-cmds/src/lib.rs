@@ -1,6 +1,8 @@
 #![no_std]
+#![allow(async_fn_in_trait)]
 
 pub mod chassis;
+pub mod network_kit;
 
 use core::num::NonZeroU8;
 

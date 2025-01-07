@@ -14,5 +14,5 @@ bevy_stl = "0.15.0"
 bevy_tweening = "0.12.0"
 egui = "0.29.1"
 log = "0.4.22"
-motion-high-level = { version = "0.1.0", path = "../motion-high-level" }
+high-level-cmds = { version = "0.1.0", path = "../high-level-cmds" }
 wasm-logger = "0.2.0"

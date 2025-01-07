@@ -1,5 +1,5 @@
 [package]
-name = "motion-high-level"
+name = "high-level-cmds"
 version = "0.1.0"
 edition = "2021"
 

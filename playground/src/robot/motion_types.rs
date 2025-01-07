@@ -1,6 +1,6 @@
 use async_channel::{Receiver, Sender};
 use bevy::{prelude::*, tasks::Task};
-use motion_high_level::MotionCommand;
+use high_level_cmds::MotionCommand;
 
 use crate::CELL_SIZE;
 
