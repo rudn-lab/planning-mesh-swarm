@@ -34,8 +34,7 @@ impl RobotBundle {
     pub(crate) fn new(
         id: u64,
         grid_pos: (i32, i32),
-        meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<ColorMaterial>,
+        world: &mut World,
         drive_speed: f32,
         turn_speed: f32,
     ) -> Self {
@@ -54,12 +53,16 @@ impl RobotBundle {
             location: Transform::from_translation(
                 (Vec2::new(grid_pos.0 as f32, grid_pos.1 as f32) * CELL_SIZE).extend(0.0),
             ),
-            mesh: Mesh2d(meshes.add(Triangle2d::new(
+            mesh: Mesh2d(world.resource_mut::<Assets<Mesh>>().add(Triangle2d::new(
                 Vec2::Y * ROBOT_WIDTH / 2.0,
                 Vec2::new(-ROBOT_WIDTH / 4.0, -ROBOT_WIDTH / 2.0),
                 Vec2::new(ROBOT_WIDTH / 4.0, -ROBOT_WIDTH / 2.0),
             ))),
-            material: MeshMaterial2d(materials.add(ColorMaterial::from(Color::hsl(0.0, 1.0, 1.0)))),
+            material: MeshMaterial2d(
+                world
+                    .resource_mut::<Assets<ColorMaterial>>()
+                    .add(ColorMaterial::from(Color::hsl(0.0, 1.0, 1.0))),
+            ),
             robot_state: RobotState {
                 id,
                 grid_pos,

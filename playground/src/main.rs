@@ -2,6 +2,7 @@ pub(crate) mod bg_grid;
 pub(crate) mod bg_grid_mat;
 pub(crate) mod fps_monitor;
 mod pause_controller;
+pub(crate) mod radio;
 pub(crate) mod robot;
 pub(crate) mod ui;
 
@@ -18,6 +19,7 @@ use bevy_tweening::TweeningPlugin;
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
 use pause_controller::PausePlugin;
+use radio::nic_components::{AntennaRenderingPlugin, NicBundle};
 use robot::{onclick_handling::on_click_robot, RobotBehaviorPlugin, RobotBundle};
 use ui::Ui;
 
@@ -74,19 +76,15 @@ fn main() {
         .add_plugins(RobotBehaviorPlugin)
         .add_plugins(FpsMonitorPlugin)
         .add_plugins(PausePlugin)
+        .add_plugins(AntennaRenderingPlugin)
         .run();
 }
 
-fn setup_system(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+fn setup_system(world: &mut World) {
     log::info!("Preparing shapes");
-    const X_EXTENT: f32 = 900.;
 
     //commands.spawn(Camera2d);
-    commands.spawn(PanCam {
+    world.commands().spawn(PanCam {
         grab_buttons: vec![MouseButton::Right, MouseButton::Middle, MouseButton::Left],
         move_keys: DirectionKeys::arrows_and_wasd(),
         speed: 200.0,
@@ -97,59 +95,16 @@ fn setup_system(
         ..Default::default()
     });
 
-    commands
-        .spawn(RobotBundle::new(
-            0,
-            (3, 2),
-            &mut meshes,
-            &mut materials,
-            1.0,
-            0.5,
-        ))
-        .observe(on_click_robot);
+    let nic = NicBundle::new(world);
+    let robot_nic_child = world.commands().spawn(nic).id();
 
-    commands
-        .spawn(RobotBundle::new(
-            1,
-            (-3, 2),
-            &mut meshes,
-            &mut materials,
-            0.5,
-            1.0,
-        ))
-        .observe(on_click_robot);
+    let robot = RobotBundle::new(0, (3, 2), world, 1.0, 0.5);
+    world
+        .commands()
+        .spawn(robot)
+        .observe(on_click_robot)
+        .add_child(robot_nic_child);
 
-    let shapes = [
-        meshes.add(Circle::new(5.0)),
-        meshes.add(CircularSector::new(5.0, 1.0)),
-        meshes.add(CircularSegment::new(5.0, 1.25)),
-        meshes.add(Ellipse::new(2.5, 5.0)),
-        meshes.add(Annulus::new(2.5, 5.0)),
-        meshes.add(Capsule2d::new(2.5, 5.0)),
-        meshes.add(Rhombus::new(7.5, 10.0)),
-        meshes.add(Rectangle::new(5.0, 10.0)),
-        meshes.add(RegularPolygon::new(5.0, 6)),
-        meshes.add(Triangle2d::new(
-            Vec2::Y * 5.0,
-            Vec2::new(-5.0, -5.0),
-            Vec2::new(5.0, -5.0),
-        )),
-    ];
-    let num_shapes = shapes.len();
-
-    for (i, shape) in shapes.into_iter().enumerate() {
-        // Distribute colors evenly across the rainbow.
-        let color = Color::hsl(360. * i as f32 / num_shapes as f32, 0.95, 0.7);
-
-        commands.spawn((
-            Mesh2d(shape),
-            MeshMaterial2d(materials.add(color)),
-            Transform::from_xyz(
-                // Distribute shapes from -X_EXTENT/2 to +X_EXTENT/2.
-                -X_EXTENT / 2. + i as f32 / (num_shapes - 1) as f32 * X_EXTENT,
-                0.0,
-                0.0,
-            ),
-        ));
-    }
+    let robot = RobotBundle::new(1, (-3, 2), world, 0.5, 1.0);
+    world.commands().spawn(robot).observe(on_click_robot);
 }
