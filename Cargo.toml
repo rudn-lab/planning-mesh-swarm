@@ -1,8 +1,13 @@
 [workspace]
 resolver = "2"
-members = [ "line-follower", "motion-hardware", "high-level-cmds",
-    "octoliner-embassy-driver",
-    "octoliner-test", "playground",
+members = [
+  "line-follower",
+  "motion-hardware",
+  "high-level-cmds",
+  "octoliner-embassy-driver",
+  "octoliner-test",
+  "playground",
+  "planner",
 ]
 
 # cargo build/run
