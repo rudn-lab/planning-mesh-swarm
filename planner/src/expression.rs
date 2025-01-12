@@ -1,8 +1,10 @@
 use alloc::boxed::Box;
+use alloc::rc::Rc;
 use alloc::vec;
 use alloc::vec::*;
 
 use crate::predicate::{Evaluable, Predicate};
+use crate::state::State;
 
 #[derive(Debug, Clone)]
 pub struct And<T: Evaluable> {
@@ -18,8 +20,8 @@ impl<T: Evaluable> And<T> {
 }
 
 impl<T: Evaluable> Evaluable for And<T> {
-    fn eval(&self) -> bool {
-        self.o.iter().all(Evaluable::eval)
+    fn eval(&self, state: &State) -> bool {
+        self.o.iter().all(|e| Evaluable::eval(e, &state))
     }
 }
 
@@ -37,8 +39,8 @@ impl<T: Evaluable> Or<T> {
 }
 
 impl<T: Evaluable> Evaluable for Or<T> {
-    fn eval(&self) -> bool {
-        self.o.iter().any(Evaluable::eval)
+    fn eval(&self, state: &State) -> bool {
+        self.o.iter().any(|e| Evaluable::eval(e, &state))
     }
 }
 
@@ -56,8 +58,8 @@ impl<T: Evaluable> Not<T> {
 }
 
 impl<T: Evaluable> Evaluable for Not<T> {
-    fn eval(&self) -> bool {
-        !self.o.eval()
+    fn eval(&self, state: &State) -> bool {
+        !self.o.eval(&state)
     }
 }
 
@@ -66,27 +68,27 @@ pub enum FormulaMembers {
     And(And<FormulaMembers>),
     Or(Or<FormulaMembers>),
     Not(Not<FormulaMembers>),
-    Pred(Predicate),
+    Pred(Rc<Predicate>),
 }
 
 impl FormulaMembers {
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<Rc<Predicate>> {
         match self {
             FormulaMembers::And(and) => and.o.iter().flat_map(FormulaMembers::predicates).collect(),
             FormulaMembers::Or(or) => or.o.iter().flat_map(FormulaMembers::predicates).collect(),
             FormulaMembers::Not(not) => not.o.predicates(),
-            FormulaMembers::Pred(p) => vec![p.clone()],
+            FormulaMembers::Pred(p) => vec![Rc::clone(p)],
         }
     }
 }
 
 impl Evaluable for FormulaMembers {
-    fn eval(&self) -> bool {
+    fn eval(&self, state: &State) -> bool {
         match self {
-            FormulaMembers::And(and) => and.eval(),
-            FormulaMembers::Or(or) => or.eval(),
-            FormulaMembers::Not(not) => not.eval(),
-            FormulaMembers::Pred(p) => p.eval(),
+            FormulaMembers::And(and) => and.eval(&state),
+            FormulaMembers::Or(or) => or.eval(&state),
+            FormulaMembers::Not(not) => not.eval(&state),
+            FormulaMembers::Pred(p) => p.eval(&state),
         }
     }
 }
@@ -103,8 +105,8 @@ impl Formula {
 }
 
 impl Evaluable for Formula {
-    fn eval(&self) -> bool {
-        self.e.eval()
+    fn eval(&self, state: &State) -> bool {
+        self.e.eval(&state)
     }
 }
 
@@ -112,15 +114,15 @@ impl Evaluable for Formula {
 /// CNF and DNF at the lowest level
 #[derive(Debug, Clone)]
 pub enum NfMembers {
-    Not(Not<Predicate>),
-    Pred(Predicate),
+    Not(Not<Rc<Predicate>>),
+    Pred(Rc<Predicate>),
 }
 
 impl Evaluable for NfMembers {
-    fn eval(&self) -> bool {
+    fn eval(&self, state: &State) -> bool {
         match self {
-            NfMembers::Not(not) => not.eval(),
-            NfMembers::Pred(p) => p.eval(),
+            NfMembers::Not(not) => not.eval(&state),
+            NfMembers::Pred(p) => p.eval(&state),
         }
     }
 }
@@ -132,10 +134,10 @@ enum DnfMembers {
 }
 
 impl Evaluable for DnfMembers {
-    fn eval(&self) -> bool {
+    fn eval(&self, state: &State) -> bool {
         match self {
-            DnfMembers::And(and) => and.eval(),
-            DnfMembers::Prim(p) => p.eval(),
+            DnfMembers::And(and) => and.eval(&state),
+            DnfMembers::Prim(p) => p.eval(&state),
         }
     }
 }
@@ -146,8 +148,8 @@ pub struct Dnf {
 }
 
 impl Evaluable for Dnf {
-    fn eval(&self) -> bool {
-        self.f.eval()
+    fn eval(&self, state: &State) -> bool {
+        self.f.eval(&state)
     }
 }
 
@@ -159,6 +161,8 @@ impl Dnf {
 
 impl From<Formula> for Dnf {
     fn from(value: Formula) -> Self {
+        let _predicates = value.e.predicates();
+
         todo!()
     }
 }
@@ -170,10 +174,10 @@ pub enum CnfMembers {
 }
 
 impl Evaluable for CnfMembers {
-    fn eval(&self) -> bool {
+    fn eval(&self, state: &State) -> bool {
         match self {
-            CnfMembers::Or(or) => or.eval(),
-            CnfMembers::Prim(p) => p.eval(),
+            CnfMembers::Or(or) => or.eval(&state),
+            CnfMembers::Prim(p) => p.eval(&state),
         }
     }
 }
@@ -190,8 +194,8 @@ impl Cnf {
 }
 
 impl Evaluable for Cnf {
-    fn eval(&self) -> bool {
-        self.f.eval()
+    fn eval(&self, state: &State) -> bool {
+        self.f.eval(&state)
     }
 }
 
@@ -199,67 +203,71 @@ impl Evaluable for Cnf {
 mod tests {
     use super::*;
     use crate::predicate::Predicate;
-    use string_interner::{backend::BufferBackend, StringInterner};
-
-    // Using these just for the tests
-    // IRL this should not be happening
-    #[allow(non_snake_case)]
-    fn TRUE() -> Predicate {
-        Predicate::new("truth", || true)
-    }
-
-    #[allow(non_snake_case)]
-    fn FALSE() -> Predicate {
-        Predicate::new("falsehood", || false)
-    }
+    use crate::state::State;
+    use alloc::rc::Rc;
 
     #[test]
     fn test_basic_and() {
-        let and = And::new(&[TRUE(), TRUE(), TRUE()]);
-        assert!(and.eval());
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let f = Rc::new(Predicate::new("falsehood", &[]));
+        let state = State::with_predicates(&[Rc::clone(&t)]);
 
-        let and = And::new(&[TRUE(), FALSE(), TRUE()]);
-        assert!(!and.eval());
+        let and = And::new(&[Rc::clone(&t), Rc::clone(&t), Rc::clone(&t)]);
+        assert!(and.eval(&state));
+
+        let and = And::new(&[Rc::clone(&t), Rc::clone(&f), Rc::clone(&t)]);
+        assert!(!and.eval(&state));
     }
 
     #[test]
     fn test_basic_or() {
-        let or = Or::new(&[TRUE(), TRUE(), TRUE()]);
-        assert!(or.eval());
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let f = Rc::new(Predicate::new("falsehood", &[]));
+        let state = State::with_predicates(&[Rc::clone(&t)]);
 
-        let or = Or::new(&[TRUE(), FALSE(), FALSE()]);
-        assert!(or.eval());
+        let or = Or::new(&[Rc::clone(&t), Rc::clone(&t), Rc::clone(&t)]);
+        assert!(or.eval(&state));
 
-        let or = Or::new(&[FALSE(), FALSE(), FALSE()]);
-        assert!(!or.eval());
+        let or = Or::new(&[Rc::clone(&t), Rc::clone(&f), Rc::clone(&f)]);
+        assert!(or.eval(&state));
+
+        let or = Or::new(&[Rc::clone(&f), Rc::clone(&f), Rc::clone(&f)]);
+        assert!(!or.eval(&state));
     }
 
     #[test]
     fn test_basic_not() {
-        let not = Not::new(FALSE());
-        assert!(not.eval());
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let f = Rc::new(Predicate::new("falsehood", &[]));
+        let state = State::with_predicates(&[Rc::clone(&t)]);
 
-        let not = Not::new(TRUE());
-        assert!(!not.eval());
+        let not = Not::new(Rc::clone(&f));
+        assert!(not.eval(&state));
+
+        let not = Not::new(Rc::clone(&t));
+        assert!(!not.eval(&state));
     }
 
     use FormulaMembers as E;
 
     #[test]
     fn test_formula() {
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let state = State::with_predicates(&[Rc::clone(&t)]);
+
         let formula = Formula::new(E::And(And::new(&[
             E::Or(Or::new(&[
-                E::Pred(TRUE()),
-                E::Not(Not::new(E::Pred(TRUE()))),
+                E::Pred(Rc::clone(&t)),
+                E::Not(Not::new(E::Pred(Rc::clone(&t)))),
             ])),
-            E::Pred(TRUE()),
+            E::Pred(Rc::clone(&t)),
             E::Not(Not::new(E::And(And::new(&[
-                E::Pred(TRUE()),
-                E::Not(Not::new(E::Pred(TRUE()))),
+                E::Pred(Rc::clone(&t)),
+                E::Not(Not::new(E::Pred(Rc::clone(&t)))),
             ])))),
         ])));
 
-        assert!(formula.eval());
+        assert!(formula.eval(&state));
     }
 
     use CnfMembers as C;
@@ -268,37 +276,56 @@ mod tests {
 
     #[test]
     fn test_basic_dnf() {
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let f = Rc::new(Predicate::new("falsehood", &[]));
+        let state = State::with_predicates(&[Rc::clone(&t)]);
+
         let dnf = Dnf::new(Or::new(&[
-            D::And(And::new(&[NF::Pred(TRUE()), NF::Pred(FALSE())])),
-            D::And(And::new(&[NF::Not(Not::new(FALSE())), NF::Pred(TRUE())])),
-            D::Prim(NF::Pred(FALSE())),
+            D::And(And::new(&[
+                NF::Pred(Rc::clone(&t)),
+                NF::Pred(Rc::clone(&f)),
+            ])),
+            D::And(And::new(&[
+                NF::Not(Not::new(Rc::clone(&f))),
+                NF::Pred(Rc::clone(&t)),
+            ])),
+            D::Prim(NF::Pred(Rc::clone(&f))),
         ]));
 
-        assert!(dnf.eval());
+        assert!(dnf.eval(&state));
     }
 
     #[test]
     fn test_basic_cnf() {
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let f = Rc::new(Predicate::new("falsehood", &[]));
+        let state = State::with_predicates(&[Rc::clone(&t)]);
+
         let cnf = Cnf::new(And::new(&[
-            C::Or(Or::new(&[NF::Pred(TRUE()), NF::Pred(FALSE())])),
-            C::Or(Or::new(&[NF::Not(Not::new(FALSE())), NF::Pred(TRUE())])),
-            C::Prim(NF::Pred(FALSE())),
+            C::Or(Or::new(&[NF::Pred(Rc::clone(&t)), NF::Pred(Rc::clone(&f))])),
+            C::Or(Or::new(&[
+                NF::Not(Not::new(Rc::clone(&f))),
+                NF::Pred(Rc::clone(&t)),
+            ])),
+            C::Prim(NF::Pred(Rc::clone(&f))),
         ]));
 
-        assert!(!cnf.eval());
+        assert!(!cnf.eval(&state));
     }
 
     #[test]
     fn test_expression_get_predicates() {
+        let t = Rc::new(Predicate::new("truth", &[]));
+
         let expression = E::And(And::new(&[
             E::Or(Or::new(&[
-                E::Pred(TRUE()),
-                E::Not(Not::new(E::Pred(TRUE()))),
+                E::Pred(Rc::clone(&t)),
+                E::Not(Not::new(E::Pred(Rc::clone(&t)))),
             ])),
-            E::Pred(TRUE()),
+            E::Pred(Rc::clone(&t)),
             E::Not(Not::new(E::And(And::new(&[
-                E::Pred(TRUE()),
-                E::Not(Not::new(E::Pred(TRUE()))),
+                E::Pred(Rc::clone(&t)),
+                E::Not(Not::new(E::Pred(Rc::clone(&t)))),
             ])))),
         ]));
 
@@ -307,21 +334,23 @@ mod tests {
 
     #[test]
     fn test_formula_to_dnf() {
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let _state = State::with_predicates(&[Rc::clone(&t)]);
+
         let formula = Formula::new(E::And(And::new(&[
             E::Or(Or::new(&[
-                E::Pred(TRUE()),
-                E::Not(Not::new(E::Pred(TRUE()))),
+                E::Pred(Rc::clone(&t)),
+                E::Not(Not::new(E::Pred(Rc::clone(&t)))),
             ])),
-            E::Pred(TRUE()),
+            E::Pred(Rc::clone(&t)),
             E::Not(Not::new(E::And(And::new(&[
-                E::Pred(TRUE()),
-                E::Not(Not::new(E::Pred(TRUE()))),
+                E::Pred(Rc::clone(&t)),
+                E::Not(Not::new(E::Pred(Rc::clone(&t)))),
             ])))),
         ])));
 
-        let test_dnf: Dnf = formula.into();
-
-        let dnf = Dnf::new(Or::new(&[]));
+        let _test_dnf: Dnf = formula.into();
+        let _dnf = Dnf::new(Or::new(&[]));
 
         // assert_eq!(dnf, test_dnf);
         unimplemented!()
@@ -329,6 +358,10 @@ mod tests {
 
     #[test]
     fn test_formula_to_cnf() {
+        let t = Rc::new(Predicate::new("truth", &[]));
+        let _f = Rc::new(Predicate::new("falsehood", &[]));
+        let _state = State::with_predicates(&[Rc::clone(&t)]);
+
         unimplemented!()
     }
 }
