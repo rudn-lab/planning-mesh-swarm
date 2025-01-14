@@ -2,19 +2,29 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::rc::Rc;
 use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::r#type::Type;
-use crate::state::State;
 use crate::InternerSymbol;
 use crate::INTERNER;
 
+pub trait EvaluationContext {
+    fn eval(&self, predicate: &Predicate) -> bool;
+}
+
 pub trait Evaluable: Clone {
-    fn eval(&self, state: &State) -> bool;
+    fn eval(&self, context: &impl EvaluationContext) -> bool;
+    fn predicates(&self) -> Vec<Rc<Predicate>>;
 }
 
 impl<T: Evaluable> Evaluable for Box<T> {
-    fn eval(&self, state: &State) -> bool {
-        (**self).eval(state)
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        (**self).eval(context)
+    }
+
+    fn predicates(&self) -> Vec<Rc<Predicate>> {
+        (**self).predicates()
     }
 }
 
@@ -39,6 +49,10 @@ impl Predicate {
     pub fn name(&self) -> String {
         String::from(INTERNER.lock().resolve(self.name).unwrap())
     }
+
+    pub fn params(&self) -> &BTreeMap<InternerSymbol, Type> {
+        &self.params
+    }
 }
 
 impl core::fmt::Debug for Predicate {
@@ -58,14 +72,22 @@ impl PartialEq for Predicate {
 }
 
 impl Evaluable for Predicate {
-    fn eval(&self, state: &State) -> bool {
-        state.eval(self)
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        context.eval(self)
+    }
+
+    fn predicates(&self) -> Vec<Rc<Predicate>> {
+        vec![Rc::new(self.clone())]
     }
 }
 
 impl Evaluable for Rc<Predicate> {
-    fn eval(&self, state: &State) -> bool {
-        state.eval(self)
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        context.eval(self)
+    }
+
+    fn predicates(&self) -> Vec<Rc<Predicate>> {
+        (**self).predicates()
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::InternerSymbol;
 use crate::INTERNER;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Type {
     name: InternerSymbol,
 }

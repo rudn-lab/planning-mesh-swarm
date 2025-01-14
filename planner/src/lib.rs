@@ -2,12 +2,12 @@
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
-mod expression;
-mod predicate;
-mod state;
-mod r#type;
+pub mod expression;
+pub mod predicate;
+pub mod state;
+pub mod truth_table;
+pub mod r#type;
 
-use lazy_static;
 use spin::Mutex;
 use string_interner::{backend::BufferBackend, symbol::SymbolU16, StringInterner};
 

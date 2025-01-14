@@ -1,30 +1,26 @@
-use crate::predicate::Predicate;
+use crate::predicate::{EvaluationContext, Predicate};
 use alloc::collections::BTreeSet;
 use alloc::rc::Rc;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct State {
     predicates: BTreeSet<Rc<Predicate>>,
 }
 
 impl State {
-    pub fn new() -> Self {
-        Self {
-            predicates: BTreeSet::new(),
-        }
-    }
-
     pub fn with_predicates(predicates: &[Rc<Predicate>]) -> Self {
         Self {
-            predicates: predicates.iter().map(|p| Rc::clone(p)).collect(),
+            predicates: predicates.iter().map(Rc::clone).collect(),
         }
     }
 
     pub fn predicates(&self) -> &BTreeSet<Rc<Predicate>> {
         &self.predicates
     }
+}
 
-    pub fn eval(&self, predicate: &Predicate) -> bool {
+impl EvaluationContext for State {
+    fn eval(&self, predicate: &Predicate) -> bool {
         self.predicates.contains(predicate)
     }
 }
