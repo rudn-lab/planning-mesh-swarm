@@ -256,10 +256,9 @@ impl Dnf {
 
 fn map_to_dnf<T: Evaluable>(value: T) -> Dnf {
     let tt = TruthTable::new(&value);
-    let predicates = tt.predicates();
+    let predicates = tt.columns();
     let conjunctions = tt
-        .enumerate()
-        .filter_map(|(i, e)| if e { Some(i) } else { None })
+        .only_true_rows()
         .map(|i| {
             DnfMembers::and(
                 &(0..predicates.len())
@@ -381,10 +380,9 @@ impl Evaluable for Cnf {
 
 fn map_to_cnf<T: Evaluable>(value: T) -> Cnf {
     let tt = TruthTable::new(&value);
-    let predicates = tt.predicates();
+    let predicates = tt.columns();
     let disjunctions = tt
-        .enumerate()
-        .filter_map(|(i, e)| if !e { Some(i) } else { None })
+        .only_false_rows()
         .map(|i| {
             CnfMembers::or(
                 &(0..predicates.len())
