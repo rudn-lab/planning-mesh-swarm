@@ -77,10 +77,9 @@ impl core::fmt::Debug for Predicate {
 
 impl PartialEq for Predicate {
     fn eq(&self, other: &Self) -> bool {
-        // TODO: We have Predicate.unique_marker now.
-        // Figure out if this can be replaced by marker comparision,
-        // once you do resolved predicates in state.
-        self.name == other.name && self.params == other.params
+        self.name == other.name
+            && self.params == other.params
+            && self.unique_marker == other.unique_marker
     }
 }
 
@@ -111,33 +110,42 @@ mod tests {
 
     #[test]
     fn test_equality() {
+        // Different predicates, even if the name and the params
+        // are the same, but marker is not
         let p = Predicate::new("foo", &[]);
-        let p2 = Predicate::new("foo", &[]);
+        let p1 = Predicate::new("foo", &[]);
 
-        assert!(p == p2);
+        assert!(p != p1);
 
+        // Different because of marker and name
         let p = Predicate::new("foo", &[]);
-        let p2 = Predicate::new("bar", &[]);
+        let p1 = Predicate::new("bar", &[]);
 
-        assert!(p != p2);
+        assert!(p != p1);
 
+        // Same, because of the marker and all other params
         let t = Type::new("t");
         let p = Predicate::new("foo", &[("x", t)]);
-        let p2 = Predicate::new("foo", &[("x", t)]);
+        let mut p1 = Predicate::new("foo", &[("x", t)]);
+        p1.unique_marker = p.unique_marker;
 
-        assert!(p == p2);
+        assert!(p == p1);
 
+        // Different because of parameter name
         let t = Type::new("t");
         let p = Predicate::new("foo", &[("x", t)]);
-        let p2 = Predicate::new("foo", &[("y", t)]);
+        let mut p1 = Predicate::new("foo", &[("y", t)]);
+        p1.unique_marker = p.unique_marker;
 
-        assert!(p != p2);
+        assert!(p != p1);
 
+        // Different because of type
         let t = Type::new("t");
-        let t2 = Type::new("t2");
+        let t1 = Type::new("t2");
         let p = Predicate::new("foo", &[("x", t)]);
-        let p2 = Predicate::new("foo", &[("x", t2)]);
+        let mut p1 = Predicate::new("foo", &[("x", t1)]);
+        p1.unique_marker = p.unique_marker;
 
-        assert!(p != p2);
+        assert!(p != p1);
     }
 }

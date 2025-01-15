@@ -32,7 +32,7 @@ impl<T: Evaluable> Evaluable for And<T> {
             .iter()
             .flat_map(Evaluable::predicates)
             .sorted()
-            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+            .dedup()
             .collect()
     }
 }
@@ -60,7 +60,7 @@ impl<T: Evaluable> Evaluable for Or<T> {
             .iter()
             .flat_map(Evaluable::predicates)
             .sorted()
-            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+            .dedup()
             .collect()
     }
 }
@@ -131,13 +131,13 @@ impl Evaluable for FormulaMembers {
                 .iter()
                 .flat_map(Self::predicates)
                 .sorted()
-                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                .dedup()
                 .collect(),
             Self::Or(or) => {
                 or.o.iter()
                     .flat_map(Self::predicates)
                     .sorted()
-                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                    .dedup()
                     .collect()
             }
             Self::Not(not) => not.o.predicates(),
@@ -232,7 +232,7 @@ impl Evaluable for DnfMembers {
                 .iter()
                 .flat_map(NfMembers::predicates)
                 .sorted()
-                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                .dedup()
                 .collect(),
             Self::Prim(p) => p.predicates(),
         }
@@ -356,7 +356,7 @@ impl Evaluable for CnfMembers {
                 or.o.iter()
                     .flat_map(NfMembers::predicates)
                     .sorted()
-                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                    .dedup()
                     .collect()
             }
             Self::Prim(p) => p.predicates(),
