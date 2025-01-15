@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::vec;
 use alloc::vec::*;
+use itertools::Itertools;
 
 use crate::{
     predicate::{Evaluable, EvaluationContext, Predicate},
@@ -27,10 +28,12 @@ impl<T: Evaluable> Evaluable for And<T> {
     }
 
     fn predicates(&self) -> Vec<Rc<Predicate>> {
-        let mut res: Vec<_> = self.o.iter().flat_map(Evaluable::predicates).collect();
-        res.sort();
-        res.dedup();
-        res
+        self.o
+            .iter()
+            .flat_map(Evaluable::predicates)
+            .sorted()
+            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+            .collect()
     }
 }
 
@@ -53,10 +56,12 @@ impl<T: Evaluable> Evaluable for Or<T> {
     }
 
     fn predicates(&self) -> Vec<Rc<Predicate>> {
-        let mut res: Vec<_> = self.o.iter().flat_map(Evaluable::predicates).collect();
-        res.sort();
-        res.dedup();
-        res
+        self.o
+            .iter()
+            .flat_map(Evaluable::predicates)
+            .sorted()
+            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+            .collect()
     }
 }
 
@@ -121,17 +126,19 @@ impl Evaluable for FormulaMembers {
 
     fn predicates(&self) -> Vec<Rc<Predicate>> {
         match self {
-            Self::And(and) => {
-                let mut res: Vec<_> = and.o.iter().flat_map(Self::predicates).collect();
-                res.sort();
-                res.dedup();
-                res
-            }
+            Self::And(and) => and
+                .o
+                .iter()
+                .flat_map(Self::predicates)
+                .sorted()
+                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                .collect(),
             Self::Or(or) => {
-                let mut res: Vec<_> = or.o.iter().flat_map(Self::predicates).collect();
-                res.sort();
-                res.dedup();
-                res
+                or.o.iter()
+                    .flat_map(Self::predicates)
+                    .sorted()
+                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                    .collect()
             }
             Self::Not(not) => not.o.predicates(),
             Self::Pred(p) => vec![Rc::clone(p)],
@@ -220,12 +227,13 @@ impl Evaluable for DnfMembers {
 
     fn predicates(&self) -> Vec<Rc<Predicate>> {
         match self {
-            Self::And(and) => {
-                let mut res: Vec<_> = and.o.iter().flat_map(NfMembers::predicates).collect();
-                res.sort();
-                res.dedup();
-                res
-            }
+            Self::And(and) => and
+                .o
+                .iter()
+                .flat_map(NfMembers::predicates)
+                .sorted()
+                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                .collect(),
             Self::Prim(p) => p.predicates(),
         }
     }
@@ -345,10 +353,11 @@ impl Evaluable for CnfMembers {
     fn predicates(&self) -> Vec<Rc<Predicate>> {
         match self {
             Self::Or(or) => {
-                let mut res: Vec<_> = or.o.iter().flat_map(NfMembers::predicates).collect();
-                res.sort();
-                res.dedup();
-                res
+                or.o.iter()
+                    .flat_map(NfMembers::predicates)
+                    .sorted()
+                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
+                    .collect()
             }
             Self::Prim(p) => p.predicates(),
         }
@@ -517,15 +526,16 @@ mod tests {
     fn test_expression_get_predicates() {
         let t = Rc::new(Predicate::new("foo", &[]));
 
+        // All predicates are the smame
         let expression = FM::and(&[
             FM::or(&[FM::pred(&t), FM::not(&FM::pred(&t))]),
             FM::pred(&t),
             FM::not(&FM::and(&[FM::pred(&t), FM::not(&FM::pred(&t))])),
         ]);
 
-        // All are the same
         assert_eq!(1, expression.predicates().len());
 
+        // All predicates are unique
         let t = Rc::new(Predicate::new("foo", &[]));
         let t1 = Rc::new(Predicate::new("bar", &[]));
         let t2 = Rc::new(Predicate::new("baz", &[]));
@@ -539,6 +549,20 @@ mod tests {
         ]);
 
         assert_eq!(5, expression.predicates().len());
+
+        // Predicates are "reused" after "transformation".
+        // Look at Predicate.unique_marker.
+        let t = Rc::new(Predicate::new("foo", &[]));
+        let t1 = Rc::new(Predicate::new("bar", &[]));
+        let t2 = Rc::new(Predicate::new("baz", &[]));
+
+        let expression = FM::and(&[
+            FM::or(&[FM::pred(&t), FM::not(&FM::pred(&t1))]),
+            FM::pred(&t2),
+            FM::not(&FM::and(&[FM::pred(&t1), FM::not(&FM::pred(&t2))])),
+        ]);
+
+        assert_eq!(3, expression.predicates().len());
     }
 
     #[test]

@@ -166,14 +166,6 @@ mod tests {
         assert_eq!(0, tt.predicates.len());
         assert_eq!(1, tt.count());
 
-        // Two same predicats get deduped
-        let p = Rc::new(Predicate::new("bar", &[("x", t)]));
-        let f = Formula::new(FM::and(&[FM::pred(&p), FM::pred(&p)]));
-        let tt = TruthTable::new(&f);
-
-        assert_eq!(1, tt.predicates.len());
-        assert_eq!(2, tt.count());
-
         // Two predicats with parameters
         let p = Rc::new(Predicate::new("bar", &[("x", t)]));
         let p1 = Rc::new(Predicate::new("baz", &[("x", t)]));

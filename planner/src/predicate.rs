@@ -1,13 +1,6 @@
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::rc::Rc;
-use alloc::string::String;
-use alloc::vec;
-use alloc::vec::Vec;
-
-use crate::r#type::Type;
-use crate::InternerSymbol;
-use crate::INTERNER;
+use crate::{r#type::Type, InternerSymbol, INTERNER, RANDOM};
+use alloc::{boxed::Box, collections::BTreeMap, rc::Rc, string::String, vec, vec::Vec};
+use rand::Rng;
 
 pub trait EvaluationContext {
     fn eval(&self, predicate: &Predicate) -> bool;
@@ -32,6 +25,18 @@ impl<T: Evaluable> Evaluable for Box<T> {
 pub struct Predicate {
     name: InternerSymbol,
     params: BTreeMap<InternerSymbol, Type>,
+    // Considering that I carry predicates with `Rc` everywhere,
+    // it should probably be possible to enforce this uniqueness using them
+    // and not a special struct member.
+    /// Used to distinguish predicates with the same name and parameters
+    /// when doing normalization. For example:
+    /// `p XOR q` can be transformed into the following CNF: `(NOT p OR NOT q) AND (p OR q)`
+    /// In this example even if p and q are the same predicate,
+    /// they are still independent variables in the expression.
+    /// On the other hand, in the CNF above the two `p`s and `q`s are the same predicate
+    /// __and__ the same variables, and the expression should not be treated as having 4 inputs,
+    /// but only 2.
+    unique_marker: u32,
 }
 
 impl Predicate {
@@ -43,6 +48,7 @@ impl Predicate {
         Self {
             name: INTERNER.lock().get_or_intern(name),
             params: params_map,
+            unique_marker: RANDOM.lock().gen(),
         }
     }
 
@@ -52,6 +58,10 @@ impl Predicate {
 
     pub fn params(&self) -> &BTreeMap<InternerSymbol, Type> {
         &self.params
+    }
+
+    pub fn unique_marker(&self) -> u32 {
+        self.unique_marker
     }
 }
 
@@ -67,6 +77,9 @@ impl core::fmt::Debug for Predicate {
 
 impl PartialEq for Predicate {
     fn eq(&self, other: &Self) -> bool {
+        // TODO: We have Predicate.unique_marker now.
+        // Figure out if this can be replaced by marker comparision,
+        // once you do resolved predicates in state.
         self.name == other.name && self.params == other.params
     }
 }
