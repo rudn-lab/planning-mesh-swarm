@@ -21,6 +21,16 @@ impl<T: Evaluable> Evaluable for Box<T> {
     }
 }
 
+impl<T: Evaluable> Evaluable for &T {
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        (**self).eval(context)
+    }
+
+    fn predicates(&self) -> Vec<Rc<Predicate>> {
+        (**self).predicates()
+    }
+}
+
 #[derive(Clone, PartialOrd, Ord, Eq)]
 pub struct Predicate {
     name: InternerSymbol,

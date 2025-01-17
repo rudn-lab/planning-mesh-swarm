@@ -325,6 +325,8 @@ impl_with_map!(NfMembers => Dnf, map_to_dnf);
 impl_with_map!(DnfMembers => Dnf, map_to_dnf);
 impl_with_map!(CnfMembers => Dnf, map_to_dnf);
 impl_with_map!(Cnf => Dnf, map_to_dnf);
+// Thankfully, you can impl it for a reference
+impl_with_map!(&T, T: Evaluable => Dnf, map_to_dnf);
 
 #[derive(Debug, Clone)]
 pub enum CnfMembers {
@@ -421,6 +423,7 @@ impl_with_map!(NfMembers => Cnf, map_to_cnf);
 impl_with_map!(DnfMembers => Cnf, map_to_cnf);
 impl_with_map!(Dnf => Cnf, map_to_cnf);
 impl_with_map!(CnfMembers => Cnf, map_to_cnf);
+impl_with_map!(&T, T: Evaluable => Cnf, map_to_cnf);
 
 #[cfg(test)]
 mod tests {
