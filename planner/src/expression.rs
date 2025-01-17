@@ -5,7 +5,8 @@ use alloc::vec::*;
 use itertools::Itertools;
 
 use crate::{
-    predicate::{Evaluable, EvaluationContext, Predicate},
+    evaluation::{Evaluable, EvaluationContext},
+    predicate::Predicate,
     truth_table::TruthTable,
 };
 

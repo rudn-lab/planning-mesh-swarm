@@ -1,35 +1,10 @@
-use crate::{r#type::Type, InternerSymbol, INTERNER, RANDOM};
-use alloc::{boxed::Box, collections::BTreeMap, rc::Rc, string::String, vec, vec::Vec};
+use crate::{
+    evaluation::{Evaluable, EvaluationContext},
+    r#type::Type,
+    InternerSymbol, INTERNER, RANDOM,
+};
+use alloc::{collections::BTreeMap, rc::Rc, string::String, vec, vec::Vec};
 use rand::Rng;
-
-pub trait EvaluationContext {
-    fn eval(&self, predicate: &Predicate) -> bool;
-}
-
-pub trait Evaluable: Clone {
-    fn eval(&self, context: &impl EvaluationContext) -> bool;
-    fn predicates(&self) -> Vec<Rc<Predicate>>;
-}
-
-impl<T: Evaluable> Evaluable for Box<T> {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        (**self).eval(context)
-    }
-
-    fn predicates(&self) -> Vec<Rc<Predicate>> {
-        (**self).predicates()
-    }
-}
-
-impl<T: Evaluable> Evaluable for &T {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        (**self).eval(context)
-    }
-
-    fn predicates(&self) -> Vec<Rc<Predicate>> {
-        (**self).predicates()
-    }
-}
 
 #[derive(Clone, PartialOrd, Ord, Eq)]
 pub struct Predicate {

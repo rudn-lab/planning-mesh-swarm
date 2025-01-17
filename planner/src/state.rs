@@ -1,4 +1,4 @@
-use crate::predicate::{EvaluationContext, Predicate};
+use crate::{evaluation::EvaluationContext, predicate::Predicate};
 use alloc::collections::BTreeSet;
 use alloc::rc::Rc;
 
@@ -28,8 +28,7 @@ impl EvaluationContext for State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{predicate::*, r#type::*};
-    use core::assert;
+    use crate::{evaluation::Evaluable, predicate::*, r#type::*};
 
     #[test]
     fn test_predicate_eval() {

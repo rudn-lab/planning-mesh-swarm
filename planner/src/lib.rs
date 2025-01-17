@@ -3,6 +3,7 @@
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
+pub mod evaluation;
 pub mod expression;
 pub mod predicate;
 pub mod state;

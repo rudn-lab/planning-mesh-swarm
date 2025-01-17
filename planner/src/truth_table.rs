@@ -1,4 +1,7 @@
-use crate::predicate::{Evaluable, EvaluationContext, Predicate};
+use crate::{
+    evaluation::{Evaluable, EvaluationContext},
+    predicate::Predicate,
+};
 use alloc::{rc::Rc, vec::Vec};
 
 trait TruthTableCtx {
