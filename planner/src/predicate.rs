@@ -78,16 +78,6 @@ impl Evaluable for Predicate {
     }
 }
 
-impl Evaluable for Rc<Predicate> {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        context.eval(self)
-    }
-
-    fn predicates(&self) -> Vec<Rc<Predicate>> {
-        (**self).predicates()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

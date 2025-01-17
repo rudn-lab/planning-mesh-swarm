@@ -16,6 +16,16 @@ impl<T: Evaluable> Evaluable for Box<T> {
     }
 }
 
+impl<T: Evaluable> Evaluable for Rc<T> {
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        (**self).eval(context)
+    }
+
+    fn predicates(&self) -> Vec<Rc<Predicate>> {
+        (**self).predicates()
+    }
+}
+
 impl<T: Evaluable> Evaluable for &T {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
         (**self).eval(context)
