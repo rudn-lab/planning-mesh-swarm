@@ -1,18 +1,84 @@
 use crate::{
     evaluation::{Evaluable, EvaluationContext},
     r#type::Type,
+    sealed::Sealed,
     InternerSymbol, INTERNER, RANDOM,
 };
-use alloc::{collections::BTreeMap, rc::Rc, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
+use core::fmt::Debug;
+use dyn_clone::DynClone;
 use rand::Rng;
 
-#[derive(Clone, PartialOrd, Ord, Eq)]
-pub struct Predicate {
+pub trait Predicate: DynClone {
+    fn name(&self) -> InternerSymbol;
+    fn params(&self) -> &[Type];
+    fn unique_marker(&self) -> u32;
+}
+
+impl Sealed for dyn Predicate {}
+
+dyn_clone::clone_trait_object!(Predicate);
+
+impl Evaluable for Box<dyn Predicate> {
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        context.eval(self.clone())
+    }
+
+    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+        vec![self.clone()]
+    }
+}
+
+impl PartialEq for dyn Predicate {
+    fn eq(&self, other: &Self) -> bool {
+        self.name() == other.name()
+            && self.params() == other.params()
+            && self.unique_marker() == other.unique_marker()
+    }
+}
+
+impl Eq for dyn Predicate {}
+
+impl PartialOrd for dyn Predicate {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for dyn Predicate {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.name().cmp(&other.name())
+    }
+}
+
+impl Debug for dyn Predicate {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("dyn Predicate")
+            .field("name", &self.name())
+            .field("params", &self.params())
+            .field("unique_marker", &self.unique_marker())
+            .finish()
+    }
+}
+
+impl<const N: usize> Predicate for Pred<N> {
+    fn name(&self) -> InternerSymbol {
+        self.name
+    }
+
+    fn params(&self) -> &[Type] {
+        &self.params
+    }
+
+    fn unique_marker(&self) -> u32 {
+        self.unique_marker
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pred<const N: usize> {
     name: InternerSymbol,
-    params: BTreeMap<InternerSymbol, Type>,
-    // Considering that I carry predicates with `Rc` everywhere,
-    // it should probably be possible to enforce this uniqueness using them
-    // and not a special struct member.
+    params: [Type; N],
     /// Used to distinguish predicates with the same name and parameters
     /// when doing normalization. For example:
     /// `p XOR q` can be transformed into the following CNF: `(NOT p OR NOT q) AND (p OR q)`
@@ -24,57 +90,23 @@ pub struct Predicate {
     unique_marker: u32,
 }
 
-impl Predicate {
-    pub fn new(name: &str, params: &[(&str, Type)]) -> Self {
-        let params_map = params
-            .iter()
-            .map(|(n, t)| (INTERNER.lock().get_or_intern(n), *t))
-            .collect();
+impl<const N: usize> Pred<N> {
+    pub fn new(name: &str, params: &[Type; N]) -> Self {
         Self {
             name: INTERNER.lock().get_or_intern(name),
-            params: params_map,
+            params: *params,
             unique_marker: RANDOM.lock().gen(),
         }
     }
-
-    pub fn name(&self) -> String {
-        String::from(INTERNER.lock().resolve(self.name).unwrap())
-    }
-
-    pub fn params(&self) -> &BTreeMap<InternerSymbol, Type> {
-        &self.params
-    }
-
-    pub fn unique_marker(&self) -> u32 {
-        self.unique_marker
-    }
 }
 
-impl core::fmt::Debug for Predicate {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "Predicate {}",
-            INTERNER.lock().resolve(self.name).unwrap()
-        )
-    }
-}
-
-impl PartialEq for Predicate {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-            && self.params == other.params
-            && self.unique_marker == other.unique_marker
-    }
-}
-
-impl Evaluable for Predicate {
+impl<const N: usize> Evaluable for Pred<N> {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
-        context.eval(self)
+        context.eval(Box::new(*self))
     }
 
-    fn predicates(&self) -> Vec<Rc<Predicate>> {
-        vec![Rc::new(self.clone())]
+    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+        vec![Box::new(*self)]
     }
 }
 
@@ -87,38 +119,30 @@ mod tests {
     fn test_equality() {
         // Different predicates, even if the name and the params
         // are the same, but marker is not
-        let p = Predicate::new("foo", &[]);
-        let p1 = Predicate::new("foo", &[]);
+        let p = Pred::new("foo", &[]);
+        let p1 = Pred::new("foo", &[]);
 
         assert!(p != p1);
 
         // Different because of marker and name
-        let p = Predicate::new("foo", &[]);
-        let p1 = Predicate::new("bar", &[]);
+        let p = Pred::new("foo", &[]);
+        let p1 = Pred::new("bar", &[]);
 
         assert!(p != p1);
 
         // Same, because of the marker and all other params
         let t = Type::new("t");
-        let p = Predicate::new("foo", &[("x", t)]);
-        let mut p1 = Predicate::new("foo", &[("x", t)]);
+        let p = Pred::new("foo", &[t]);
+        let mut p1 = Pred::new("foo", &[t]);
         p1.unique_marker = p.unique_marker;
 
         assert!(p == p1);
 
-        // Different because of parameter name
-        let t = Type::new("t");
-        let p = Predicate::new("foo", &[("x", t)]);
-        let mut p1 = Predicate::new("foo", &[("y", t)]);
-        p1.unique_marker = p.unique_marker;
-
-        assert!(p != p1);
-
         // Different because of type
         let t = Type::new("t");
         let t1 = Type::new("t2");
-        let p = Predicate::new("foo", &[("x", t)]);
-        let mut p1 = Predicate::new("foo", &[("x", t1)]);
+        let p = Pred::new("foo", &[t]);
+        let mut p1 = Pred::new("foo", &[t1]);
         p1.unique_marker = p.unique_marker;
 
         assert!(p != p1);

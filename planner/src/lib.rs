@@ -21,3 +21,10 @@ lazy_static::lazy_static! {
     static ref INTERNER: Mutex<Interner> = Mutex::new(Interner::new());
     static ref RANDOM: Mutex<ChaCha8Rng> = Mutex::new(ChaCha8Rng::seed_from_u64(42));
 }
+
+mod sealed {
+    /// This is silly.
+    /// https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
+    #[allow(dead_code)]
+    pub(crate) trait Sealed {}
+}

@@ -1,27 +1,27 @@
 use crate::{evaluation::EvaluationContext, predicate::Predicate};
-use alloc::collections::BTreeSet;
-use alloc::rc::Rc;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct State {
-    predicates: BTreeSet<Rc<Predicate>>,
+    predicates: Vec<Box<dyn Predicate>>,
 }
 
 impl State {
-    pub fn with_predicates(predicates: &[Rc<Predicate>]) -> Self {
-        Self {
-            predicates: predicates.iter().map(Rc::clone).collect(),
-        }
+    pub fn with_predicates(mut self, predicates: &[Box<dyn Predicate>]) -> Self {
+        self.predicates
+            .append(&mut predicates.iter().map(Box::clone).collect());
+        self
     }
 
-    pub fn predicates(&self) -> &BTreeSet<Rc<Predicate>> {
+    pub fn predicates(&self) -> &Vec<Box<dyn Predicate>> {
         &self.predicates
     }
 }
 
 impl EvaluationContext for State {
-    fn eval(&self, predicate: &Predicate) -> bool {
-        self.predicates.contains(predicate)
+    fn eval(&self, predicate: Box<dyn Predicate>) -> bool {
+        self.predicates.contains(&predicate)
     }
 }
 
@@ -33,14 +33,12 @@ mod tests {
     #[test]
     fn test_predicate_eval() {
         let t = Type::new("foo");
-        let p = Rc::new(Predicate::new("bar", &[("x", t), ("y", t)]));
-        let state = State {
-            predicates: BTreeSet::from([Rc::clone(&p)]),
-        };
+        let p = Pred::new("bar", &[t, t]);
+        let state = State::default().with_predicates(&[Box::new(p)]);
 
         assert!(p.eval(&state));
 
-        let p = Predicate::new("baz", &[]);
+        let p = Pred::new("baz", &[]);
 
         assert!(!p.eval(&state));
     }

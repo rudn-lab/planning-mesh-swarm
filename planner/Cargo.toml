@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+dyn-clone = "1.0.17"
 impl-enum = "0.3.1"
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
 lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
