@@ -2,6 +2,7 @@ use crate::{
     evaluation::{Evaluable, EvaluationContext},
     r#type::Type,
     sealed::Sealed,
+    util::const_table::ConstTable,
     InternerSymbol, INTERNER, RANDOM,
 };
 use alloc::{boxed::Box, vec, vec::Vec};
@@ -12,6 +13,7 @@ use rand::Rng;
 pub trait Predicate: DynClone {
     fn name(&self) -> InternerSymbol;
     fn params(&self) -> &[Type];
+    fn resolutions(&self) -> Vec<(usize, InternerSymbol)>;
     fn unique_marker(&self) -> u32;
 }
 
@@ -56,12 +58,66 @@ impl Debug for dyn Predicate {
         f.debug_struct("dyn Predicate")
             .field("name", &self.name())
             .field("params", &self.params())
+            .field("resolutions", &self.resolutions())
             .field("unique_marker", &self.unique_marker())
             .finish()
     }
 }
 
-impl<const N: usize> Predicate for Pred<N> {
+pub trait ResolvedPredicate: Predicate {}
+
+dyn_clone::clone_trait_object!(ResolvedPredicate);
+
+impl PartialEq for dyn ResolvedPredicate {
+    fn eq(&self, other: &Self) -> bool {
+        let a: &dyn Predicate = self;
+        let b: &dyn Predicate = other;
+        a.eq(b)
+    }
+}
+
+impl Eq for dyn ResolvedPredicate {}
+
+#[allow(clippy::non_canonical_partial_ord_impl)]
+impl PartialOrd for dyn ResolvedPredicate {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        let a: &dyn Predicate = self;
+        let b: &dyn Predicate = other;
+        a.partial_cmp(b)
+    }
+}
+
+impl Ord for dyn ResolvedPredicate {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        let a: &dyn Predicate = self;
+        let b: &dyn Predicate = other;
+        a.cmp(b)
+    }
+}
+
+impl Debug for dyn ResolvedPredicate {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let a: &dyn Predicate = self;
+        write!(f, "{:?}", a)
+    }
+}
+
+macro_rules! partial_eq_predicate_traits {
+    ($p1:ident, $p2:ident) => {
+        impl PartialEq<dyn $p1> for dyn $p2 {
+            fn eq(&self, other: &dyn $p1) -> bool {
+                self.name() == other.name() && self.params() == other.params()
+            }
+        }
+    };
+}
+
+partial_eq_predicate_traits!(Predicate, ResolvedPredicate);
+partial_eq_predicate_traits!(ResolvedPredicate, Predicate);
+
+impl<const N: usize> ResolvedPredicate for Pred<N, N> {}
+
+impl<const N: usize, const M: usize> Predicate for Pred<N, M> {
     fn name(&self) -> InternerSymbol {
         self.name
     }
@@ -73,12 +129,17 @@ impl<const N: usize> Predicate for Pred<N> {
     fn unique_marker(&self) -> u32 {
         self.unique_marker
     }
+
+    fn resolutions(&self) -> Vec<(usize, InternerSymbol)> {
+        self.resolution_table.key_values()
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Pred<const N: usize> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pred<const N: usize, const M: usize> {
     name: InternerSymbol,
     params: [Type; N],
+    resolution_table: ConstTable<usize, InternerSymbol, M>,
     /// Used to distinguish predicates with the same name and parameters
     /// when doing normalization. For example:
     /// `p XOR q` can be transformed into the following CNF: `(NOT p OR NOT q) AND (p OR q)`
@@ -90,17 +151,53 @@ pub struct Pred<const N: usize> {
     unique_marker: u32,
 }
 
-impl<const N: usize> Pred<N> {
+impl<const N: usize> Pred<N, 0> {
     pub fn new(name: &str, params: &[Type; N]) -> Self {
         Self {
             name: INTERNER.lock().get_or_intern(name),
             params: *params,
+            resolution_table: ConstTable::new([]),
             unique_marker: RANDOM.lock().gen(),
         }
     }
 }
 
-impl<const N: usize> Evaluable for Pred<N> {
+impl<const N: usize, const M: usize> Pred<N, M> {
+    pub fn with_resolution(name: &str, params: &[Type; N], resolution: [(usize, &str); M]) -> Self {
+        assert!(
+            M <= N,
+            "Resolution map size should not exceed the number of parameters in a predicate."
+        );
+        let mut interner = INTERNER.lock();
+        Self {
+            name: interner.get_or_intern(name),
+            params: *params,
+            resolution_table: ConstTable::new(
+                resolution.map(|(k, v)| (k, interner.get_or_intern(v))),
+            ),
+            unique_marker: RANDOM.lock().gen(),
+        }
+    }
+
+    pub fn as_resolved<const L: usize>(self, resolution: [(usize, &str); L]) -> Pred<N, N> {
+        // Asserting this because if L repeats some keys in M,
+        // we should still get N at the end
+        assert!(L + M >= N, "Provided resolution array is too small.");
+        let mut interner = INTERNER.lock();
+        let resolution_table = self
+            .resolution_table
+            .append(resolution.map(|(k, v)| (k, interner.get_or_intern(v))));
+
+        Pred {
+            name: self.name,
+            params: self.params,
+            resolution_table,
+            unique_marker: self.unique_marker,
+        }
+    }
+}
+
+impl<const N: usize, const M: usize> Evaluable for Pred<N, M> {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
         context.eval(Box::new(*self))
     }

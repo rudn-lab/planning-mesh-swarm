@@ -1,4 +1,4 @@
-use crate::predicate::Predicate;
+use crate::predicate::{Predicate, ResolvedPredicate};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 
 pub trait Evaluable: Clone {
@@ -38,4 +38,8 @@ impl<T: Evaluable> Evaluable for &T {
 
 pub trait EvaluationContext {
     fn eval(&self, predicate: Box<dyn Predicate>) -> bool;
+}
+
+pub trait ResolutionContext {
+    fn resolve(&self, predicate: Box<dyn Predicate>) -> Option<Box<dyn ResolvedPredicate>>;
 }

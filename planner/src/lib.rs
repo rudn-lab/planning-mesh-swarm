@@ -1,5 +1,8 @@
 #![feature(allocator_api)] // For nohash-hasher, https://github.com/rust-lang/rust/issues/32838
 #![feature(iter_advance_by)]
+#![feature(abort_unwind)]
+#![feature(trait_upcasting)]
+#![feature(generic_const_exprs)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
@@ -9,6 +12,7 @@ pub mod predicate;
 pub mod state;
 pub mod truth_table;
 pub mod r#type;
+mod util;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
