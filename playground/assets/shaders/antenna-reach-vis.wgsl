@@ -5,50 +5,16 @@ var<uniform> radius: f32;
 @group(2) @binding(1)
 var<uniform> center: vec2<f32>;
 @group(2) @binding(2)
-var<uniform> logistic_x0: f32;
-@group(2) @binding(3)
-var<uniform> logistic_k: f32;
-@group(2) @binding(4)
 var<uniform> threshold: f32;
+@group(2) @binding(3)
+var<uniform> camera_scale: f32;
+@group(2) @binding(4)
+var<uniform> is_selected: f32;
+@group(2) @binding(5)
+var<uniform> shade_color: vec4<f32>;
+@group(2) @binding(6)
+var<uniform> time: f32;
 
-fn sigmoid_unshifted(x: f32) -> f32 {
-    var numerator = pow(x, logistic_k);
-    var denominator = pow(x, logistic_k) + pow(1.0 - x, logistic_k);
-
-    return numerator / denominator;
-}
-
-fn sigmoid(x: f32) -> f32 {
-    // The function is defined as:
-    // \frac{\left(x-x_{0}\right)^{k}}{\left(x-x_{0}\right)^{k}\ +\ \left(1-\left(x-x_{0}\right)\right)^{k}}
-    //
-    // When x_0 = 0 and k is negative, f(0)=1 and f(1)=0.
-    // When x_0 is not zero, then the values are not exactly 0 and 1.
-    // To correct for this, we scale the function output,
-    // so that across the entire range of 0-1, the new function takes all the values between 0 and 1.
-    
-    var shift_x = x - logistic_x0;
-
-    var maximum_value = 0.5;
-
-    // If k is positive, then the function slopes up,
-    // (the signal strength gets higher as you move further away from the source: the opposite of what you want).
-    // So the maximum value to be found is at the right side of the function.
-    if (logistic_k > 0.0) {
-        maximum_value = sigmoid_unshifted(1.0 - logistic_x0);
-    }
-
-    // If k is negative, then the function slopes down,
-    // so the maximum value is at the left side of the function.
-    if (logistic_k < 0.0) {
-        maximum_value = sigmoid_unshifted(-logistic_x0);
-    }
-    
-    // To scale it back up, divide by the greatest value achievable in the range.
-    var scaled_value = sigmoid_unshifted(shift_x) / maximum_value;
-
-    return scaled_value;
-}
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -67,22 +33,32 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
-  var value = sigmoid_unshifted(dist);
 
-  // If the value is above the threshold, set output to green
-  if (value > threshold) {
-    out = vec4<f32>(0.0, 1.0, 0.0, 0.2);
+  var value = max(0.0, 1 - dist * dist);
+  value = value * value * value;
+
+  if (is_selected == 1.0) {
+    // Draw a line at the threshold:
+    // if the value is close to it,
+    // return yellow
+
+    // get the angle of the current point relative to the center point
+    var angle = atan2(in.world_position.x - center.x, in.world_position.y - center.y);
+    var wave = sin((angle * 20.0) + time);
+
+    var epsilon = 0.001 * camera_scale;
+    if (abs(value - threshold) < epsilon) {
+      if (wave > 0.0) {
+        out = vec4<f32>(1.0, 1.0, 0.0, 1.0);
+        return out;
+      }
+    }    
   }
 
-  // If the value is close to the threshold, set output to yellow
-  if (abs(value - threshold) < 0.01) {
-    out = vec4<f32>(1.0, 1.0, 0.0, 1.0);
-  }
+  out = shade_color;
 
-  // If the value is below the threshold, set output to red
-  if (value < threshold) {
-    out = vec4<f32>(1.0, 0.0, 0.0, 0.2);
-  }
+  out.a *= value;
+
 
   return out;
 }

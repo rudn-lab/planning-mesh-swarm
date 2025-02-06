@@ -1,5 +1,7 @@
 use bevy::{prelude::*, sprite::Material2dPlugin};
 
+use crate::robot::onclick_handling::SelectedRobot;
+
 use super::antenna_reach_vis_mat::AntennaReachVisualizationMaterial;
 
 /// This component is used as a child of the robot entity to indicate that it has a virtual network interface.
@@ -48,11 +50,23 @@ fn update_antenna_reach_vis_material(
     mut query: Query<(
         &mut MeshMaterial2d<AntennaReachVisualizationMaterial>,
         &GlobalTransform,
+        &Parent,
     )>,
+    camera_query: Query<&OrthographicProjection, With<Camera2d>>,
+    selected_robot: Res<SelectedRobot>,
+    time: Res<Time>,
 ) {
-    for (mut material, transform) in query.iter_mut() {
+    let camera = camera_query.single();
+    for (mut material, transform, parent) in query.iter_mut() {
         if let Some(material) = materials.get_mut(&mut material.0) {
             material.center = transform.translation().xy();
+            material.camera_scale = camera.scale;
+            material.is_selected = if selected_robot.robot.is_some_and(|v| v == parent.get()) {
+                1.0
+            } else {
+                0.0
+            };
+            material.time = time.elapsed_secs_wrapped();
         }
     }
 }

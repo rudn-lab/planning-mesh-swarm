@@ -9,11 +9,19 @@ pub(crate) struct AntennaReachVisualizationMaterial {
     #[uniform(1)]
     pub(crate) center: Vec2,
     #[uniform(2)]
-    pub(crate) logistic_x0: f32,
-    #[uniform(3)]
-    pub(crate) logistic_k: f32,
-    #[uniform(4)]
     pub(crate) threshold: f32,
+    #[uniform(3)]
+    pub(crate) camera_scale: f32,
+
+    /// Value is either 0.0 or 1.0
+    #[uniform(4)]
+    pub(crate) is_selected: f32,
+
+    #[uniform(5)]
+    pub(crate) shade_color: Vec4,
+
+    #[uniform(6)]
+    pub(crate) time: f32,
 }
 
 impl Default for AntennaReachVisualizationMaterial {
@@ -21,9 +29,11 @@ impl Default for AntennaReachVisualizationMaterial {
         Self {
             radius: 10.0 * CENTIMETER,
             center: Vec2::ZERO,
-            logistic_x0: 0.0,
-            logistic_k: -3.0,
             threshold: 0.05,
+            camera_scale: 1.0,
+            is_selected: 0.0,
+            shade_color: Vec4::new(0.0, 1.0, 0.0, 0.5),
+            time: 0.0,
         }
     }
 }
