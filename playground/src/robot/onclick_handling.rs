@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 use crate::robot::selection_reticle::ReticleBundle;
 
+use super::motion_types::RobotState;
+
 #[derive(Resource, Default)]
 pub(crate) struct SelectedRobot {
     pub(crate) robot: Option<Entity>,
@@ -24,8 +26,14 @@ pub(crate) enum SelectionChanged {
 pub(crate) fn on_click_robot(
     click: Trigger<Pointer<Click>>,
     selected_robot_query: Query<Entity, With<SelectedRobotMarker>>,
+    all_robots: Query<Entity, With<RobotState>>,
     mut writer: EventWriter<SelectionChanged>,
 ) {
+    // Ensure that the entity that was clicked is a robot
+    if all_robots.get(click.entity()).is_err() {
+        return;
+    }
+
     // If there was no robot selected, then select me
     if selected_robot_query.is_empty() {
         writer.send(SelectionChanged::SelectedRobot(click.entity()));
@@ -46,6 +54,7 @@ pub(crate) fn on_selection_event(
     mut reader: EventReader<SelectionChanged>,
     mut commands: Commands,
     mut selected_robot: ResMut<SelectedRobot>,
+    mut hovered_robot: ResMut<crate::radio::radio_reach_tooltip::HoveredRobot>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
@@ -62,10 +71,16 @@ pub(crate) fn on_selection_event(
                 // The new robot is now selected
                 commands.entity(*entity).insert(SelectedRobotMarker);
                 selected_robot.robot = Some(*entity);
+
+                // No robot is now hovered (because we're now hovering over the robot we just clicked)
+                hovered_robot.0 = None;
             }
             SelectionChanged::DeselectedRobot(entity) => {
                 commands.entity(*entity).remove::<SelectedRobotMarker>();
                 selected_robot.robot = None;
+
+                // No robot is now hovered
+                hovered_robot.0 = None;
             }
         }
 

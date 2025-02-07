@@ -15,6 +15,12 @@ var<uniform> shade_color: vec4<f32>;
 @group(2) @binding(6)
 var<uniform> time: f32;
 
+fn signal_strength(rel_distance: f32) -> f32 {
+  var value = max(0.0, 1 - rel_distance * rel_distance);
+  value = value * value * value;
+
+  return value;
+}
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -33,9 +39,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
-
-  var value = max(0.0, 1 - dist * dist);
-  value = value * value * value;
+  var value = signal_strength(dist);
 
   if (is_selected == 1.0) {
     // Draw a line at the threshold:
@@ -46,8 +50,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var angle = atan2(in.world_position.x - center.x, in.world_position.y - center.y);
     var wave = sin((angle * 20.0) + time);
 
-    var epsilon = 0.001 * camera_scale;
-    if (abs(value - threshold) < epsilon) {
+    var epsilon = 0.002 * camera_scale;
+    if (abs(value - threshold * camera_scale) < epsilon) {
       if (wave > 0.0) {
         out = vec4<f32>(1.0, 1.0, 0.0, 1.0);
         return out;

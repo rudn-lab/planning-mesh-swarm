@@ -2,26 +2,24 @@ pub(crate) mod bg_grid;
 pub(crate) mod bg_grid_mat;
 pub(crate) mod fps_monitor;
 mod pause_controller;
+mod plugins;
 pub(crate) mod radio;
 pub(crate) mod robot;
 pub(crate) mod ui;
 
 use core::f32;
 
-use bevy::{
-    asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*,
-    window::WindowResolution, winit::WinitSettings,
-};
-use bevy_egui::EguiPlugin;
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
-use bevy_tweening::TweeningPlugin;
+use bevy::{prelude::*, winit::WinitSettings};
+use bevy_pancam::{DirectionKeys, PanCam};
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
 use pause_controller::PausePlugin;
-use radio::nic_components::{AntennaRenderingPlugin, NicBundle};
+use plugins::MyPlugins;
+use radio::{
+    nic_components::{AntennaRenderingPlugin, NicBundle},
+    RadioPlugin,
+};
 use robot::{onclick_handling::on_click_robot, RobotBehaviorPlugin, RobotBundle};
-use ui::Ui;
 
 /// The number of game units in 1 millimeter
 pub(crate) const MILLIMETER: f32 = 10.0;
@@ -35,34 +33,7 @@ pub(crate) const CELL_SIZE: f32 = CENTIMETER;
 fn main() {
     App::new()
         .insert_resource(WinitSettings::desktop_app())
-        .add_plugins(
-            DefaultPlugins
-                .build()
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        fit_canvas_to_parent: true,
-                        resolution: WindowResolution::new(1280.0, 720.0)
-                            .with_scale_factor_override(1.0),
-                        ..default()
-                    }),
-                    ..default()
-                })
-                .set(AssetPlugin {
-                    meta_check: AssetMetaCheck::Never,
-                    watch_for_changes_override: Some(true),
-                    ..default()
-                }),
-        )
-        .add_plugins(EguiPlugin)
-        .add_plugins(TweeningPlugin)
-        .add_plugins(MeshPickingPlugin)
-        .add_plugins(bevy_stl::StlPlugin)
-        .insert_resource(WinitSettings::game())
-        .add_plugins(Ui)
-        .add_plugins(PanCamPlugin::default())
-        .add_plugins(
-            WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
-        )
+        .add_plugins(MyPlugins)
         .add_systems(Startup, setup_system)
         .add_plugins({
             let grid_size = 100f32 * CENTIMETER;
@@ -77,7 +48,7 @@ fn main() {
         .add_plugins(RobotBehaviorPlugin)
         .add_plugins(FpsMonitorPlugin)
         .add_plugins(PausePlugin)
-        .add_plugins(AntennaRenderingPlugin)
+        .add_plugins(RadioPlugin)
         .run();
 }
 
@@ -96,16 +67,14 @@ fn setup_system(world: &mut World) {
         ..Default::default()
     });
 
-    let nic = NicBundle::new(world);
+    let nic = NicBundle::new(world, Srgba::GREEN);
     let robot_nic_child = world.commands().spawn(nic).id();
 
     let robot = RobotBundle::new(0, (3, 2), world, 1.0, 0.5);
-    world
-        .commands()
-        .spawn(robot)
-        .observe(on_click_robot)
-        .add_child(robot_nic_child);
+    world.commands().spawn(robot).add_child(robot_nic_child);
 
     let robot = RobotBundle::new(1, (-3, 2), world, 0.5, 1.0);
-    world.commands().spawn(robot).observe(on_click_robot);
+    world.commands().spawn(robot);
+
+    world.add_observer(on_click_robot);
 }
