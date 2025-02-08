@@ -76,7 +76,7 @@ pub(crate) struct FpsMonitorPlugin;
 impl Plugin for FpsMonitorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FrameTimeDiagnosticsPlugin);
-        app.insert_resource(FpsTextVisible(true));
+        app.insert_resource(FpsTextVisible(false));
         app.add_systems(Update, (fps_text_update_system, fps_counter_showhide));
     }
 }

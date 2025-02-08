@@ -2,7 +2,7 @@ use async_channel::{Receiver, Sender};
 use bevy::{prelude::*, tasks::Task};
 use high_level_cmds::MotionCommand;
 
-use crate::CELL_SIZE;
+use crate::bg_grid::grid_pos_to_world;
 
 use super::virtual_chassis::VirtualChassisCommand;
 
@@ -77,6 +77,15 @@ impl RobotOrientation {
             RobotOrientation::Right => (n, 0),
         }
     }
+
+    pub(crate) fn to_quaternion(&self) -> Quat {
+        match self {
+            RobotOrientation::Up => Quat::IDENTITY,
+            RobotOrientation::Left => Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+            RobotOrientation::Down => Quat::from_rotation_z(std::f32::consts::PI),
+            RobotOrientation::Right => Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2),
+        }
+    }
 }
 
 /// Component that marks robots that are not currently moving.
@@ -122,11 +131,7 @@ pub(crate) struct RobotState {
 
 impl RobotState {
     pub(crate) fn get_translation(&self) -> Vec3 {
-        Vec3::new(
-            self.grid_pos.0 as f32 * CELL_SIZE,
-            self.grid_pos.1 as f32 * CELL_SIZE,
-            0.0,
-        )
+        grid_pos_to_world(self.grid_pos).extend(0.0)
     }
 
     pub(crate) fn get_rotation(&self) -> Quat {

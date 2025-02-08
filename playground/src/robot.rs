@@ -14,6 +14,7 @@ mod internal_state_vis;
 pub(crate) mod motion_anim;
 pub(crate) mod motion_types;
 pub(crate) mod onclick_handling;
+pub(crate) mod robot_spawn_menu;
 mod selection_reticle;
 pub(crate) mod virtual_chassis;
 

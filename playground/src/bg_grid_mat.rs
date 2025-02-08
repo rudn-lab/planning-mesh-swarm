@@ -9,7 +9,13 @@ pub(crate) struct GridMaterial {
     #[uniform(2)]
     pub(crate) num_cells: Vec2,
     #[uniform(3)]
-    pub(crate) line_thickness: f32,
+    pub(crate) line_thickness_min: f32,
+    #[uniform(4)]
+    pub(crate) line_thickness_max: f32,
+    #[uniform(5)]
+    pub(crate) cursor_position: Vec2,
+    #[uniform(6)]
+    pub(crate) spotlight_radius: f32,
 }
 
 impl Default for GridMaterial {
@@ -18,7 +24,10 @@ impl Default for GridMaterial {
             line_color: Color::BLACK.to_linear().to_vec4(),
             bg_color: Color::NONE.to_linear().to_vec4(),
             num_cells: Vec2::default(),
-            line_thickness: f32::default(),
+            line_thickness_min: f32::default(),
+            line_thickness_max: f32::default(),
+            cursor_position: Vec2::default(),
+            spotlight_radius: f32::default(),
         }
     }
 }

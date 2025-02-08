@@ -1,12 +1,14 @@
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*,
-    window::WindowResolution, winit::WinitSettings,
+    render::RenderPlugin, window::WindowResolution, winit::WinitSettings,
 };
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_pancam::PanCamPlugin;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_tweening::TweeningPlugin;
+
+use crate::robot::robot_spawn_menu::GhostRobotPlugin;
 
 /// Plugin that contains most of the plugins we're using
 pub(super) struct MyPlugins;
@@ -41,6 +43,7 @@ impl Plugin for MyPlugins {
         .add_plugins(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
-        .add_plugins(crate::ui::Ui);
+        .add_plugins(crate::ui::Ui)
+        .add_plugins(GhostRobotPlugin);
     }
 }

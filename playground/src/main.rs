@@ -40,7 +40,9 @@ fn main() {
             Grid {
                 mesh_size: Vec2::new(grid_size, grid_size),
                 num_cells: Vec2::new(grid_size / CELL_SIZE, grid_size / CELL_SIZE),
-                line_thickness: 0.05f32,
+                line_thickness_min: 0.03f32,
+                line_thickness_max: 0.07f32,
+                spotlight_radius: 500.0,
                 line_color: Color::BLACK,
                 bg_color: Color::NONE,
             }

@@ -1,58 +1,48 @@
 use bevy::{
     app::{Plugin, Update},
+    ecs::{entity::Entity, event::EventWriter},
     prelude::{Camera2d, Local, OrthographicProjection, Query, Res, With},
 };
 use bevy_egui::EguiContexts;
 use bevy_pancam::PanCam;
 
-use crate::pause_controller::PauseState;
+use crate::robot::{motion_types::RobotState, onclick_handling::SelectionChanged};
 
 pub(crate) struct Ui;
 
 impl Plugin for Ui {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.add_systems(Update, left_panel);
-        app.add_systems(Update, top_panel);
+        // app.add_systems(Update, top_panel);
     }
 }
 
-fn left_panel(mut contexts: EguiContexts, mut is_last_selected: Local<bool>) {
+fn left_panel(
+    mut contexts: EguiContexts,
+    robots: Query<(Entity, &RobotState)>,
+    mut ev_writer: EventWriter<SelectionChanged>,
+) {
     let ctx = contexts.ctx_mut();
+    let mut robots = robots.iter().collect::<Vec<_>>();
+    robots.sort_by_key(|v| v.1.id);
+
     egui::SidePanel::left("left_panel")
         .resizable(true)
         .show(ctx, |ui| {
-            ui.label("Left resizeable panel");
-            if ui
-                .add(egui::widgets::Button::new("A button").selected(!*is_last_selected))
-                .clicked()
-            {
-                *is_last_selected = false;
+            ui.label(format!("{} robots", robots.len()));
+
+            for (entity, robot) in robots {
+                ui.horizontal(|ui| {
+                    let resp = ui.link(format!("Robot {}", robot.id));
+                    if resp.clicked() {
+                        // TODO: reveal the robot
+                        ev_writer.send(SelectionChanged::SelectedRobot(entity));
+                    }
+
+                    ui.label(format!("{:?}", robot.grid_pos));
+                });
             }
-            if ui
-                .add(egui::widgets::Button::new("Another button").selected(*is_last_selected))
-                .clicked()
-            {
-                *is_last_selected = true;
-            }
 
-            ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
-        });
-}
-
-fn top_panel(
-    mut contexts: EguiContexts,
-    camera: Query<(&PanCam, &OrthographicProjection), With<Camera2d>>,
-    pause_state: Res<PauseState>,
-) {
-    let ctx = contexts.ctx_mut();
-    let camera = camera.single();
-
-    egui::TopBottomPanel::top("top_panel")
-        .resizable(true)
-        .show(ctx, |ui| {
-            ui.label("Top resizeable panel");
-            ui.label(format!("{:?}", camera.1));
-            ui.label(format!("Paused: {:?}", pause_state.paused));
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         });
 }
