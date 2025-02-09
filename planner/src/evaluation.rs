@@ -1,32 +1,18 @@
+use core::ops::Deref;
+
 use crate::predicate::{Predicate, ResolvedPredicate};
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
 pub trait Evaluable: Clone {
     fn eval(&self, context: &impl EvaluationContext) -> bool;
     fn predicates(&self) -> Vec<Box<dyn Predicate>>;
 }
 
-impl<T: Evaluable> Evaluable for Box<T> {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        (**self).eval(context)
-    }
-
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
-        (**self).predicates()
-    }
-}
-
-impl<T: Evaluable> Evaluable for Rc<T> {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        (**self).eval(context)
-    }
-
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
-        (**self).predicates()
-    }
-}
-
-impl<T: Evaluable> Evaluable for &T {
+impl<T, D> Evaluable for D
+where
+    T: Evaluable,
+    D: Deref<Target = T> + Clone,
+{
     fn eval(&self, context: &impl EvaluationContext) -> bool {
         (**self).eval(context)
     }
