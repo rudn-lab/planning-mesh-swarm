@@ -4,19 +4,18 @@ use crate::{
 };
 use alloc::{boxed::Box, vec::Vec};
 
-trait TruthTableCtx {
-    fn curr_row(&self) -> usize;
-    fn columns(&self) -> &[Box<dyn Predicate>];
-}
-
-impl<T: TruthTableCtx> EvaluationContext for T {
+impl<E: Evaluable> EvaluationContext for TruthTable<E> {
     fn eval(&self, predicate: Box<dyn Predicate>) -> bool {
-        (0..self.columns().len())
-            .map(|n| (self.curr_row() >> n) & 1)
+        self.columns()
+            .iter()
             .enumerate()
-            .filter_map(|(i, e)| if e == 1 { Some(i) } else { None })
-            .map(|i| &self.columns()[i])
-            .any(|v| **v == *predicate)
+            // If the row number is represented in binary,
+            // its 1s represent a unique set of predicates
+            // for that row that should be true,
+            // and 0s -- that should be false.
+            // We filter only true ones.
+            .filter(|(i, _)| ((self.curr_row() >> i) & 1) == 1)
+            .any(|(_, p)| p == &predicate)
     }
 }
 
@@ -47,10 +46,6 @@ impl<T: Evaluable> TruthTable<T> {
         }
     }
 
-    pub fn columns(&self) -> Vec<Box<dyn Predicate>> {
-        self.predicates.clone()
-    }
-
     pub fn only_true_rows(self) -> FilteredTruthTable<T, true> {
         FilteredTruthTable { inner_iter: self }
     }
@@ -58,14 +53,12 @@ impl<T: Evaluable> TruthTable<T> {
     pub fn only_false_rows(self) -> FilteredTruthTable<T, false> {
         FilteredTruthTable { inner_iter: self }
     }
-}
 
-impl<T: Evaluable> TruthTableCtx for TruthTable<T> {
-    fn curr_row(&self) -> usize {
+    pub fn curr_row(&self) -> usize {
         self.curr_row
     }
 
-    fn columns(&self) -> &[Box<dyn Predicate>] {
+    pub fn columns(&self) -> &[Box<dyn Predicate>] {
         &self.predicates
     }
 }
@@ -87,16 +80,6 @@ impl<T: Evaluable> Iterator for TruthTable<T> {
 #[derive(Debug, Clone)]
 pub struct FilteredTruthTable<T: Evaluable, const F: bool> {
     inner_iter: TruthTable<T>,
-}
-
-impl<T: Evaluable, const F: bool> TruthTableCtx for FilteredTruthTable<T, F> {
-    fn curr_row(&self) -> usize {
-        self.inner_iter.curr_row
-    }
-
-    fn columns(&self) -> &[Box<dyn Predicate>] {
-        &self.inner_iter.predicates
-    }
 }
 
 impl<T: Evaluable, const F: bool> Iterator for FilteredTruthTable<T, F> {

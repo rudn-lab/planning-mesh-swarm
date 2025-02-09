@@ -1,6 +1,6 @@
 use crate::{
     evaluation::{Evaluable, EvaluationContext},
-    r#type::{Type, TypeHandle},
+    r#type::TypeHandle,
     sealed::Sealed,
     util::const_table::ConstTable,
     InternerSymbol, INTERNER, RANDOM,

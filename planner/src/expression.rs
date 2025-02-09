@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::*;
 use itertools::Itertools;
+use paste::paste;
 
 use crate::{
     evaluation::{Evaluable, EvaluationContext},
@@ -266,30 +267,49 @@ impl Dnf {
     }
 }
 
-fn map_to_dnf<T: Evaluable>(value: T) -> Dnf {
-    let tt = TruthTable::new(&value);
-    let predicates = tt.columns();
-    let conjunctions = tt
-        .only_true_rows()
-        .map(|i| {
-            DnfMembers::and(
-                &(0..predicates.len())
-                    .map(move |n| (i >> n) & 1)
-                    .enumerate()
-                    .map(|(i, v)| {
-                        if v == 1 {
-                            NfMembers::pred(predicates[i].clone())
-                        } else {
-                            NfMembers::not(predicates[i].clone())
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
+macro_rules! map_to {
+    ($form:ident) => {
+        paste! {
+            fn [<map_to_ $form:lower>]<T: Evaluable>(value: T) -> $form {
+                let tt = TruthTable::new(&value);
 
-    Dnf::new(&conjunctions)
+                macro_rules! cond_rows {
+                    (Dnf) => { tt.only_true_rows() };
+                    (Cnf) => { tt.only_false_rows() };
+                }
+                macro_rules! cond_value { (Dnf) => { 1 }; (Cnf) => { 0 }; }
+                macro_rules! cond_method {
+                    (Dnf) => { [<$form Members>]::and };
+                    (Cnf) => { [<$form Members>]::or };
+                }
+
+                let predicates = tt.columns().to_vec();
+                let expr = cond_rows!($form)
+                    .map(|i| {
+                        cond_method!($form)(
+                            &predicates
+                                .iter()
+                                .enumerate()
+                                .map(|(n, p)| {
+                                    if ((i >> n) & 1) == cond_value!($form) {
+                                        NfMembers::pred(p.clone())
+                                    } else {
+                                        NfMembers::not(p.clone())
+                                    }
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                $form::new(&expr)
+            }
+        }
+    };
 }
+
+map_to!(Dnf);
+map_to!(Cnf);
 
 /// You cannot just do
 /// ```ignore
@@ -299,38 +319,42 @@ fn map_to_dnf<T: Evaluable>(value: T) -> Dnf {
 ///     }
 /// }
 /// ```
-/// Because Dnf and Cnf already impl Evaluable,
+/// because Dnf and Cnf already impl Evaluable,
 /// and this conflicts with `impl<T> From<T> for T` in standard library.
 /// So we have to implement all of them individually.
 /// This macro saves us some writing.
 macro_rules! impl_with_map {
-    ($from:ty, $g1:ident $(: $t1:ident)? $(, $g:ident $(: $t:ident)?)* => $for:ty, $map:ident) => {
-        impl<$g1 $(: $t1)? $(, $g $(: $t)?)*> From<$from> for $for {
-            fn from(value: $from) -> Self {
-                $map(value)
+    ($from:ty, $g1:ident $(: $t1:ident)? $(, $g:ident $(: $t:ident)?)* => $for:ty) => {
+        paste! {
+            impl<$g1 $(: $t1)? $(, $g $(: $t)?)*> From<$from> for $for {
+                fn from(value: $from) -> Self {
+                    [<map_to_ $for:lower>](value)
+                }
             }
         }
     };
-    ($from:ty => $for:ty, $map:ident) => {
-        impl From<$from> for $for {
-            fn from(value: $from) -> Self {
-                $map(value)
+    ($from:ty => $for:ty) => {
+        paste! {
+            impl From<$from> for $for {
+                fn from(value: $from) -> Self {
+                    [<map_to_ $for:lower>](value)
+                }
             }
         }
     };
 }
 
-impl_with_map!(And<T>, T: Evaluable => Dnf, map_to_dnf);
-impl_with_map!(Or<T>, T: Evaluable => Dnf, map_to_dnf);
-impl_with_map!(Not<T>, T: Evaluable => Dnf, map_to_dnf);
-impl_with_map!(FormulaMembers => Dnf, map_to_dnf);
-impl_with_map!(Formula => Dnf, map_to_dnf);
-impl_with_map!(NfMembers => Dnf, map_to_dnf);
-impl_with_map!(DnfMembers => Dnf, map_to_dnf);
-impl_with_map!(CnfMembers => Dnf, map_to_dnf);
-impl_with_map!(Cnf => Dnf, map_to_dnf);
+impl_with_map!(And<T>, T: Evaluable => Dnf);
+impl_with_map!(Or<T>, T: Evaluable => Dnf);
+impl_with_map!(Not<T>, T: Evaluable => Dnf);
+impl_with_map!(FormulaMembers => Dnf);
+impl_with_map!(Formula => Dnf);
+impl_with_map!(NfMembers => Dnf);
+impl_with_map!(DnfMembers => Dnf);
+impl_with_map!(CnfMembers => Dnf);
+impl_with_map!(Cnf => Dnf);
 // Thankfully, you can impl it for a reference
-impl_with_map!(&T, T: Evaluable => Dnf, map_to_dnf);
+impl_with_map!(&T, T: Evaluable => Dnf);
 
 #[derive(Debug, Clone)]
 pub enum CnfMembers {
@@ -393,47 +417,22 @@ impl Evaluable for Cnf {
     }
 }
 
-fn map_to_cnf<T: Evaluable>(value: T) -> Cnf {
-    let tt = TruthTable::new(&value);
-    let predicates = tt.columns();
-    let disjunctions = tt
-        .only_false_rows()
-        .map(|i| {
-            CnfMembers::or(
-                &(0..predicates.len())
-                    .map(move |n| (i >> n) & 1)
-                    .enumerate()
-                    .map(|(i, v)| {
-                        if v == 0 {
-                            NfMembers::pred(predicates[i].clone())
-                        } else {
-                            NfMembers::not(predicates[i].clone())
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    Cnf::new(&disjunctions)
-}
-
-impl_with_map!(And<T>, T: Evaluable => Cnf, map_to_cnf);
-impl_with_map!(Or<T>, T: Evaluable => Cnf, map_to_cnf);
-impl_with_map!(Not<T>, T: Evaluable => Cnf, map_to_cnf);
-impl_with_map!(FormulaMembers => Cnf, map_to_cnf);
-impl_with_map!(Formula => Cnf, map_to_cnf);
-impl_with_map!(NfMembers => Cnf, map_to_cnf);
-impl_with_map!(DnfMembers => Cnf, map_to_cnf);
-impl_with_map!(Dnf => Cnf, map_to_cnf);
-impl_with_map!(CnfMembers => Cnf, map_to_cnf);
-impl_with_map!(&T, T: Evaluable => Cnf, map_to_cnf);
+impl_with_map!(And<T>, T: Evaluable => Cnf);
+impl_with_map!(Or<T>, T: Evaluable => Cnf);
+impl_with_map!(Not<T>, T: Evaluable => Cnf);
+impl_with_map!(FormulaMembers => Cnf);
+impl_with_map!(Formula => Cnf);
+impl_with_map!(NfMembers => Cnf);
+impl_with_map!(DnfMembers => Cnf);
+impl_with_map!(Dnf => Cnf);
+impl_with_map!(CnfMembers => Cnf);
+impl_with_map!(&T, T: Evaluable => Cnf);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::predicate::Pred;
-    use crate::r#type::{Type, TypeCollection};
+    use crate::r#type::TypeCollection;
     use crate::state::State;
 
     #[test]
