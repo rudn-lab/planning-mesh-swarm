@@ -3,6 +3,7 @@
 #![feature(abort_unwind)]
 #![feature(trait_upcasting)]
 #![feature(generic_const_exprs)]
+#![feature(coverage_attribute)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;

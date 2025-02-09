@@ -122,15 +122,20 @@ impl Type {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_basic_operations() {
         let mut types = TypeCollection::default();
+
+        assert!(types.is_empty());
+
         let t1 = types.create("foo");
         let t2 = types.create("bar");
 
+        assert!(!types.is_empty());
         assert_eq!(types.len(), 2);
 
         let tt1 = types.get(t1);

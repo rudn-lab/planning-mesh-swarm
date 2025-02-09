@@ -77,10 +77,6 @@ impl<T: Evaluable> Not<T> {
             o: Box::new(operand.clone()),
         }
     }
-
-    pub fn from_box(operand: Box<T>) -> Self {
-        Self { o: operand }
-    }
 }
 
 impl<T: Evaluable> Evaluable for Not<T> {
@@ -429,6 +425,7 @@ impl_with_map!(CnfMembers => Cnf);
 impl_with_map!(&T, T: Evaluable => Cnf);
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
     use super::*;
     use crate::predicate::Pred;

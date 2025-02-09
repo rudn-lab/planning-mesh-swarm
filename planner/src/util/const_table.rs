@@ -89,6 +89,7 @@ where
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
     use super::*;
 
@@ -112,10 +113,25 @@ mod tests {
     #[test]
     fn test_append_size() {
         let t = ConstTable::new([("a", 1), ("b", 3), ("foo", 1337)]);
-        assert_eq!(3, t.len());
+        assert_eq!(t.len(), 3);
 
         let t: ConstTable<&str, i32, 5> = t.append([("bar", 69), ("baz", 420)]);
-        assert_eq!(5, t.len());
+        assert_eq!(t.len(), 5);
+
+        let t: ConstTable<&str, i32, 6> = t.append([("bar", 42), ("qux", 1337)]);
+        assert_eq!(t.len(), 6);
+        assert_eq!(t.get(&"bar"), Some(69));
+        assert_eq!(
+            t.key_values(),
+            vec![
+                ("a", 1),
+                ("b", 3),
+                ("foo", 1337),
+                ("bar", 69),
+                ("baz", 420),
+                ("qux", 1337)
+            ]
+        );
     }
 
     #[test]

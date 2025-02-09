@@ -53,6 +53,7 @@ impl Ord for dyn Predicate {
     }
 }
 
+#[coverage(off)]
 impl Debug for dyn Predicate {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("dyn Predicate")
@@ -212,6 +213,7 @@ impl<const N: usize, const M: usize> Evaluable for Pred<N, M> {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
     use crate::r#type::TypeCollection;
 

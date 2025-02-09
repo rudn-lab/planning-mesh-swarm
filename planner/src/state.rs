@@ -16,10 +16,6 @@ impl State {
             .append(&mut predicates.iter().map(Box::clone).collect());
         self
     }
-
-    pub fn predicates(&self) -> &Vec<Box<dyn ResolvedPredicate>> {
-        &self.predicates
-    }
 }
 
 impl EvaluationContext for State {
@@ -38,6 +34,7 @@ impl ResolutionContext for State {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
     use super::*;
     use crate::{evaluation::Evaluable, predicate::*, r#type::*};

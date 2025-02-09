@@ -100,6 +100,7 @@ impl<T: Evaluable, const F: bool> Iterator for FilteredTruthTable<T, F> {
 }
 
 #[cfg(test)]
+#[coverage(off)]
 mod tests {
     use super::*;
     use crate::{
