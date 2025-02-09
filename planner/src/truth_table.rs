@@ -51,12 +51,12 @@ impl<T: Evaluable> TruthTable<T> {
         self.predicates.clone()
     }
 
-    pub fn only_true_rows(self) -> OnlyTrueRows<T> {
-        OnlyTrueRows { inner_iter: self }
+    pub fn only_true_rows(self) -> FilteredTruthTable<T, true> {
+        FilteredTruthTable { inner_iter: self }
     }
 
-    pub fn only_false_rows(self) -> OnlyFalseRows<T> {
-        OnlyFalseRows { inner_iter: self }
+    pub fn only_false_rows(self) -> FilteredTruthTable<T, false> {
+        FilteredTruthTable { inner_iter: self }
     }
 }
 
@@ -85,11 +85,11 @@ impl<T: Evaluable> Iterator for TruthTable<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct OnlyTrueRows<T: Evaluable> {
+pub struct FilteredTruthTable<T: Evaluable, const F: bool> {
     inner_iter: TruthTable<T>,
 }
 
-impl<T: Evaluable> TruthTableCtx for OnlyTrueRows<T> {
+impl<T: Evaluable, const F: bool> TruthTableCtx for FilteredTruthTable<T, F> {
     fn curr_row(&self) -> usize {
         self.inner_iter.curr_row
     }
@@ -99,48 +99,16 @@ impl<T: Evaluable> TruthTableCtx for OnlyTrueRows<T> {
     }
 }
 
-impl<T: Evaluable> Iterator for OnlyTrueRows<T> {
+impl<T: Evaluable, const F: bool> Iterator for FilteredTruthTable<T, F> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner_iter.next() {
             Some(v) => {
-                if v {
+                if F == v {
                     Some(self.inner_iter.curr_row - 1)
                 } else {
                     self.next()
-                }
-            }
-            None => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct OnlyFalseRows<T: Evaluable> {
-    inner_iter: TruthTable<T>,
-}
-
-impl<T: Evaluable> TruthTableCtx for OnlyFalseRows<T> {
-    fn curr_row(&self) -> usize {
-        self.inner_iter.curr_row
-    }
-
-    fn columns(&self) -> &[Box<dyn Predicate>] {
-        &self.inner_iter.predicates
-    }
-}
-
-impl<T: Evaluable> Iterator for OnlyFalseRows<T> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.inner_iter.next() {
-            Some(v) => {
-                if v {
-                    self.next()
-                } else {
-                    Some(self.inner_iter.curr_row - 1)
                 }
             }
             None => None,
@@ -154,7 +122,7 @@ mod tests {
     use crate::{
         expression::{FormulaMembers as FM, *},
         predicate::Pred,
-        r#type::{Type, TypeCollection},
+        r#type::TypeCollection,
     };
 
     #[test]
