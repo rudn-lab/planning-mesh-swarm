@@ -1,6 +1,6 @@
 use crate::{
     evaluation::{Evaluable, EvaluationContext},
-    r#type::Type,
+    r#type::{Type, TypeHandle},
     sealed::Sealed,
     util::const_table::ConstTable,
     InternerSymbol, INTERNER, RANDOM,
@@ -12,7 +12,7 @@ use rand::Rng;
 
 pub trait Predicate: DynClone {
     fn name(&self) -> InternerSymbol;
-    fn params(&self) -> &[Type];
+    fn params(&self) -> &[TypeHandle];
     fn resolutions(&self) -> Vec<(usize, InternerSymbol)>;
     fn unique_marker(&self) -> u32;
 }
@@ -122,7 +122,7 @@ impl<const N: usize, const M: usize> Predicate for Pred<N, M> {
         self.name
     }
 
-    fn params(&self) -> &[Type] {
+    fn params(&self) -> &[TypeHandle] {
         &self.params
     }
 
@@ -138,7 +138,7 @@ impl<const N: usize, const M: usize> Predicate for Pred<N, M> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pred<const N: usize, const M: usize> {
     name: InternerSymbol,
-    params: [Type; N],
+    params: [TypeHandle; N],
     resolution_table: ConstTable<usize, InternerSymbol, M>,
     /// Used to distinguish predicates with the same name and parameters
     /// when doing normalization. For example:
@@ -152,7 +152,7 @@ pub struct Pred<const N: usize, const M: usize> {
 }
 
 impl<const N: usize> Pred<N, 0> {
-    pub fn new(name: &str, params: &[Type; N]) -> Self {
+    pub fn new(name: &str, params: &[TypeHandle; N]) -> Self {
         Self {
             name: INTERNER.lock().get_or_intern(name),
             params: *params,
@@ -163,7 +163,11 @@ impl<const N: usize> Pred<N, 0> {
 }
 
 impl<const N: usize, const M: usize> Pred<N, M> {
-    pub fn with_resolution(name: &str, params: &[Type; N], resolution: [(usize, &str); M]) -> Self {
+    pub fn with_resolution(
+        name: &str,
+        params: &[TypeHandle; N],
+        resolution: [(usize, &str); M],
+    ) -> Self {
         assert!(
             M <= N,
             "Resolution map size should not exceed the number of parameters in a predicate."
@@ -209,6 +213,8 @@ impl<const N: usize, const M: usize> Evaluable for Pred<N, M> {
 
 #[cfg(test)]
 mod tests {
+    use crate::r#type::TypeCollection;
+
     use super::*;
     use core::assert;
 
@@ -228,7 +234,8 @@ mod tests {
         assert!(p != p1);
 
         // Same, because of the marker and all other params
-        let t = Type::new("t");
+        let mut types = TypeCollection::default();
+        let t = types.create("t");
         let p = Pred::new("foo", &[t]);
         let mut p1 = Pred::new("foo", &[t]);
         p1.unique_marker = p.unique_marker;
@@ -236,8 +243,7 @@ mod tests {
         assert!(p == p1);
 
         // Different because of type
-        let t = Type::new("t");
-        let t1 = Type::new("t2");
+        let t1 = types.create("t1");
         let p = Pred::new("foo", &[t]);
         let mut p1 = Pred::new("foo", &[t1]);
         p1.unique_marker = p.unique_marker;

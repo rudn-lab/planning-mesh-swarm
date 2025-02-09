@@ -433,7 +433,7 @@ impl_with_map!(&T, T: Evaluable => Cnf, map_to_cnf);
 mod tests {
     use super::*;
     use crate::predicate::Pred;
-    use crate::r#type::Type;
+    use crate::r#type::{Type, TypeCollection};
     use crate::state::State;
 
     #[test]
@@ -585,7 +585,8 @@ mod tests {
 
     #[test]
     fn test_formula_to_dnf() {
-        let t = Type::new("type");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let p = Pred::new("foo", &[t]);
         let p1 = Pred::new("bar", &[t]);
         let p2 = Pred::new("baz", &[t]);
@@ -611,7 +612,8 @@ mod tests {
 
     #[test]
     fn test_formula_to_cnf() {
-        let t = Type::new("type");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let p = Pred::new("foo", &[t]);
         let p1 = Pred::new("bar", &[t]);
         let p2 = Pred::new("baz", &[t]);

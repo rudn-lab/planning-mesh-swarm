@@ -154,12 +154,13 @@ mod tests {
     use crate::{
         expression::{FormulaMembers as FM, *},
         predicate::Pred,
-        r#type::Type,
+        r#type::{Type, TypeCollection},
     };
 
     #[test]
     fn test_size() {
-        let t = Type::new("foo");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
 
         // Degenerative case, predicates have no parameters
         let p = Pred::new("bar", &[]);
@@ -204,7 +205,8 @@ mod tests {
 
     #[test]
     fn test_validity() {
-        let t = Type::new("foo");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let p = Pred::new("a", &[t]);
         let p1 = Pred::new("b", &[t]);
 
@@ -237,7 +239,8 @@ mod tests {
 
     #[test]
     fn only_true_rows_are_always_true() {
-        let t = Type::new("foo");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let p = Pred::new("a", &[t]);
         let p1 = Pred::new("b", &[t]);
 
@@ -249,7 +252,8 @@ mod tests {
 
     #[test]
     fn only_false_rows_are_always_false() {
-        let t = Type::new("foo");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let p = Pred::new("a", &[t]);
         let p1 = Pred::new("b", &[t]);
 

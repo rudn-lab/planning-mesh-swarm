@@ -44,7 +44,8 @@ mod tests {
 
     #[test]
     fn test_predicate_eval() {
-        let t = Type::new("foo");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let rp = Pred::with_resolution("bar", &[t, t], [(0, "V"), (1, "B")]);
         let p = Pred::new("bar", &[t, t]);
         let state = State::default().with_predicates(&[Box::new(rp)]);
@@ -58,7 +59,8 @@ mod tests {
 
     #[test]
     fn test_preciate_resolution() {
-        let t = Type::new("foo");
+        let mut types = TypeCollection::default();
+        let t = types.create("foo");
         let rp: Box<dyn ResolvedPredicate> =
             Box::new(Pred::with_resolution("bar", &[t, t], [(0, "V"), (1, "B")]));
         let p = Pred::new("bar", &[t, t]);

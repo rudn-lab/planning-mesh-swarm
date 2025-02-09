@@ -10,5 +10,6 @@ itertools = { version = "0.14.0", default-features = false, features = ["use_all
 lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_chacha = { version = "0.3.1", default-features = false }
+slotmap = { version = "1.0.7", default-features = false }
 spin = "0.9.8"
 string-interner = { version = "0.18.0", default-features = false, features = ["inline-more", "backends"] }
