@@ -12,7 +12,7 @@ use rand::Rng;
 
 pub trait Predicate: DynClone {
     fn name(&self) -> InternerSymbol;
-    fn params(&self) -> &[TypeHandle];
+    fn arguments(&self) -> &[TypeHandle];
     fn resolutions(&self) -> Vec<(usize, InternerSymbol)>;
     fn unique_marker(&self) -> u32;
 }
@@ -34,7 +34,7 @@ impl Evaluable for Box<dyn Predicate> {
 impl PartialEq for dyn Predicate {
     fn eq(&self, other: &Self) -> bool {
         self.name() == other.name()
-            && self.params() == other.params()
+            && self.arguments() == other.arguments()
             && self.unique_marker() == other.unique_marker()
     }
 }
@@ -58,7 +58,7 @@ impl Debug for dyn Predicate {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("dyn Predicate")
             .field("name", &self.name())
-            .field("params", &self.params())
+            .field("arguments", &self.arguments())
             .field("resolutions", &self.resolutions())
             .field("unique_marker", &self.unique_marker())
             .finish()
@@ -107,7 +107,7 @@ macro_rules! partial_eq_predicate_traits {
     ($p1:ident, $p2:ident) => {
         impl PartialEq<dyn $p1> for dyn $p2 {
             fn eq(&self, other: &dyn $p1) -> bool {
-                self.name() == other.name() && self.params() == other.params()
+                self.name() == other.name() && self.arguments() == other.arguments()
             }
         }
     };
@@ -123,8 +123,8 @@ impl<const N: usize, const M: usize> Predicate for Pred<N, M> {
         self.name
     }
 
-    fn params(&self) -> &[TypeHandle] {
-        &self.params
+    fn arguments(&self) -> &[TypeHandle] {
+        &self.arguments
     }
 
     fn unique_marker(&self) -> u32 {
@@ -139,9 +139,9 @@ impl<const N: usize, const M: usize> Predicate for Pred<N, M> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pred<const N: usize, const M: usize> {
     name: InternerSymbol,
-    params: [TypeHandle; N],
+    arguments: [TypeHandle; N],
     resolution_table: ConstTable<usize, InternerSymbol, M>,
-    /// Used to distinguish predicates with the same name and parameters
+    /// Used to distinguish predicates with the same name and arguments
     /// when doing normalization. For example:
     /// `p XOR q` can be transformed into the following CNF: `(NOT p OR NOT q) AND (p OR q)`
     /// In this example even if p and q are the same predicate,
@@ -153,10 +153,10 @@ pub struct Pred<const N: usize, const M: usize> {
 }
 
 impl<const N: usize> Pred<N, 0> {
-    pub fn new(name: &str, params: &[TypeHandle; N]) -> Self {
+    pub fn new(name: &str, arguments: &[TypeHandle; N]) -> Self {
         Self {
             name: INTERNER.lock().get_or_intern(name),
-            params: *params,
+            arguments: *arguments,
             resolution_table: ConstTable::new([]),
             unique_marker: RANDOM.lock().gen(),
         }
@@ -166,17 +166,17 @@ impl<const N: usize> Pred<N, 0> {
 impl<const N: usize, const M: usize> Pred<N, M> {
     pub fn with_resolution(
         name: &str,
-        params: &[TypeHandle; N],
+        arguments: &[TypeHandle; N],
         resolution: [(usize, &str); M],
     ) -> Self {
         assert!(
             M <= N,
-            "Resolution map size should not exceed the number of parameters in a predicate."
+            "Resolution map size should not exceed the number of arguments in a predicate."
         );
         let mut interner = INTERNER.lock();
         Self {
             name: interner.get_or_intern(name),
-            params: *params,
+            arguments: *arguments,
             resolution_table: ConstTable::new(
                 resolution.map(|(k, v)| (k, interner.get_or_intern(v))),
             ),
@@ -195,7 +195,7 @@ impl<const N: usize, const M: usize> Pred<N, M> {
 
         Pred {
             name: self.name,
-            params: self.params,
+            arguments: self.arguments,
             resolution_table,
             unique_marker: self.unique_marker,
         }
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_equality() {
-        // Different predicates, even if the name and the params
+        // Different predicates, even if the name and the args
         // are the same, but marker is not
         let p = Pred::new("foo", &[]);
         let p1 = Pred::new("foo", &[]);
@@ -235,7 +235,7 @@ mod tests {
 
         assert!(p != p1);
 
-        // Same, because of the marker and all other params
+        // Same, because of the marker and all other args
         let mut types = TypeCollection::default();
         let t = types.create("t");
         let p = Pred::new("foo", &[t]);

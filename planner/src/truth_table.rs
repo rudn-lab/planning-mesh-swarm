@@ -30,12 +30,12 @@ pub struct TruthTable<T: Evaluable> {
 impl<T: Evaluable> TruthTable<T> {
     pub fn new(formula: &T) -> Self {
         // We are only concerned with predicates
-        // that have parameters, because only they can change
+        // that have arguments, because only they can change
         // how the expression is evaluated
         let predicates = formula
             .predicates()
             .into_iter()
-            .filter(|p| !p.params().is_empty())
+            .filter(|p| !p.arguments().is_empty())
             .collect::<Vec<_>>();
 
         Self {
@@ -114,7 +114,7 @@ mod tests {
         let mut types = TypeCollection::default();
         let t = types.create("foo");
 
-        // Degenerative case, predicates have no parameters
+        // Degenerative case, predicates have no arguments
         let p = Pred::new("bar", &[]);
         let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p))]));
         let tt = TruthTable::new(&f);
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(0, tt.predicates.len());
         assert_eq!(1, tt.count());
 
-        // Two predicats with parameters
+        // Two predicats with arguments
         let p = Pred::new("bar", &[t]);
         let p1 = Pred::new("baz", &[t]);
         let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
