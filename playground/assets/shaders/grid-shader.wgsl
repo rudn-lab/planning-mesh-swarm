@@ -32,7 +32,7 @@ const pi = 3.14159265359;
 
 fn falloff(x: f32) -> f32 {
   var value = max(0.0, 1 - x * x);
-  value = pow(value, 1.0/4.0);
+  value = pow(value, 2.0/1.0);
   return value;
 }
 
@@ -46,13 +46,19 @@ fn get_thickness_at(uv: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-  var out = bg_color;
-  let line_thickness = get_thickness_at(in.world_position.xy);
-  var f_before = sin(pi * (num_cells * in.uv - line_thickness));
-  var f_after = sin(pi * (num_cells * in.uv + line_thickness));
-  var sign_before = sign(f_before);
-  var sign_after = sign(f_after);
-  if (sign_before.x != sign_after.x) {out = line_color;};
-  if (sign_before.y != sign_after.y) {out = line_color;};
-  return vec4<f32>(out);
+    let coord = in.world_position.xy / num_cells;
+
+    // Compute anti-aliased world-space grid lines
+    let grid_regular = abs(fract(coord - 0.5) - 0.5);
+    var fwid = fwidth(coord) * get_thickness_at(in.world_position.xy);
+
+    let grid = grid_regular / fwid;
+    let line = min(grid.x, grid.y);
+
+    // Just visualize the grid lines directly
+    var color = 1.0 - min(line, 1.0);
+
+    // Apply gamma correction
+    color = pow(color, 1.0 / 2.2);
+    return mix(bg_color, line_color, color);
 }

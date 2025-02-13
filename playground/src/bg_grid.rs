@@ -45,7 +45,7 @@ impl Plugin for Grid {
                 spotlight_radius: self.spotlight_radius,
             })
             .add_systems(Startup, prepare_grid)
-            .add_systems(Update, update_grid_material);
+            .add_systems(PostUpdate, update_grid_material);
     }
 }
 

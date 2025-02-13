@@ -16,7 +16,7 @@ fn fps_text_update_system(
         return;
     }
     egui::Window::new("FPS")
-        .auto_sized()
+        .fixed_size(egui::Vec2::new(150.0, 50.0))
         .show(contexts.ctx_mut(), |ui| {
             let fps = diagnostics
                 .get(&FrameTimeDiagnosticsPlugin::FPS)

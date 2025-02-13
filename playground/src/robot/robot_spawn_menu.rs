@@ -1,4 +1,4 @@
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{ecs::system::SystemId, prelude::*, window::PrimaryWindow};
 use bevy_egui::EguiContexts;
 
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
 
 use super::{
     motion_types::{RobotOrientation, RobotState},
-    ROBOT_WIDTH,
+    RobotBundle, ROBOT_WIDTH,
 };
 
 pub(crate) struct GhostRobotPlugin;
@@ -17,8 +17,18 @@ impl Plugin for GhostRobotPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init_ghost_robot);
         app.add_systems(Update, update_ghost_robot);
+        app.add_systems(Update, ghost_robot_config_menu);
+        app.add_systems(Update, materialize_ghost_robot);
+        app.add_event::<MaterializeGhostRobot>();
     }
 }
+
+/// This event is sent when the ghost robot needs to be transformed into a real robot.
+/// Any props have already been sent by this point, so the event needs no data.
+///
+/// If there is no ghost robot, then this event is ignored.
+#[derive(Event, Default, Clone, Copy)]
+struct MaterializeGhostRobot;
 
 #[derive(Component)]
 struct GhostRobot {
@@ -65,19 +75,103 @@ fn init_ghost_robot(world: &mut World) {
     world.commands().spawn(bundle);
 }
 
-fn update_ghost_robot(
-    all_robots: Query<&RobotState>,
-    camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
-    window: Query<&Window, With<PrimaryWindow>>,
-    rotate_button_clicked: Res<ButtonInput<KeyCode>>,
-    mut ghost_robot: Query<(&mut GhostRobot, &mut Transform)>,
+fn ghost_robot_config_menu(
+    mut contexts: EguiContexts,
+    mut ghost_robot: Query<(Entity, &mut GhostRobot, &mut Transform)>,
+    mut commands: Commands,
 ) {
-    let Ok((mut ghost_robot, mut transform)) = ghost_robot.get_single_mut() else {
+    let Ok((entity, mut ghost_robot, mut transform)) = ghost_robot.get_single_mut() else {
         return;
     };
 
-    if rotate_button_clicked.just_pressed(KeyCode::KeyR) {
+    let mut stay_open = true;
+    let resp = egui::Window::new("New Robot Config")
+        .open(&mut stay_open)
+        .show(contexts.ctx_mut(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Orientation:");
+                ui.label(format!("{:?}", ghost_robot.orientation))
+            });
+            ui.horizontal(|ui| {
+                ui.label("Grid Position:");
+                ui.label(format!("{:?}", ghost_robot.grid_pos))
+            });
+
+            ui.separator();
+
+            ui.small("Esc or close to cancel, Enter or click to confirm");
+            ui.small("R to rotate");
+        })
+        .unwrap();
+
+    if !stay_open {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+fn materialize_ghost_robot(
+    mut commands: Commands,
+    ghost_robot: Query<Entity, With<GhostRobot>>,
+    mut ev_reader: EventReader<MaterializeGhostRobot>,
+    mut inner_system_id: Local<Option<SystemId>>,
+) {
+    let Some(_) = ghost_robot.iter().next() else {
+        return;
+    };
+
+    let Some(_event) = ev_reader.read().next() else {
+        return;
+    };
+
+    if inner_system_id.is_none() {
+        *inner_system_id = Some(commands.register_system(materialize_ghost_robot_inner));
+    }
+    commands.run_system(inner_system_id.unwrap());
+}
+
+fn materialize_ghost_robot_inner(world: &mut World) {
+    let mut all_robots = world.query::<&RobotState>();
+
+    let max_id = all_robots
+        .iter(world)
+        .map(|robot| robot.id)
+        .max()
+        .unwrap_or(1);
+
+    let mut query = world.query::<(Entity, &mut GhostRobot)>();
+    let (entity, ghost_robot) = query.single(world);
+
+    let bundle = RobotBundle::new(max_id + 1, ghost_robot.grid_pos, world, 0.1, 0.2);
+
+    let commands = &mut world.commands();
+    commands.spawn(bundle);
+    commands.entity(entity).despawn_recursive();
+}
+
+fn update_ghost_robot(
+    mut commands: Commands,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut ghost_robot: Query<(Entity, &mut GhostRobot, &mut Transform)>,
+    mut ev_writer: EventWriter<MaterializeGhostRobot>,
+) {
+    let Ok((ghost_entity, mut ghost_robot, mut transform)) = ghost_robot.get_single_mut() else {
+        return;
+    };
+
+    if keyboard.just_pressed(KeyCode::Escape) {
+        // Cancel creating the robot by despawning the ghost robot
+        commands.entity(ghost_entity).despawn_recursive();
+    }
+
+    if keyboard.just_pressed(KeyCode::KeyR) {
         ghost_robot.orientation = ghost_robot.orientation.plus_quarter_turns(1);
+    }
+
+    if keyboard.just_pressed(KeyCode::Enter) {
+        ev_writer.send_default();
+        return;
     }
 
     let (camera, camera_transform) = camera.single();
