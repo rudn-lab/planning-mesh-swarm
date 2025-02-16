@@ -22,8 +22,8 @@ pub enum TypeError {
 #[derive(Debug, Clone, Default)]
 pub struct TypeCollection {
     types: SlotMap<TypeHandle, Type>,
-    /// Represents inheritance relationship from sub type to super type
-    inheritance: SecondaryMap<SubTypeHandle, SuperTypeHandle>,
+    supertypes: SecondaryMap<SubTypeHandle, SuperTypeHandle>,
+    subtypes: SecondaryMap<SuperTypeHandle, Vec<SubTypeHandle>>,
 }
 
 impl TypeCollection {
@@ -51,7 +51,7 @@ impl TypeCollection {
         sub_type: SubTypeHandle,
         super_type: SuperTypeHandle,
     ) -> Result<(), TypeError> {
-        if let Some(t) = self.inheritance.get(sub_type) {
+        if let Some(t) = self.supertypes.get(sub_type) {
             return Err(TypeError::AlreadyHasSuperType(*t));
         }
 
@@ -59,13 +59,18 @@ impl TypeCollection {
             return Err(TypeError::CreatesCircularInheritance);
         }
 
-        self.inheritance.insert(sub_type, super_type);
+        self.supertypes.insert(sub_type, super_type);
+        // self.subtypes.insert(super_type, sub_type);
+        self.subtypes.entry(super_type).map(|e| {
+            e.and_modify(|subtypes| subtypes.push(sub_type))
+                .or_insert_with(|| vec![sub_type])
+        });
 
         Ok(())
     }
 
     pub fn get_parent(&self, r#type: TypeHandle) -> Option<TypeHandle> {
-        self.inheritance.get(r#type).copied()
+        self.supertypes.get(r#type).copied()
     }
 
     pub fn get_parents(&self, r#type: TypeHandle) -> Vec<TypeHandle> {
@@ -75,6 +80,25 @@ impl TypeCollection {
             t = tt;
             res.push(t);
         }
+        res
+    }
+
+    pub fn get_subtypes(&self, r#type: TypeHandle) -> Vec<TypeHandle> {
+        let mut ts: Vec<TypeHandle> = self
+            .subtypes
+            .get(r#type)
+            .cloned()
+            .unwrap_or_default()
+            .to_vec();
+
+        let mut res = vec![];
+
+        while let Some(t) = ts.pop() {
+            res.push(t);
+            let t = self.subtypes.get(t).cloned().unwrap_or_default();
+            ts.extend(t.iter());
+        }
+
         res
     }
 
@@ -165,5 +189,43 @@ mod tests {
         assert!(matches!(res, Err(TypeError::CreatesCircularInheritance)));
 
         assert!(!types.inherits(t3, t1));
+    }
+
+    #[test]
+    fn test_subtypes() {
+        let mut types = TypeCollection::default();
+        let t1 = types.get_or_create("t1");
+        let t2 = types.get_or_create("t2");
+        let t3 = types.get_or_create("t3");
+        let t4 = types.get_or_create("t4");
+        let t5 = types.get_or_create("t5");
+        let t6 = types.get_or_create("t6");
+        let t7 = types.get_or_create("t7");
+        let t8 = types.get_or_create("t8");
+
+        let _ = types.create_inheritance(t2, t1);
+        let _ = types.create_inheritance(t3, t2);
+        let _ = types.create_inheritance(t4, t3);
+        let _ = types.create_inheritance(t5, t3);
+        let _ = types.create_inheritance(t6, t5);
+        let _ = types.create_inheritance(t7, t5);
+        let _ = types.create_inheritance(t8, t7);
+
+        let sorted = |mut v: Vec<_>| {
+            v.sort();
+            v
+        };
+
+        assert_eq!(sorted(types.get_subtypes(t8)), vec![]);
+        assert_eq!(sorted(types.get_subtypes(t7)), vec![t8]);
+        assert_eq!(sorted(types.get_subtypes(t6)), vec![]);
+        assert_eq!(sorted(types.get_subtypes(t5)), vec![t6, t7, t8]);
+        assert_eq!(sorted(types.get_subtypes(t4)), vec![]);
+        assert_eq!(sorted(types.get_subtypes(t3)), vec![t4, t5, t6, t7, t8]);
+        assert_eq!(sorted(types.get_subtypes(t2)), vec![t3, t4, t5, t6, t7, t8]);
+        assert_eq!(
+            sorted(types.get_subtypes(t1)),
+            vec![t2, t3, t4, t5, t6, t7, t8]
+        );
     }
 }
