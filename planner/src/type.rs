@@ -1,19 +1,9 @@
 use crate::{InternerSymbol, INTERNER};
 use alloc::{vec, vec::Vec};
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
-use spin::Mutex;
 
 new_key_type! {
     pub struct TypeHandle;
-}
-
-#[cfg(not(test))]
-lazy_static::lazy_static! {
-    static ref TYPES: Mutex<TypeCollection> = Mutex::new(TypeCollection::default());
-}
-#[cfg(test)]
-thread_local! {
-    static TYPES: Mutex<TypeCollection> = Mutex::new(TypeCollection::default());
 }
 
 pub type SubTypeHandle = TypeHandle;
