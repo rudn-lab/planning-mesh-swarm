@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn test_formula_to_dnf() {
         let mut types = TypeCollection::default();
-        let t = types.create("foo");
+        let t = types.get_or_create("foo");
         let p = Pred::new("foo", &[t]);
         let p1 = Pred::new("bar", &[t]);
         let p2 = Pred::new("baz", &[t]);
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn test_formula_to_cnf() {
         let mut types = TypeCollection::default();
-        let t = types.create("foo");
+        let t = types.get_or_create("foo");
         let p = Pred::new("foo", &[t]);
         let p1 = Pred::new("bar", &[t]);
         let p2 = Pred::new("baz", &[t]);

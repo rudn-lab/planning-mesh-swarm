@@ -237,7 +237,7 @@ mod tests {
 
         // Same, because of the marker and all other args
         let mut types = TypeCollection::default();
-        let t = types.create("t");
+        let t = types.get_or_create("t");
         let p = Pred::new("foo", &[t]);
         let mut p1 = Pred::new("foo", &[t]);
         p1.unique_marker = p.unique_marker;
@@ -245,7 +245,7 @@ mod tests {
         assert!(p == p1);
 
         // Different because of type
-        let t1 = types.create("t1");
+        let t1 = types.get_or_create("t1");
         let p = Pred::new("foo", &[t]);
         let mut p1 = Pred::new("foo", &[t1]);
         p1.unique_marker = p.unique_marker;

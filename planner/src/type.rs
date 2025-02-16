@@ -37,11 +37,18 @@ pub struct TypeCollection {
 }
 
 impl TypeCollection {
-    pub fn create(&mut self, type_name: &str) -> TypeHandle {
-        self.insert(Type::new(type_name))
+    pub fn get_or_create(&mut self, type_name: &str) -> TypeHandle {
+        self.get_or_insert(Type::new(type_name))
     }
 
-    pub fn insert(&mut self, r#type: Type) -> TypeHandle {
+    fn get_or_insert(&mut self, r#type: Type) -> TypeHandle {
+        if let Some(h) = self
+            .types
+            .iter()
+            .find_map(|(h, t)| if *t == r#type { Some(h) } else { None })
+        {
+            return h;
+        }
         self.types.insert(r#type)
     }
 
@@ -132,8 +139,12 @@ mod tests {
 
         assert!(types.is_empty());
 
-        let t1 = types.create("foo");
-        let t2 = types.create("bar");
+        let t1 = types.get_or_create("foo");
+        let t2 = types.get_or_create("bar");
+        assert_ne!(t1, t2);
+
+        let t11 = types.get_or_create("foo");
+        assert_eq!(t1, t11);
 
         assert!(!types.is_empty());
         assert_eq!(types.len(), 2);
@@ -153,10 +164,10 @@ mod tests {
     #[test]
     fn test_inheritance() {
         let mut types = TypeCollection::default();
-        let t1 = types.create("foo");
-        let t2 = types.create("bar");
-        let t3 = types.create("baz");
-        let t4 = types.create("qux");
+        let t1 = types.get_or_create("foo");
+        let t2 = types.get_or_create("bar");
+        let t3 = types.get_or_create("baz");
+        let t4 = types.get_or_create("qux");
 
         let res = types.create_inheritance(t1, t2);
         assert!(res.is_ok());
@@ -190,10 +201,10 @@ mod tests {
     #[test]
     fn test_breaking_inheritance() {
         let mut types = TypeCollection::default();
-        let t1 = types.create("foo");
-        let t2 = types.create("bar");
-        let t3 = types.create("baz");
-        let t4 = types.create("qux");
+        let t1 = types.get_or_create("foo");
+        let t2 = types.get_or_create("bar");
+        let t3 = types.get_or_create("baz");
+        let t4 = types.get_or_create("qux");
 
         let _ = types.create_inheritance(t1, t2);
         let _ = types.create_inheritance(t2, t3);

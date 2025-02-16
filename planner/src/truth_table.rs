@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_size() {
         let mut types = TypeCollection::default();
-        let t = types.create("foo");
+        let t = types.get_or_create("foo");
 
         // Degenerative case, predicates have no arguments
         let p = Pred::new("bar", &[]);
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_validity() {
         let mut types = TypeCollection::default();
-        let t = types.create("foo");
+        let t = types.get_or_create("foo");
         let p = Pred::new("a", &[t]);
         let p1 = Pred::new("b", &[t]);
 
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn only_true_rows_are_always_true() {
         let mut types = TypeCollection::default();
-        let t = types.create("foo");
+        let t = types.get_or_create("foo");
         let p = Pred::new("a", &[t]);
         let p1 = Pred::new("b", &[t]);
 
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn only_false_rows_are_always_false() {
         let mut types = TypeCollection::default();
-        let t = types.create("foo");
+        let t = types.get_or_create("foo");
         let p = Pred::new("a", &[t]);
         let p1 = Pred::new("b", &[t]);
 
