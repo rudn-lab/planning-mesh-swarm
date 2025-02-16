@@ -46,20 +46,6 @@ impl TypeCollection {
         self.types.get(key)
     }
 
-    pub fn remove(&mut self, r#type: TypeHandle) -> Option<Type> {
-        let res = self.types.remove(r#type);
-        // According to SecondaryMap docs the key
-        // "may or may not already be removed",
-        // which would cause inheritance between non-existent types.
-        // So just in case we remove it manually here.
-        // let _ = self.inheritance.remove(key);
-        // Also remove any relationships where the type
-        // is a supertype
-        self.inheritance.retain(|k, v| k != r#type && *v != r#type);
-
-        res
-    }
-
     pub fn create_inheritance(
         &mut self,
         sub_type: SubTypeHandle,
@@ -142,13 +128,6 @@ mod tests {
         let tt1 = types.get(t1);
         assert!(tt1.is_some());
         assert_eq!(*tt1.unwrap(), Type::new("foo"));
-
-        let tt2 = types.remove(t2);
-        assert!(tt2.is_some());
-        assert_eq!(tt2.unwrap(), Type::new("bar"));
-
-        let tt2 = types.get(t2);
-        assert!(tt2.is_none());
     }
 
     #[test]
@@ -186,30 +165,5 @@ mod tests {
         assert!(matches!(res, Err(TypeError::CreatesCircularInheritance)));
 
         assert!(!types.inherits(t3, t1));
-    }
-
-    #[test]
-    fn test_breaking_inheritance() {
-        let mut types = TypeCollection::default();
-        let t1 = types.get_or_create("foo");
-        let t2 = types.get_or_create("bar");
-        let t3 = types.get_or_create("baz");
-        let t4 = types.get_or_create("qux");
-
-        let _ = types.create_inheritance(t1, t2);
-        let _ = types.create_inheritance(t2, t3);
-        let _ = types.create_inheritance(t3, t4);
-
-        let tt3 = types.remove(t3);
-        assert!(tt3.is_some());
-
-        let tt4 = types.get_parent(t3);
-        assert!(tt4.is_none());
-
-        let t3 = types.get_parent(t2);
-        assert!(t3.is_none());
-
-        assert_eq!(types.get_parents(t1), vec![t2]);
-        assert_eq!(types.get_parents(t4), vec![]);
     }
 }
