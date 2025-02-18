@@ -60,7 +60,6 @@ impl TypeCollection {
         }
 
         self.supertypes.insert(sub_type, super_type);
-        // self.subtypes.insert(super_type, sub_type);
         self.subtypes.entry(super_type).map(|e| {
             e.and_modify(|subtypes| subtypes.push(sub_type))
                 .or_insert_with(|| vec![sub_type])
