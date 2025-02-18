@@ -2,10 +2,10 @@ use crate::{
     evaluation::{Evaluable, EvaluationContext},
     predicate::Predicate,
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 
 impl<E: Evaluable> EvaluationContext for TruthTable<E> {
-    fn eval(&self, predicate: Box<dyn Predicate>) -> bool {
+    fn eval(&self, predicate: Predicate) -> bool {
         self.columns()
             .iter()
             .enumerate()
@@ -23,7 +23,7 @@ impl<E: Evaluable> EvaluationContext for TruthTable<E> {
 pub struct TruthTable<T: Evaluable> {
     curr_row: usize,
     formula: T,
-    predicates: Vec<Box<dyn Predicate>>,
+    predicates: Vec<Predicate>,
     size: usize,
 }
 
@@ -58,7 +58,7 @@ impl<T: Evaluable> TruthTable<T> {
         self.curr_row
     }
 
-    pub fn columns(&self) -> &[Box<dyn Predicate>] {
+    pub fn columns(&self) -> &[Predicate] {
         &self.predicates
     }
 }
@@ -105,7 +105,8 @@ mod tests {
     use super::*;
     use crate::{
         expression::{FormulaMembers as FM, *},
-        predicate::Pred,
+        object::ObjectCollection,
+        predicate::{PredicateDeclaration, Value},
         r#type::TypeCollection,
     };
 
@@ -114,41 +115,44 @@ mod tests {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("foo");
 
+        let mut objects = ObjectCollection::default();
+        let x = objects.get_or_create("x", t);
+        let xx = objects.get_or_create("xx", t);
+        let y = objects.get_or_create("y", t);
+
         // Degenerative case, predicates have no arguments
-        let p = Pred::new("bar", &[]);
-        let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p))]));
+        let p = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
+        let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(0, tt.predicates.len());
         assert_eq!(1, tt.count());
 
         // Two predicats with arguments
-        let p = Pred::new("bar", &[t]);
-        let p1 = Pred::new("baz", &[t]);
-        let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let p = PredicateDeclaration::new("bar", &[t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(y)]);
+        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(2, tt.predicates.len());
         assert_eq!(4, tt.count());
 
         // Same as above, but more variables, which doesn't matter
-        let p = Pred::new("bar", &[t, t]);
-        let p1 = Pred::new("baz", &[t]);
-        let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let p = PredicateDeclaration::new("bar", &[t, t])
+            .as_specific(&[Value::Object(x), Value::Object(xx)]);
+        let p1 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(y)]);
+        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(2, tt.predicates.len());
         assert_eq!(4, tt.count());
 
         // One predicate with 2 variables, another with 1, another without
-        let p = Pred::new("quux", &[t, t]);
-        let p1 = Pred::new("corge", &[t]);
-        let p2 = Pred::new("grault", &[]);
-        let f = Formula::new(FM::and(&[
-            FM::pred(Box::new(p)),
-            FM::pred(Box::new(p1)),
-            FM::pred(Box::new(p2)),
-        ]));
+        let p = PredicateDeclaration::new("quix", &[t, t])
+            .as_specific(&[Value::Object(x), Value::Object(xx)]);
+        let p1 = PredicateDeclaration::new("corge", &[t]).as_specific(&[Value::Object(y)]);
+        let p2 = PredicateDeclaration::new("grault", &[]).as_specific(&[]);
+        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1), FM::pred(p2)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(2, tt.predicates.len());
@@ -159,31 +163,36 @@ mod tests {
     fn test_validity() {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("foo");
-        let p = Pred::new("a", &[t]);
-        let p1 = Pred::new("b", &[t]);
 
-        let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let mut objects = ObjectCollection::default();
+        let x = objects.get_or_create("x", t);
+        let y = objects.get_or_create("y", t);
+
+        let p = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("b", &[t]).as_specific(&[Value::Object(y)]);
+
+        let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p1.clone())]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, false, false, true], tt);
 
         let f = Formula::new(FM::and(&[
-            FM::pred(Box::new(p)),
-            FM::not(&FM::pred(Box::new(p1))),
+            FM::pred(p.clone()),
+            FM::not(&FM::pred(p1.clone())),
         ]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, true, false, false], tt);
 
         let f = Formula::new(FM::and(&[
-            FM::not(&FM::pred(Box::new(p))),
-            FM::pred(Box::new(p1)),
+            FM::not(&FM::pred(p.clone())),
+            FM::pred(p1.clone()),
         ]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, false, true, false], tt);
 
-        let f = Formula::new(FM::or(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let f = Formula::new(FM::or(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, true, true, true], tt);
@@ -193,10 +202,15 @@ mod tests {
     fn only_true_rows_are_always_true() {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("foo");
-        let p = Pred::new("a", &[t]);
-        let p1 = Pred::new("b", &[t]);
 
-        let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let mut objects = ObjectCollection::default();
+        let x = objects.get_or_create("x", t);
+        let y = objects.get_or_create("y", t);
+
+        let p = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("b", &[t]).as_specific(&[Value::Object(y)]);
+
+        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).only_true_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![3], tt);
@@ -206,23 +220,28 @@ mod tests {
     fn only_false_rows_are_always_false() {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("foo");
-        let p = Pred::new("a", &[t]);
-        let p1 = Pred::new("b", &[t]);
 
-        let f = Formula::new(FM::and(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let mut objects = ObjectCollection::default();
+        let x = objects.get_or_create("x", t);
+        let y = objects.get_or_create("y", t);
+
+        let p = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(y)]);
+
+        let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p1.clone())]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0, 1, 2], tt);
 
         let f = Formula::new(FM::and(&[
-            FM::pred(Box::new(p)),
-            FM::not(&FM::pred(Box::new(p1))),
+            FM::pred(p.clone()),
+            FM::not(&FM::pred(p1.clone())),
         ]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0, 2, 3], tt);
 
-        let f = Formula::new(FM::or(&[FM::pred(Box::new(p)), FM::pred(Box::new(p1))]));
+        let f = Formula::new(FM::or(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0], tt);

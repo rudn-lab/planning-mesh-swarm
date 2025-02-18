@@ -1,3 +1,5 @@
+use core::{array::from_ref, ops::Deref};
+
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::*;
@@ -10,9 +12,13 @@ use crate::{
     truth_table::TruthTable,
 };
 
+pub trait Expression<T: Evaluable> {
+    fn members(&self) -> &[T];
+}
+
 #[derive(Debug, Clone)]
 pub struct And<T: Evaluable> {
-    o: Vec<T>,
+    pub(crate) o: Vec<T>,
 }
 
 impl<T: Evaluable> And<T> {
@@ -23,24 +29,30 @@ impl<T: Evaluable> And<T> {
     }
 }
 
+impl<T: Evaluable> Expression<T> for And<T> {
+    fn members(&self) -> &[T] {
+        self.o.as_slice()
+    }
+}
+
 impl<T: Evaluable> Evaluable for And<T> {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
-        self.o.iter().all(|e| Evaluable::eval(e, context))
+        self.o.iter().all(|e| e.eval(context))
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         self.o
             .iter()
             .flat_map(Evaluable::predicates)
             .sorted()
-            .dedup()
+            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
             .collect()
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Or<T: Evaluable> {
-    o: Vec<T>,
+    pub(crate) o: Vec<T>,
 }
 
 impl<T: Evaluable> Or<T> {
@@ -51,24 +63,30 @@ impl<T: Evaluable> Or<T> {
     }
 }
 
+impl<T: Evaluable> Expression<T> for Or<T> {
+    fn members(&self) -> &[T] {
+        self.o.as_slice()
+    }
+}
+
 impl<T: Evaluable> Evaluable for Or<T> {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
-        self.o.iter().any(|e| Evaluable::eval(e, context))
+        self.o.iter().any(|e| e.eval(context))
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         self.o
             .iter()
             .flat_map(Evaluable::predicates)
             .sorted()
-            .dedup()
+            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
             .collect()
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Not<T: Evaluable> {
-    o: Box<T>,
+    pub(crate) o: Box<T>,
 }
 
 impl<T: Evaluable> Not<T> {
@@ -79,12 +97,18 @@ impl<T: Evaluable> Not<T> {
     }
 }
 
+impl<T: Evaluable> Expression<T> for Not<T> {
+    fn members(&self) -> &[T] {
+        from_ref(self.o.deref())
+    }
+}
+
 impl<T: Evaluable> Evaluable for Not<T> {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
         !self.o.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         self.o.predicates()
     }
 }
@@ -94,7 +118,7 @@ pub enum FormulaMembers {
     And(And<FormulaMembers>),
     Or(Or<FormulaMembers>),
     Not(Not<FormulaMembers>),
-    Pred(Box<dyn Predicate>),
+    Pred(Predicate),
 }
 
 impl FormulaMembers {
@@ -110,7 +134,7 @@ impl FormulaMembers {
         Self::Not(Not::new(operand))
     }
 
-    pub fn pred(operand: Box<dyn Predicate>) -> Self {
+    pub fn pred(operand: Predicate) -> Self {
         Self::Pred(operand)
     }
 }
@@ -125,23 +149,23 @@ impl Evaluable for FormulaMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         match self {
             Self::And(and) => and
                 .o
                 .iter()
                 .flat_map(Self::predicates)
                 .sorted()
-                .dedup()
+                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
                 .collect(),
             Self::Or(or) => {
                 or.o.iter()
                     .flat_map(Self::predicates)
                     .sorted()
-                    .dedup()
+                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
                     .collect()
             }
-            Self::Not(not) => not.o.predicates(),
+            Self::Not(not) => not.predicates(),
             Self::Pred(p) => vec![p.clone()],
         }
     }
@@ -163,7 +187,7 @@ impl Evaluable for Formula {
         self.e.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         self.e.predicates()
     }
 }
@@ -171,22 +195,22 @@ impl Evaluable for Formula {
 /// Common normal form members that appear in both
 /// CNF and DNF at the lowest level
 #[derive(Debug, Clone)]
-pub enum NfMembers {
-    Not(Not<Box<dyn Predicate>>),
-    Pred(Box<dyn Predicate>),
+pub enum Primitives {
+    Not(Not<Predicate>),
+    Pred(Predicate),
 }
 
-impl NfMembers {
-    pub fn not(operand: Box<dyn Predicate>) -> Self {
+impl Primitives {
+    pub fn not(operand: Predicate) -> Self {
         Self::Not(Not::new(&Box::new(operand)))
     }
 
-    pub fn pred(operand: Box<dyn Predicate>) -> Self {
+    pub fn pred(operand: Predicate) -> Self {
         Self::Pred(operand)
     }
 }
 
-impl Evaluable for NfMembers {
+impl Evaluable for Primitives {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
         match self {
             Self::Not(not) => not.eval(context),
@@ -194,9 +218,9 @@ impl Evaluable for NfMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         match self {
-            Self::Not(not) => not.o.predicates(),
+            Self::Not(not) => not.predicates(),
             Self::Pred(p) => vec![p.clone()],
         }
     }
@@ -204,16 +228,16 @@ impl Evaluable for NfMembers {
 
 #[derive(Debug, Clone)]
 pub enum DnfMembers {
-    And(And<NfMembers>),
-    Prim(NfMembers),
+    And(And<Primitives>),
+    Prim(Primitives),
 }
 
 impl DnfMembers {
-    pub fn and(operands: &[NfMembers]) -> Self {
+    pub fn and(operands: &[Primitives]) -> Self {
         Self::And(And::new(operands))
     }
 
-    pub fn prim(operand: &NfMembers) -> Self {
+    pub fn prim(operand: &Primitives) -> Self {
         Self::Prim(operand.clone())
     }
 }
@@ -226,18 +250,22 @@ impl Evaluable for DnfMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         match self {
             Self::And(and) => and
                 .o
                 .iter()
-                .flat_map(NfMembers::predicates)
+                .flat_map(Primitives::predicates)
                 .sorted()
-                .dedup()
+                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
                 .collect(),
             Self::Prim(p) => p.predicates(),
         }
     }
+}
+
+pub trait NormalForm<T: Evaluable> {
+    fn expression(&self) -> impl Expression<T>;
 }
 
 #[derive(Debug, Clone)]
@@ -245,21 +273,30 @@ pub struct Dnf {
     f: Or<DnfMembers>,
 }
 
-impl Evaluable for Dnf {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        self.f.eval(context)
-    }
-
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
-        self.f.predicates()
-    }
-}
-
 impl Dnf {
     pub fn new(members: &[DnfMembers]) -> Self {
         Self {
             f: Or::new(members),
         }
+    }
+}
+
+impl<T: Evaluable> NormalForm<T> for Dnf
+where
+    Or<DnfMembers>: Expression<T>,
+{
+    fn expression(&self) -> impl Expression<T> {
+        self.f.clone()
+    }
+}
+
+impl Evaluable for Dnf {
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        self.f.eval(context)
+    }
+
+    fn predicates(&self) -> Vec<Predicate> {
+        self.f.predicates()
     }
 }
 
@@ -288,9 +325,9 @@ macro_rules! map_to {
                                 .enumerate()
                                 .map(|(n, p)| {
                                     if ((i >> n) & 1) == cond_value!($form) {
-                                        NfMembers::pred(p.clone())
+                                        Primitives::pred(p.clone())
                                     } else {
-                                        NfMembers::not(p.clone())
+                                        Primitives::not(p.clone())
                                     }
                                 })
                                 .collect::<Vec<_>>(),
@@ -345,7 +382,7 @@ impl_with_map!(Or<T>, T: Evaluable => Dnf);
 impl_with_map!(Not<T>, T: Evaluable => Dnf);
 impl_with_map!(FormulaMembers => Dnf);
 impl_with_map!(Formula => Dnf);
-impl_with_map!(NfMembers => Dnf);
+impl_with_map!(Primitives => Dnf);
 impl_with_map!(DnfMembers => Dnf);
 impl_with_map!(CnfMembers => Dnf);
 impl_with_map!(Cnf => Dnf);
@@ -354,16 +391,16 @@ impl_with_map!(&T, T: Evaluable => Dnf);
 
 #[derive(Debug, Clone)]
 pub enum CnfMembers {
-    Or(Or<NfMembers>),
-    Prim(NfMembers),
+    Or(Or<Primitives>),
+    Prim(Primitives),
 }
 
 impl CnfMembers {
-    pub fn or(operands: &[NfMembers]) -> Self {
+    pub fn or(operands: &[Primitives]) -> Self {
         Self::Or(Or::new(operands))
     }
 
-    pub fn prim(operand: &NfMembers) -> Self {
+    pub fn prim(operand: &Primitives) -> Self {
         Self::Prim(operand.clone())
     }
 }
@@ -376,13 +413,13 @@ impl Evaluable for CnfMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         match self {
             Self::Or(or) => {
                 or.o.iter()
-                    .flat_map(NfMembers::predicates)
+                    .flat_map(Primitives::predicates)
                     .sorted()
-                    .dedup()
+                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
                     .collect()
             }
             Self::Prim(p) => p.predicates(),
@@ -401,6 +438,19 @@ impl Cnf {
             f: And::new(members),
         }
     }
+
+    pub fn expression(&self) -> &And<CnfMembers> {
+        &self.f
+    }
+}
+
+impl<T: Evaluable> NormalForm<T> for Cnf
+where
+    And<CnfMembers>: Expression<T>,
+{
+    fn expression(&self) -> impl Expression<T> {
+        self.f.clone()
+    }
 }
 
 impl Evaluable for Cnf {
@@ -408,7 +458,7 @@ impl Evaluable for Cnf {
         self.f.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Box<dyn Predicate>> {
+    fn predicates(&self) -> Vec<Predicate> {
         self.f.predicates()
     }
 }
@@ -418,7 +468,7 @@ impl_with_map!(Or<T>, T: Evaluable => Cnf);
 impl_with_map!(Not<T>, T: Evaluable => Cnf);
 impl_with_map!(FormulaMembers => Cnf);
 impl_with_map!(Formula => Cnf);
-impl_with_map!(NfMembers => Cnf);
+impl_with_map!(Primitives => Cnf);
 impl_with_map!(DnfMembers => Cnf);
 impl_with_map!(Dnf => Cnf);
 impl_with_map!(CnfMembers => Cnf);
@@ -428,134 +478,165 @@ impl_with_map!(&T, T: Evaluable => Cnf);
 #[coverage(off)]
 mod tests {
     use super::*;
-    use crate::predicate::Pred;
+    use crate::object::ObjectCollection;
+    use crate::predicate::{PredicateDeclaration, ResolvedPredicate, Value};
     use crate::r#type::TypeCollection;
-    use crate::state::State;
+    use alloc::vec::Vec;
+
+    /// A simple evaluator used to check expression evaluation.
+    ///
+    /// Models the basic principle of the [State]:
+    /// if [Evaluator] contains a predicate then it evaluates to true,
+    /// and false otherwise.
+    /// This evaluator just compares the names, as predicate values
+    /// don't matter for these tests.
+    /// Most of the predicates have no values.
+    /// And those that do, have them only so that they will
+    /// not be skipped by the [TruthTable] when it is being built.
+    struct Evaluator {
+        true_predicates: Vec<ResolvedPredicate>,
+    }
+
+    impl Evaluator {
+        pub fn new(true_predicates: &[ResolvedPredicate]) -> Self {
+            Self {
+                true_predicates: true_predicates.to_vec(),
+            }
+        }
+    }
+
+    impl EvaluationContext for Evaluator {
+        fn eval(&self, predicate: Predicate) -> bool {
+            self.true_predicates
+                .iter()
+                .any(|tp| tp.name() == predicate.name())
+        }
+    }
 
     #[test]
     fn test_basic_and() {
-        let t = Pred::new("truth", &[]);
-        let f = Pred::new("falsehood", &[]);
-        let state = State::default().with_predicates(&[Box::new(t)]);
+        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
+        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
+        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
 
-        let and = And::new(&[Box::new(t), Box::new(t), Box::new(t)]);
-        assert!(and.eval(&state));
+        let and = And::new(&[t.clone(), t.clone(), t.clone()]);
+        assert!(and.eval(&evaluator));
 
-        let and = And::new(&[Box::new(t), Box::new(f), Box::new(t)]);
-        assert!(!and.eval(&state));
+        let and = And::new(&[t.clone(), f.clone(), t.clone()]);
+        assert!(!and.eval(&evaluator));
     }
 
     #[test]
     fn test_basic_or() {
-        let t = Pred::new("truth", &[]);
-        let f = Pred::new("falsehood", &[]);
-        let state = State::default().with_predicates(&[Box::new(t)]);
+        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
+        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
+        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
 
-        let or = Or::new(&[Box::new(t), Box::new(t), Box::new(t)]);
-        assert!(or.eval(&state));
+        let or = Or::new(&[t.clone(), t.clone(), t.clone()]);
+        assert!(or.eval(&evaluator));
 
-        let or = Or::new(&[Box::new(t), Box::new(f), Box::new(f)]);
-        assert!(or.eval(&state));
+        let or = Or::new(&[t.clone(), f.clone(), f.clone()]);
+        assert!(or.eval(&evaluator));
 
-        let or = Or::new(&[Box::new(f), Box::new(f), Box::new(f)]);
-        assert!(!or.eval(&state));
+        let or = Or::new(&[f.clone(), f.clone(), f.clone()]);
+        assert!(!or.eval(&evaluator));
     }
 
     #[test]
     fn test_basic_not() {
-        let t = Pred::new("truth", &[]);
-        let f = Pred::new("falsehood", &[]);
-        let state = State::default().with_predicates(&[Box::new(t)]);
+        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
+        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
+        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
 
-        let not = Not::new(&Box::new(f));
-        assert!(not.eval(&state));
+        let not = Not::new(&f.clone());
+        assert!(not.eval(&evaluator));
 
-        let not = Not::new(&Box::new(t));
-        assert!(!not.eval(&state));
+        let not = Not::new(&t.clone());
+        assert!(!not.eval(&evaluator));
     }
 
     use FormulaMembers as FM;
 
     #[test]
     fn test_formula() {
-        let t = Pred::new("truth", &[]);
-        let state = State::default().with_predicates(&[Box::new(t)]);
+        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
+        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
 
         let formula = Formula::new(FM::and(&[
-            FM::or(&[FM::pred(Box::new(t)), FM::not(&FM::pred(Box::new(t)))]),
-            FM::pred(Box::new(t)),
+            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t.clone()))]),
+            FM::pred(t.clone()),
             FM::not(&FM::and(&[
-                FM::pred(Box::new(t)),
-                FM::not(&FM::pred(Box::new(t))),
+                FM::pred(t.clone()),
+                FM::not(&FM::pred(t.clone())),
             ])),
         ]));
 
-        assert!(formula.eval(&state));
+        assert!(formula.eval(&evaluator));
     }
 
     use CnfMembers as C;
     use DnfMembers as D;
-    use NfMembers as NF;
+    use Primitives as NF;
 
     #[test]
     fn test_basic_dnf() {
-        let t = Pred::new("truth", &[]);
-        let f = Pred::new("falsehood", &[]);
-        let state = State::default().with_predicates(&[Box::new(t)]);
+        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
+        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
+        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
 
         let dnf = Dnf::new(&[
-            D::and(&[NF::pred(Box::new(t)), NF::pred(Box::new(f))]),
-            D::and(&[NF::not(Box::new(f)), NF::pred(Box::new(t))]),
-            D::prim(&NF::pred(Box::new(f))),
+            D::and(&[NF::pred(t.clone()), NF::pred(f.clone())]),
+            D::and(&[NF::not(f.clone()), NF::pred(t.clone())]),
+            D::prim(&NF::pred(f.clone())),
         ]);
 
-        assert!(dnf.eval(&state));
+        assert!(dnf.eval(&evaluator));
     }
 
     #[test]
     fn test_basic_cnf() {
-        let t = Pred::new("truth", &[]);
-        let f = Pred::new("falsehood", &[]);
-        let state = State::default().with_predicates(&[Box::new(t)]);
+        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
+        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
+        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
 
         let cnf = Cnf::new(&[
-            C::or(&[NF::pred(Box::new(t)), NF::pred(Box::new(f))]),
-            C::or(&[NF::not(Box::new(f)), NF::pred(Box::new(t))]),
-            C::prim(&NF::pred(Box::new(f))),
+            C::or(&[NF::pred(t.clone()), NF::pred(f.clone())]),
+            C::or(&[NF::not(f.clone()), NF::pred(t.clone())]),
+            C::prim(&NF::pred(f.clone())),
         ]);
 
-        assert!(!cnf.eval(&state));
+        assert!(!cnf.eval(&evaluator));
     }
 
     #[test]
     fn test_expression_get_predicates() {
-        let t = Pred::new("foo", &[]);
+        let t = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
 
         // All predicates are the smame
         let expression = FM::and(&[
-            FM::or(&[FM::pred(Box::new(t)), FM::not(&FM::pred(Box::new(t)))]),
-            FM::pred(Box::new(t)),
+            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t.clone()))]),
+            FM::pred(t.clone()),
             FM::not(&FM::and(&[
-                FM::pred(Box::new(t)),
-                FM::not(&FM::pred(Box::new(t))),
+                FM::pred(t.clone()),
+                FM::not(&FM::pred(t.clone())),
             ])),
         ]);
 
         assert_eq!(1, expression.predicates().len());
 
         // All predicates are unique
-        let t = Pred::new("foo", &[]);
-        let t1 = Pred::new("bar", &[]);
-        let t2 = Pred::new("baz", &[]);
-        let t3 = Pred::new("qux", &[]);
-        let t4 = Pred::new("corge", &[]);
+        let t = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
+        let t1 = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
+        let t2 = PredicateDeclaration::new("baz", &[]).as_specific(&[]);
+        let t3 = PredicateDeclaration::new("qux", &[]).as_specific(&[]);
+        let t4 = PredicateDeclaration::new("corge", &[]).as_specific(&[]);
 
         let expression = FM::and(&[
-            FM::or(&[FM::pred(Box::new(t)), FM::not(&FM::pred(Box::new(t1)))]),
-            FM::pred(Box::new(t2)),
+            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t1.clone()))]),
+            FM::pred(t2.clone()),
             FM::not(&FM::and(&[
-                FM::pred(Box::new(t3)),
-                FM::not(&FM::pred(Box::new(t4))),
+                FM::pred(t3.clone()),
+                FM::not(&FM::pred(t4.clone())),
             ])),
         ]);
 
@@ -563,16 +644,16 @@ mod tests {
 
         // Predicates are "reused" after "transformation".
         // Look at Predicate.unique_marker.
-        let t = Pred::new("foo", &[]);
-        let t1 = Pred::new("bar", &[]);
-        let t2 = Pred::new("baz", &[]);
+        let t = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
+        let t1 = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
+        let t2 = PredicateDeclaration::new("baz", &[]).as_specific(&[]);
 
         let expression = FM::and(&[
-            FM::or(&[FM::pred(Box::new(t)), FM::not(&FM::pred(Box::new(t1)))]),
-            FM::pred(Box::new(t2)),
+            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t1.clone()))]),
+            FM::pred(t2.clone()),
             FM::not(&FM::and(&[
-                FM::pred(Box::new(t1)),
-                FM::not(&FM::pred(Box::new(t2))),
+                FM::pred(t1.clone()),
+                FM::not(&FM::pred(t2.clone())),
             ])),
         ]);
 
@@ -583,18 +664,26 @@ mod tests {
     fn test_formula_to_dnf() {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("foo");
-        let p = Pred::new("foo", &[t]);
-        let p1 = Pred::new("bar", &[t]);
-        let p2 = Pred::new("baz", &[t]);
-        let p3 = Pred::new("qux", &[t]);
-        let p4 = Pred::new("corge", &[t]);
+
+        let mut objects = ObjectCollection::default();
+        let a = objects.get_or_create("a", t);
+        let b = objects.get_or_create("b", t);
+        let c = objects.get_or_create("c", t);
+        let d = objects.get_or_create("d", t);
+        let e = objects.get_or_create("e", t);
+
+        let p = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(a)]);
+        let p1 = PredicateDeclaration::new("bar", &[t]).as_specific(&[Value::Object(b)]);
+        let p2 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(c)]);
+        let p3 = PredicateDeclaration::new("qux", &[t]).as_specific(&[Value::Object(d)]);
+        let p4 = PredicateDeclaration::new("corge", &[t]).as_specific(&[Value::Object(e)]);
 
         let formula = Formula::new(FM::and(&[
-            FM::or(&[FM::pred(Box::new(p)), FM::not(&FM::pred(Box::new(p1)))]),
-            FM::pred(Box::new(p2)),
+            FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),
+            FM::pred(p2.clone()),
             FM::not(&FM::and(&[
-                FM::pred(Box::new(p3)),
-                FM::not(&FM::pred(Box::new(p4))),
+                FM::pred(p3.clone()),
+                FM::not(&FM::pred(p4.clone())),
             ])),
         ]));
 
@@ -610,18 +699,26 @@ mod tests {
     fn test_formula_to_cnf() {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("foo");
-        let p = Pred::new("foo", &[t]);
-        let p1 = Pred::new("bar", &[t]);
-        let p2 = Pred::new("baz", &[t]);
-        let p3 = Pred::new("qux", &[t]);
-        let p4 = Pred::new("corge", &[t]);
+
+        let mut objects = ObjectCollection::default();
+        let a = objects.get_or_create("a", t);
+        let b = objects.get_or_create("b", t);
+        let c = objects.get_or_create("c", t);
+        let d = objects.get_or_create("d", t);
+        let e = objects.get_or_create("e", t);
+
+        let p = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(a)]);
+        let p1 = PredicateDeclaration::new("bar", &[t]).as_specific(&[Value::Object(b)]);
+        let p2 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(c)]);
+        let p3 = PredicateDeclaration::new("qux", &[t]).as_specific(&[Value::Object(d)]);
+        let p4 = PredicateDeclaration::new("corge", &[t]).as_specific(&[Value::Object(e)]);
 
         let formula = Formula::new(FM::and(&[
-            FM::or(&[FM::pred(Box::new(p)), FM::not(&FM::pred(Box::new(p1)))]),
-            FM::pred(Box::new(p2)),
+            FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),
+            FM::pred(p2.clone()),
             FM::not(&FM::and(&[
-                FM::pred(Box::new(p3)),
-                FM::not(&FM::pred(Box::new(p4))),
+                FM::pred(p3.clone()),
+                FM::not(&FM::pred(p4.clone())),
             ])),
         ]));
 

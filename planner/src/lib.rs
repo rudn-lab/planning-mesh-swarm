@@ -7,8 +7,10 @@
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
+pub mod action;
 pub mod evaluation;
 pub mod expression;
+pub mod object;
 pub mod predicate;
 pub mod state;
 pub mod truth_table;
