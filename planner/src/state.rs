@@ -1,7 +1,7 @@
 use crate::{
     action::Action,
     evaluation::{ActionResolution, Evaluable, PredicateResolution, ResolutionContext},
-    expression::{Expression, NormalForm, Not, Primitives},
+    expression::{DnfMembers, Expression, NormalForm, Not, Primitives},
     object::{ObjectCollection, ObjectHandle},
     predicate::{ActionParameterRef, Predicate, PredicateDeclaration, ResolvedPredicate, Value},
     r#type::TypeCollection,
@@ -74,12 +74,9 @@ impl ResolutionContext for State {
             .zip(resolved_predicate.values())
             .all(|(av, v)| match av {
                 Value::Object(o) => o == v,
-                Value::ActionParam(ap) => objects
-                    .get(*v)
-                    .map(|o| {
-                        o.r#type == ap.r#type || types.get_subtypes(ap.r#type).contains(&o.r#type)
-                    })
-                    .is_some(),
+                Value::ActionParam(ap) => objects.get(*v).is_some_and(|o| {
+                    o.r#type == ap.r#type || types.get_subtypes(ap.r#type).contains(&o.r#type)
+                }),
             })
     }
 
@@ -104,11 +101,11 @@ impl ResolutionContext for State {
     ) -> PredicateResolution {
         let pos_predicate = predicate.predicates()[0].clone();
 
-        let all_objects_for_type = resolve_pred_as_parameter_map(&pos_predicate, || {
+        let objects_for_param = resolve_pred_as_parameter_map(&pos_predicate, || {
             self.resolve_predicate(&pos_predicate, types, objects)
         });
 
-        all_objects_for_type
+        objects_for_param
             .iter()
             // Get all objects for all arguments that don't appear in the current state
             .map(|(r, obj)| {
@@ -167,7 +164,7 @@ impl ResolutionContext for State {
             .members()
             .iter()
             .filter_map(|m| match m {
-                crate::expression::DnfMembers::And(and) => {
+                DnfMembers::And(and) => {
                     let o = and.o.iter().fold(
                         BTreeMap::default(),
                         |mut acc: BTreeMap<ActionParameterRef, BTreeSet<_>>, p| {
@@ -186,7 +183,7 @@ impl ResolutionContext for State {
                         Some(o)
                     }
                 }
-                crate::expression::DnfMembers::Prim(p) => Some(handle_primitives(p)),
+                DnfMembers::Prim(p) => Some(handle_primitives(p)),
             })
             .collect::<BTreeSet<_>>()
     }
@@ -198,7 +195,7 @@ mod tests {
     use super::*;
     use crate::{
         action::ActionBuilder,
-        expression::{And, Formula, FormulaMembers as FM, Primitives as Pr},
+        expression::{And, Dnf, DnfMembers, Formula, FormulaMembers as FM, Primitives as Pr},
         object::ObjectCollection,
         predicate::*,
         r#type::*,
@@ -287,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_simple_action_resolution() {
+    pub fn test_action_resolution_with_explicit_predicates() {
         let mut types = TypeCollection::default();
         let t1 = types.get_or_create("t1");
         let t2 = types.get_or_create("t2");
@@ -325,56 +322,346 @@ mod tests {
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
-        let mut correct_resolution = BTreeMap::new();
-        correct_resolution.insert(action_params[0], {
-            let mut set = BTreeSet::new();
-            set.insert(x);
-            set
-        });
-        correct_resolution.insert(action_params[1], {
-            let mut set = BTreeSet::new();
-            set.insert(y);
-            set
-        });
+        let correct_resolution = BTreeSet::from([BTreeMap::from([
+            (action_params[0], BTreeSet::from([x])),
+            (action_params[1], BTreeSet::from([y])),
+        ])]);
 
-        let mut correct = BTreeSet::new();
-        correct.insert(correct_resolution);
-
-        assert_eq!(res, correct)
+        assert_eq!(res, correct_resolution)
     }
 
     #[test]
-    pub fn test_action_resolution() {
+    pub fn test_action_resolution_with_not_predicate() {
         let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
-        let t1 = types.get_or_create("bar");
+        let t1 = types.get_or_create("t1");
+        let t2 = types.get_or_create("t2");
 
         let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", t);
-        let y = objects.get_or_create("y", t);
+        let x = objects.get_or_create("x", t1);
+        let y = objects.get_or_create("y", t2);
 
-        let p = PredicateDeclaration::new("foo", &[t]);
-        let rp = p.as_resolved(&[x]);
-        let p1 = PredicateDeclaration::new("bar", &[t1]);
-        let p2 = PredicateDeclaration::new("baz", &[t1]);
-        let rp2 = p2.as_resolved(&[y]);
+        let p1 = PredicateDeclaration::new("p1", &[t1]);
+        let p2 = PredicateDeclaration::new("p2", &[t2]);
 
-        let _action = ActionBuilder::new("action")
-            .parameters(&[t, t1])
+        let action = ActionBuilder::new("action")
+            .parameters(&[t1, t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
-                    FM::pred(p.as_specific(&[Value::ActionParam(params[0])])),
-                    FM::not(&FM::pred(p1.as_specific(&[Value::ActionParam(params[0])]))),
+                    FM::pred(p1.as_specific(&[Value::ActionParam(params[0])])),
+                    FM::not(&FM::pred(p2.as_specific(&[Value::ActionParam(params[1])]))),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p.as_specific(&[Value::ActionParam(params[0])])),
-                    Pr::pred(p1.as_specific(&[Value::ActionParam(params[1])])),
+                    Pr::not(p1.as_specific(&[Value::ActionParam(params[0])])),
+                    Pr::pred(p2.as_specific(&[Value::ActionParam(params[1])])),
                 ])
             })
             .build();
 
-        let _state = State::default().with_predicates(&[rp, rp2]);
+        let rp1 = p1.as_resolved(&[x]);
+        let state = State::default().with_predicates(&[rp1]);
+
+        let action_params = action.parameters.to_owned();
+        let res = state.resolve_action(action, &types, &objects);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([BTreeMap::from([
+            (action_params[0], BTreeSet::from([x])),
+            (action_params[1], BTreeSet::from([y])),
+        ])]);
+
+        assert_eq!(res, correct_resolution)
+    }
+
+    #[test]
+    pub fn test_action_resolution_with_only_negated() {
+        let mut types = TypeCollection::default();
+        let t1 = types.get_or_create("t1");
+        let t2 = types.get_or_create("t2");
+
+        let mut objects = ObjectCollection::default();
+        let x1 = objects.get_or_create("x1", t1);
+        let x2 = objects.get_or_create("x2", t1);
+        let y1 = objects.get_or_create("y1", t2);
+        let y2 = objects.get_or_create("y2", t2);
+
+        let p1 = PredicateDeclaration::new("p1", &[t1]);
+        let p2 = PredicateDeclaration::new("p2", &[t2]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(&[t1, t2])
+            .precondition(|params| {
+                Formula::new(FM::and(&[
+                    FM::not(&FM::pred(p1.as_specific(&[Value::ActionParam(params[0])]))),
+                    FM::not(&FM::pred(p2.as_specific(&[Value::ActionParam(params[1])]))),
+                ]))
+            })
+            .effect(|params| {
+                And::new(&[
+                    Pr::pred(p1.as_specific(&[Value::ActionParam(params[0])])),
+                    Pr::pred(p2.as_specific(&[Value::ActionParam(params[1])])),
+                ])
+            })
+            .build();
+
+        let rp1 = p1.as_resolved(&[x1]);
+        let rp2 = p2.as_resolved(&[y1]);
+        let state = State::default().with_predicates(&[rp1, rp2]);
+
+        let action_params = action.parameters.to_owned();
+        let res = state.resolve_action(action, &types, &objects);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([BTreeMap::from([
+            (action_params[0], BTreeSet::from([x2])),
+            (action_params[1], BTreeSet::from([y2])),
+        ])]);
+
+        assert_eq!(res, correct_resolution)
+    }
+
+    #[test]
+    pub fn test_impossible_action_resolution() {
+        let mut types = TypeCollection::default();
+        let t1 = types.get_or_create("t1");
+        let t2 = types.get_or_create("t2");
+
+        let mut objects = ObjectCollection::default();
+        let x1 = objects.get_or_create("x1", t1);
+        let x2 = objects.get_or_create("x2", t1);
+        let y1 = objects.get_or_create("y1", t2);
+        let y2 = objects.get_or_create("y2", t2);
+
+        let p1 = PredicateDeclaration::new("p1", &[t1]);
+        let p2 = PredicateDeclaration::new("p2", &[t2]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(&[t1, t2])
+            .precondition(|params| {
+                Formula::new(FM::and(&[
+                    FM::not(&FM::pred(p1.as_specific(&[Value::ActionParam(params[0])]))),
+                    FM::not(&FM::pred(p2.as_specific(&[Value::ActionParam(params[1])]))),
+                ]))
+            })
+            .effect(|params| {
+                And::new(&[
+                    Pr::pred(p1.as_specific(&[Value::ActionParam(params[0])])),
+                    Pr::pred(p2.as_specific(&[Value::ActionParam(params[1])])),
+                ])
+            })
+            .build();
+
+        let rp11 = p1.as_resolved(&[x1]);
+        let rp12 = p1.as_resolved(&[x2]);
+        let rp21 = p2.as_resolved(&[y1]);
+        let state = State::default().with_predicates(&[rp11, rp12, rp21]);
+
+        let action_params = action.parameters.to_owned();
+        let res = state.resolve_action(action, &types, &objects);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([BTreeMap::from([
+            (action_params[0], BTreeSet::from([])),
+            (action_params[1], BTreeSet::from([y2])),
+        ])]);
+
+        assert_eq!(res, correct_resolution)
+    }
+
+    #[test]
+    pub fn test_impossible_resolution_with_partially_defined_predicate() {
+        let mut types = TypeCollection::default();
+        let t1 = types.get_or_create("t1");
+        let t2 = types.get_or_create("t2");
+
+        let mut objects = ObjectCollection::default();
+        let x1 = objects.get_or_create("x1", t1);
+        let x2 = objects.get_or_create("x2", t1);
+        let y1 = objects.get_or_create("y1", t2);
+        let y2 = objects.get_or_create("y2", t2);
+        let y3 = objects.get_or_create("y3", t2);
+
+        let p1 = PredicateDeclaration::new("p1", &[t1, t1]);
+        let p2 = PredicateDeclaration::new("p2", &[t2, t2]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(&[t1, t2])
+            .precondition(|params| {
+                Formula::new(FM::and(&[
+                    FM::pred(p1.as_specific(&[Value::ActionParam(params[0]), Value::Object(x2)])),
+                    FM::not(&FM::pred(p2.as_specific(&[
+                        Value::Object(y1),
+                        Value::ActionParam(params[1]),
+                    ]))),
+                ]))
+            })
+            .effect(|params| {
+                And::new(&[
+                    Pr::not(p1.as_specific(&[Value::Object(x2), Value::ActionParam(params[0])])),
+                    Pr::pred(p2.as_specific(&[Value::ActionParam(params[1]), Value::Object(y1)])),
+                ])
+            })
+            .build();
+
+        let rp1 = p1.as_resolved(&[x1, x2]);
+        let rp2 = p2.as_resolved(&[y1, y2]);
+        let state = State::default().with_predicates(&[rp1, rp2]);
+
+        let action_params = action.parameters.to_owned();
+        let res = state.resolve_action(action, &types, &objects);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([BTreeMap::from([
+            (action_params[0], BTreeSet::from([x1])),
+            (action_params[1], BTreeSet::from([y1, y3])),
+        ])]);
+
+        assert_eq!(res, correct_resolution)
+    }
+
+    #[test]
+    pub fn test_with_mixed_dnf() {
+        let mut types = TypeCollection::default();
+        let t1 = types.get_or_create("t1");
+        let t2 = types.get_or_create("t2");
+
+        let mut objects = ObjectCollection::default();
+        let x1 = objects.get_or_create("x1", t1);
+        let x2 = objects.get_or_create("x2", t1);
+        let y1 = objects.get_or_create("y1", t2);
+        let y2 = objects.get_or_create("y2", t2);
+        let y3 = objects.get_or_create("y3", t2);
+
+        let p1 = PredicateDeclaration::new("p1", &[t1, t1]);
+        let p2 = PredicateDeclaration::new("p2", &[t2, t2]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(&[t1, t2])
+            .precondition(|params| {
+                Dnf::new(&[
+                    DnfMembers::and(&[
+                        Pr::pred(
+                            p1.as_specific(&[Value::ActionParam(params[0]), Value::Object(x2)]),
+                        ),
+                        Pr::not(
+                            p2.as_specific(&[Value::Object(y1), Value::ActionParam(params[1])]),
+                        ),
+                    ]),
+                    DnfMembers::prim(&Pr::not(
+                        p1.as_specific(&[Value::Object(x2), Value::ActionParam(params[0])]),
+                    )),
+                    DnfMembers::prim(&Pr::pred(
+                        p2.as_specific(&[Value::ActionParam(params[1]), Value::Object(y2)]),
+                    )),
+                    DnfMembers::prim(&Pr::pred(
+                        p2.as_specific(&[Value::ActionParam(params[1]), Value::Object(y2)]),
+                    )),
+                    DnfMembers::and(&[]),
+                ])
+            })
+            .effect(|params| {
+                And::new(&[
+                    Pr::not(p1.as_specific(&[Value::Object(x2), Value::ActionParam(params[0])])),
+                    Pr::pred(p2.as_specific(&[Value::ActionParam(params[1]), Value::Object(y1)])),
+                ])
+            })
+            .build();
+
+        let rp1 = p1.as_resolved(&[x1, x2]);
+        let rp2 = p2.as_resolved(&[y1, y2]);
+        let state = State::default().with_predicates(&[rp1, rp2]);
+
+        let action_params = action.parameters.to_owned();
+        let res = state.resolve_action(action, &types, &objects);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([
+            BTreeMap::from([
+                (action_params[0], BTreeSet::from([x1])),
+                (action_params[1], BTreeSet::from([y1, y3])),
+            ]),
+            // Both `x1` and `x2` here, because the initial pred already doesn't
+            // resolve because of the Object as the first parameter
+            BTreeMap::from([(action_params[0], BTreeSet::from([x1, x2]))]),
+            // This one is here only once, because of the set
+            BTreeMap::from([(action_params[1], BTreeSet::from([y1]))]),
+            // We do not expect the 4th element, because it's empty
+        ]);
+
+        assert_eq!(res, correct_resolution)
+    }
+
+    #[test]
+    pub fn test_action_resolution_with_subtypes() {
+        let mut types = TypeCollection::default();
+        let t1 = types.get_or_create("t1");
+        let tt1 = types.get_or_create("tt1");
+        types.create_inheritance(tt1, t1).unwrap();
+        let t2 = types.get_or_create("t2");
+
+        let mut objects = ObjectCollection::default();
+        let x1 = objects.get_or_create("x1", t1);
+        let x2 = objects.get_or_create("x2", t1);
+        let xx1 = objects.get_or_create("xx1", tt1);
+        let xx2 = objects.get_or_create("xx2", tt1);
+        let y1 = objects.get_or_create("y1", t2);
+        let y2 = objects.get_or_create("y2", t2);
+
+        let p1 = PredicateDeclaration::new("p1", &[t1]);
+        let pp1 = PredicateDeclaration::new("pp1", &[tt1]);
+        let p2 = PredicateDeclaration::new("p2", &[t2]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(&[t1, tt1, t2])
+            .precondition(|params| {
+                Dnf::new(&[
+                    DnfMembers::prim(&Pr::pred(p1.as_specific(&[Value::ActionParam(params[0])]))),
+                    DnfMembers::prim(&Pr::pred(p1.as_specific(&[Value::ActionParam(params[1])]))),
+                    DnfMembers::prim(&Pr::pred(pp1.as_specific(&[Value::ActionParam(params[1])]))),
+                    DnfMembers::prim(&Pr::pred(p2.as_specific(&[Value::ActionParam(params[2])]))),
+                ])
+            })
+            .effect(|params| {
+                And::new(&[
+                    Pr::not(p1.as_specific(&[Value::ActionParam(params[0])])),
+                    Pr::pred(p2.as_specific(&[Value::ActionParam(params[1])])),
+                ])
+            })
+            .build();
+
+        let rp1_t1_1 = p1.as_resolved(&[x1]);
+        let rp1_t1_2 = p1.as_resolved(&[x2]);
+        let rp1_tt1_1 = p1.as_resolved(&[xx1]);
+        let rp1_tt1_2 = p1.as_resolved(&[xx2]);
+
+        let rpp1_tt1_1 = pp1.as_resolved(&[xx1]);
+        let rpp1_tt1_2 = pp1.as_resolved(&[xx2]);
+
+        let rp2_t2_1 = p2.as_resolved(&[y1]);
+        let rp2_t2_2 = p2.as_resolved(&[y2]);
+        let state = State::default().with_predicates(&[
+            rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
+        ]);
+
+        let action_params = action.parameters.to_owned();
+        let res = state.resolve_action(action, &types, &objects);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([
+            // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
+            // and the predicate is declared with `t1` which is a supertype of `tt1`
+            BTreeMap::from([(action_params[0], BTreeSet::from([x1, x2, xx1, xx2]))]),
+            // This predicate is defined with `t1`, but it was turned into a specific
+            // with `tt1`, so it should only resolve with `tt1`
+            BTreeMap::from([(action_params[1], BTreeSet::from([xx1, xx2]))]),
+            // This predicate is defined with type `tt1`, which has no subtypes,
+            // so only values of this type will be resolved
+            BTreeMap::from([(action_params[1], BTreeSet::from([xx1, xx2]))]),
+            // Same as above, no subtypes
+            BTreeMap::from([(action_params[2], BTreeSet::from([y1, y2]))]),
+        ]);
+
+        assert_eq!(res, correct_resolution)
     }
 }
