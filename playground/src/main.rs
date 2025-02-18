@@ -69,7 +69,7 @@ fn setup_system(world: &mut World) {
         ..Default::default()
     });
 
-    let nic = NicBundle::new(world, Srgba::GREEN);
+    let nic = NicBundle::new(world, Srgba::GREEN, 0);
     let robot_nic_child = world.commands().spawn(nic).id();
 
     let robot = RobotBundle::new(0, (3, 2), world, 1.0, 0.5);

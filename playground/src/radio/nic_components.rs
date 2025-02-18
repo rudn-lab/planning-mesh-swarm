@@ -1,14 +1,31 @@
+use std::collections::VecDeque;
+
 use bevy::{prelude::*, sprite::Material2dPlugin};
 
 use crate::{robot::onclick_handling::SelectedRobot, CENTIMETER};
 
-use super::{antenna::AntennaReach, antenna_reach_vis_mat::AntennaReachVisualizationMaterial};
+use super::{
+    antenna::AntennaReach,
+    antenna_reach_vis_mat::AntennaReachVisualizationMaterial,
+    virtual_nic::{MessageType, VirtualPeerId},
+};
 
 /// This component is used as a child of the robot entity to indicate that it has a virtual network interface.
 #[derive(Component, Debug)]
 pub(crate) struct VirtualNetworkInterface {
+    /// The sequential number of this NIC.
+    /// The first NIC is 0, the second is 1, etc.
+    ///
+    /// If any NICs are removed, these indexes are (treated as if they are) shifted backwards.
+    pub(crate) index: usize,
     pub(crate) reach: AntennaReach,
     pub(crate) color: Srgba,
+
+    /// If this NIC is paired with another NIC, this is the index of the other NIC.
+    pub(crate) paired_with: Option<VirtualPeerId>,
+
+    /// The messages that this NIC would like to send to its pair.
+    pub(crate) pending_messages: VecDeque<MessageType>,
 }
 
 #[derive(Bundle)]
@@ -21,7 +38,7 @@ pub(crate) struct NicBundle {
 }
 
 impl NicBundle {
-    pub(crate) fn new(world: &mut World, color: Srgba) -> Self {
+    pub(crate) fn new(world: &mut World, color: Srgba, index: usize) -> Self {
         let material = world
             .resource_mut::<Assets<AntennaReachVisualizationMaterial>>()
             .add(AntennaReachVisualizationMaterial {
@@ -38,6 +55,9 @@ impl NicBundle {
                     max_reach: 10.0 * CENTIMETER,
                 },
                 color,
+                index,
+                paired_with: None,
+                pending_messages: VecDeque::new(),
             },
             material: MeshMaterial2d(material),
             mesh: Mesh2d(mesh),
@@ -120,7 +140,9 @@ fn sort_nics_by_reach(mut query: Query<(&mut Transform, &VirtualNetworkInterface
 /// This function produces a command
 /// that will add a virtual network interface to the passed-in robot.
 /// The NIC will have some reasonable defaults.
-pub(crate) fn add_nic_to_robot(robot: Entity) -> impl Command {
+///
+/// Provide the greatest index of all the NICs that are currently attached to the robot.
+pub(crate) fn add_nic_to_robot(robot: Entity, max_nic_index: usize) -> impl Command {
     move |world: &mut World| {
         let nic = NicBundle::new(
             world,
@@ -128,6 +150,7 @@ pub(crate) fn add_nic_to_robot(robot: Entity) -> impl Command {
                 alpha: 0.5,
                 ..Srgba::WHITE
             },
+            max_nic_index + 1,
         );
 
         let nic_entity = world.spawn(nic).id();

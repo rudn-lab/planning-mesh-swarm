@@ -6,6 +6,8 @@ use crate::robot::{
     onclick_handling::{SelectedRobot, SelectedRobotMarker},
 };
 
+use super::nic_components::VirtualNetworkInterface;
+
 pub(crate) struct RadioReachTooltipPlugin;
 
 impl Plugin for RadioReachTooltipPlugin {
@@ -107,6 +109,7 @@ fn update_line_and_tooltip(
         (Option<&SelectedRobotMarker>, &Transform),
         (With<RobotState>, Without<RadioReachLine>),
     >,
+    nics: Query<(&Parent, &VirtualNetworkInterface)>,
 ) {
     let mut radio_reach_line_transform = radio_reach_line.single_mut();
 
@@ -143,6 +146,15 @@ fn update_line_and_tooltip(
     // The rotation of the rectangle is the angle
     radio_reach_line_transform.rotation = Quat::from_rotation_z(angle);
 
+    // Get the nics belonging to the currently selected robot
+    let selected_robot_nics = nics
+        .iter()
+        .filter(|(parent, _)| parent.get() == selected_entity)
+        .map(|(_, nic)| nic)
+        .collect::<Vec<_>>();
+
+    let my_position = selected_robot_transform.translation.xy();
+    let their_position = hovered_robot_transform.translation.xy();
     // Show the tooltip at the position of the hovered robot
     // (which is implicitly the current position of the cursor)
     egui::show_tooltip(
@@ -150,7 +162,19 @@ fn update_line_and_tooltip(
         egui::LayerId::background(),
         egui::Id::new("radio_reach_tooltip"),
         |ui| {
-            ui.label("Tooltip!");
+            if selected_robot_nics.is_empty() {
+                ui.label("Selected robot has no NICs");
+            } else {
+                ui.label("Sender signal strength for target:");
+            }
+
+            for (idx, nic) in selected_robot_nics.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("NIC {}: ", idx));
+                    let signal = nic.reach.get_signal_strength(my_position, their_position);
+                    ui.add(egui::ProgressBar::new(signal).show_percentage());
+                });
+            }
         },
     );
 }

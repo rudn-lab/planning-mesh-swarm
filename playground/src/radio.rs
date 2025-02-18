@@ -6,6 +6,7 @@ pub(crate) mod antenna;
 pub(crate) mod antenna_reach_vis_mat;
 pub(crate) mod nic_components;
 pub(crate) mod radio_reach_tooltip;
+pub(crate) mod virtual_nic;
 
 pub(crate) struct RadioPlugin;
 

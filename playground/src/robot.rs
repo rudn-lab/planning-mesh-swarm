@@ -1,12 +1,18 @@
-use bevy::{prelude::*, tasks::IoTaskPool};
+use bevy::{prelude::*, tasks::IoTaskPool, utils::hashbrown::HashMap};
 use bevy_tweening::{Animator, TweenCompleted};
+use high_level_cmds::network_kit::RSSI;
 use internal_state_vis::InternalStatePlugin;
 use motion_anim::{get_tween, update_robot_tweens_after_props_change};
 use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotProps, RobotState};
 use onclick_handling::{on_selection_event, SelectedRobot, SelectionChanged};
+use radio_world_communication::update_robot_radios;
 use virtual_chassis::VirtualChassis;
 
-use crate::{pause_controller::PauseState, CELL_SIZE};
+use crate::{
+    pause_controller::PauseState,
+    radio::{nic_components::VirtualNetworkInterface, virtual_nic::new_virtual_network_kit},
+    CELL_SIZE,
+};
 
 mod async_queue_wrapper;
 mod business_logic;
@@ -14,6 +20,7 @@ mod internal_state_vis;
 pub(crate) mod motion_anim;
 pub(crate) mod motion_types;
 pub(crate) mod onclick_handling;
+mod radio_world_communication;
 pub(crate) mod robot_spawn_menu;
 mod selection_reticle;
 pub(crate) mod virtual_chassis;
@@ -49,6 +56,12 @@ impl RobotBundle {
 
         let my_logic = IoTaskPool::get().spawn(business_logic::simple_business_logic(chassis));
 
+        let (tx, from_radio) = async_channel::bounded(100);
+        const MAX_SENDER_COUNT: usize = 4;
+        let my_radio = IoTaskPool::get().spawn(routing::sample_routing(new_virtual_network_kit::<
+            MAX_SENDER_COUNT,
+        >(tx)));
+
         Self {
             name: Name::new(format!("Robot {}", id)),
             location: Transform::from_translation(
@@ -64,6 +77,7 @@ impl RobotBundle {
                     .resource_mut::<Assets<ColorMaterial>>()
                     .add(ColorMaterial::from(Color::hsl(0.0, 1.0, 1.0))),
             ),
+
             robot_state: RobotState {
                 id,
                 grid_pos,
@@ -71,7 +85,12 @@ impl RobotBundle {
 
                 from_chassis: from_robot_receiver,
                 into_chassis: to_robot_sender,
-                task: my_logic,
+                business_task: my_logic,
+
+                from_radio,
+                radio_task: my_radio,
+                msg_receivers: vec![],
+                queued_messages: vec![],
 
                 log: vec![],
             },
@@ -174,6 +193,7 @@ impl Plugin for RobotBehaviorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
+        app.add_systems(FixedUpdate, update_robot_radios);
         app.add_systems(FixedUpdate, on_selection_event);
         app.add_systems(FixedUpdate, update_robot_tweens_after_props_change);
         app.add_plugins(InternalStatePlugin);

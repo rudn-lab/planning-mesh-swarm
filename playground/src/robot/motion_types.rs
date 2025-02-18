@@ -2,7 +2,10 @@ use async_channel::{Receiver, Sender};
 use bevy::{prelude::*, tasks::Task};
 use high_level_cmds::MotionCommand;
 
-use crate::bg_grid::grid_pos_to_world;
+use crate::{
+    bg_grid::grid_pos_to_world,
+    radio::virtual_nic::{MessageType, VirtualPeerId, VirtualRadioRequest},
+};
 
 use super::virtual_chassis::VirtualChassisCommand;
 
@@ -120,13 +123,27 @@ pub(crate) struct RobotState {
     pub(crate) from_chassis: Receiver<VirtualChassisCommand>,
     pub(crate) into_chassis: Sender<()>,
 
+    pub(crate) from_radio: Receiver<VirtualRadioRequest>,
+
     /// Task that is running the robot's business logic.
     /// We don't need to touch it directly, but we need to prevent dropping it.
     #[allow(dead_code)]
-    pub(crate) task: Task<()>,
+    pub(crate) business_task: Task<()>,
+
+    /// Task that is running the robot's radio logic.
+    /// As above, it just needs to be kept alive.
+    #[allow(dead_code)]
+    pub(crate) radio_task: Task<()>,
 
     /// Log messages
     pub(crate) log: Vec<String>,
+
+    /// Channels that are waiting for a message to arrive to this robot's receiver NIC.
+    pub(crate) msg_receivers: Vec<oneshot::Sender<(VirtualPeerId, MessageType)>>,
+
+    /// Messages that have been received by the receiver NIC,
+    /// but not yet seen by the radio logic.
+    pub(crate) queued_messages: Vec<(VirtualPeerId, MessageType)>,
 }
 
 impl RobotState {

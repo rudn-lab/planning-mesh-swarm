@@ -89,11 +89,13 @@ fn visualize_internal_state(
 
                 // Robot's NICs
                 {
+                    let max_nic_index =
+                        this_robot_nics.iter().map(|v| v.1.index).max().unwrap_or(0);
                     ui.horizontal(|ui| {
                         ui.label(format!("{} NICs", this_robot_nics.len()));
 
                         if ui.button("+").clicked() {
-                            commands.queue(add_nic_to_robot(entity));
+                            commands.queue(add_nic_to_robot(entity, max_nic_index));
                         }
                     });
 

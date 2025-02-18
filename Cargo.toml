@@ -7,7 +7,7 @@ members = [
   "octoliner-embassy-driver",
   "octoliner-test",
   "playground",
-  "planner",
+  "planner", "routing",
 ]
 
 # cargo build/run
