@@ -61,7 +61,6 @@ impl ObjectCollection {
     }
 }
 
-// TODO: use handles as for types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Object {
     pub(crate) name: InternerSymbol,
