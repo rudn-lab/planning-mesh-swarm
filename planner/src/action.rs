@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use crate::{
     expression::{And, Dnf, Primitives},
     predicate::{ActionParameterRef, ParameterHandle},
@@ -8,18 +6,23 @@ use crate::{
     InternerSymbol, INTERNER,
 };
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::{fmt::Debug, marker::PhantomData};
+use getset::Getters;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters)]
 pub struct Action {
-    pub name: InternerSymbol,
-    pub parameters: Vec<ActionParameterRef>,
-    pub precondition: Dnf,
-    pub effect: And<Primitives>,
+    #[getset(get = "pub")]
+    name: InternerSymbol,
+    #[getset(get = "pub")]
+    parameters: Vec<ActionParameterRef>,
+    #[getset(get = "pub")]
+    precondition: Dnf,
+    #[getset(get = "pub")]
+    effect: And<Primitives>,
 }
 
+#[allow(private_bounds)]
 pub trait ActionBuilderState: Sealed {}
-impl<D: ActionBuilderState> Sealed for D {}
 
 pub struct New;
 pub struct HasName;
@@ -33,19 +36,25 @@ impl ActionBuilderState for HasParameters {}
 impl ActionBuilderState for HasPrecondition {}
 impl ActionBuilderState for HasEffect {}
 
-pub struct ActionBuilder<S: ActionBuilderState, D: Into<Dnf>> {
-    pub name: InternerSymbol,
-    pub parameters: Vec<ActionParameterRef>,
-    pub precondition: Option<D>,
-    pub effect: Option<And<Primitives>>,
-    pub state: PhantomData<S>,
+impl Sealed for New {}
+impl Sealed for HasName {}
+impl Sealed for HasParameters {}
+impl Sealed for HasPrecondition {}
+impl Sealed for HasEffect {}
+
+pub struct ActionBuilder<S: ActionBuilderState, const N: usize, D: Into<Dnf>> {
+    name: InternerSymbol,
+    parameters: Option<[ActionParameterRef; N]>,
+    precondition: Option<D>,
+    effect: Option<And<Primitives>>,
+    state: PhantomData<S>,
 }
 
-impl<D: Into<Dnf>> ActionBuilder<New, D> {
-    pub fn new(name: &str) -> ActionBuilder<HasName, D> {
+impl<const N: usize, D: Into<Dnf>> ActionBuilder<New, N, D> {
+    pub fn new(name: &str) -> ActionBuilder<HasName, N, D> {
         ActionBuilder {
             name: INTERNER.lock().get_or_intern(name),
-            parameters: Vec::new(),
+            parameters: None,
             precondition: None,
             effect: None,
             state: PhantomData,
@@ -53,8 +62,8 @@ impl<D: Into<Dnf>> ActionBuilder<New, D> {
     }
 }
 
-impl<D: Into<Dnf>> ActionBuilder<HasName, D> {
-    pub fn parameters(self, parameters: &[TypeHandle]) -> ActionBuilder<HasParameters, D> {
+impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasName, N, D> {
+    pub fn parameters(self, parameters: &[TypeHandle; N]) -> ActionBuilder<HasParameters, N, D> {
         let parameters = parameters
             .iter()
             .enumerate()
@@ -62,10 +71,13 @@ impl<D: Into<Dnf>> ActionBuilder<HasName, D> {
                 parameter_handle: ParameterHandle { idx: i },
                 r#type: *t,
             })
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
         ActionBuilder {
             name: self.name,
-            parameters,
+            parameters: Some(parameters),
             precondition: None,
             effect: None,
             state: PhantomData,
@@ -73,14 +85,14 @@ impl<D: Into<Dnf>> ActionBuilder<HasName, D> {
     }
 }
 
-impl<D: Into<Dnf>> ActionBuilder<HasParameters, D> {
-    pub fn precondition<F>(self, precondition: F) -> ActionBuilder<HasPrecondition, D>
+impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasParameters, N, D> {
+    pub fn precondition<F>(self, precondition: F) -> ActionBuilder<HasPrecondition, N, D>
     where
-        F: Fn(&[ActionParameterRef]) -> D,
+        F: Fn(&[ActionParameterRef; N]) -> D,
     {
         ActionBuilder {
             name: self.name,
-            precondition: Some(precondition(&self.parameters)),
+            precondition: Some(precondition(&self.parameters.unwrap())),
             parameters: self.parameters,
             effect: None,
             state: PhantomData,
@@ -88,14 +100,14 @@ impl<D: Into<Dnf>> ActionBuilder<HasParameters, D> {
     }
 }
 
-impl<D: Into<Dnf>> ActionBuilder<HasPrecondition, D> {
-    pub fn effect<F>(self, effect: F) -> ActionBuilder<HasEffect, D>
+impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasPrecondition, N, D> {
+    pub fn effect<F>(self, effect: F) -> ActionBuilder<HasEffect, N, D>
     where
-        F: Fn(&[ActionParameterRef]) -> And<Primitives>,
+        F: Fn(&[ActionParameterRef; N]) -> And<Primitives>,
     {
         ActionBuilder {
             name: self.name,
-            effect: Some(effect(&self.parameters)),
+            effect: Some(effect(&self.parameters.unwrap())),
             parameters: self.parameters,
             precondition: self.precondition,
             state: PhantomData,
@@ -103,11 +115,11 @@ impl<D: Into<Dnf>> ActionBuilder<HasPrecondition, D> {
     }
 }
 
-impl<D: Into<Dnf>> ActionBuilder<HasEffect, D> {
+impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasEffect, N, D> {
     pub fn build(self) -> Action {
         Action {
             name: self.name,
-            parameters: self.parameters,
+            parameters: self.parameters.unwrap().to_vec(),
             precondition: self.precondition.unwrap().into(),
             effect: self.effect.unwrap(),
         }

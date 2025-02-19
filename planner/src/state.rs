@@ -159,7 +159,7 @@ impl ResolutionContext for State {
         };
 
         action
-            .precondition
+            .precondition()
             .expression()
             .members()
             .iter()
@@ -318,7 +318,7 @@ mod tests {
         let rp3 = p3.as_resolved(&[y]);
         let state = State::default().with_predicates(&[rp1, rp3]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
@@ -362,7 +362,7 @@ mod tests {
         let rp1 = p1.as_resolved(&[x]);
         let state = State::default().with_predicates(&[rp1]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
@@ -409,7 +409,7 @@ mod tests {
         let rp2 = p2.as_resolved(&[y1]);
         let state = State::default().with_predicates(&[rp1, rp2]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
@@ -457,7 +457,7 @@ mod tests {
         let rp21 = p2.as_resolved(&[y1]);
         let state = State::default().with_predicates(&[rp11, rp12, rp21]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
@@ -508,7 +508,7 @@ mod tests {
         let rp2 = p2.as_resolved(&[y1, y2]);
         let state = State::default().with_predicates(&[rp1, rp2]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
@@ -572,7 +572,7 @@ mod tests {
         let rp2 = p2.as_resolved(&[y1, y2]);
         let state = State::default().with_predicates(&[rp1, rp2]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
@@ -644,7 +644,7 @@ mod tests {
             rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
         ]);
 
-        let action_params = action.parameters.to_owned();
+        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(action, &types, &objects);
         assert!(!res.is_empty());
 
