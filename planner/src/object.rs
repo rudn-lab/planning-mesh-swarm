@@ -2,10 +2,7 @@ use alloc::{collections::BTreeMap, vec, vec::Vec};
 
 use slotmap::{new_key_type, SlotMap};
 
-use crate::{
-    r#type::{TypeCollection, TypeHandle},
-    InternerSymbol, INTERNER,
-};
+use crate::{r#type::TypeHandle, InternerSymbol, INTERNER};
 
 new_key_type! {
     pub struct ObjectHandle;
@@ -22,10 +19,10 @@ pub struct ObjectCollection {
 }
 
 impl ObjectCollection {
-    pub fn get_or_create(&mut self, object_name: &str, r#type: TypeHandle) -> ObjectHandle {
-        let h = self.get_or_insert_object(Object::new(object_name, r#type));
+    pub fn get_or_create(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle {
+        let h = self.get_or_insert_object(Object::new(object_name, r#type.clone()));
         self.type_info
-            .entry(r#type)
+            .entry(r#type.clone())
             .and_modify(|objects| objects.push(h))
             .or_insert_with(|| vec![h]);
         h
@@ -50,10 +47,12 @@ impl ObjectCollection {
         self.type_info.get(r#type).cloned().unwrap_or_default()
     }
 
-    pub fn get_by_type(&self, r#type: &TypeHandle, types: &TypeCollection) -> Vec<ObjectHandle> {
+    pub fn get_by_type(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
         let mut res = self.get_by_type_strict(r#type);
 
-        for t in types.get_subtypes(*r#type) {
+        let types = r#type.container();
+
+        for t in types.get_subtypes(r#type) {
             res.extend(self.get_by_type_strict(&t).iter());
         }
 
@@ -61,7 +60,7 @@ impl ObjectCollection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Object {
     pub(crate) name: InternerSymbol,
     pub(crate) r#type: TypeHandle,

@@ -116,9 +116,9 @@ mod tests {
         let t = types.get_or_create("foo");
 
         let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", t);
-        let xx = objects.get_or_create("xx", t);
-        let y = objects.get_or_create("y", t);
+        let x = objects.get_or_create("x", &t);
+        let xx = objects.get_or_create("xx", &t);
+        let y = objects.get_or_create("y", &t);
 
         // Degenerative case, predicates have no arguments
         let p = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
@@ -129,8 +129,8 @@ mod tests {
         assert_eq!(1, tt.count());
 
         // Two predicats with arguments
-        let p = PredicateDeclaration::new("bar", &[t]).as_specific(&[Value::Object(x)]);
-        let p1 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(y)]);
+        let p = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(y)]);
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
@@ -138,9 +138,9 @@ mod tests {
         assert_eq!(4, tt.count());
 
         // Same as above, but more variables, which doesn't matter
-        let p = PredicateDeclaration::new("bar", &[t, t])
+        let p = PredicateDeclaration::new("bar", &[&t, &t])
             .as_specific(&[Value::Object(x), Value::Object(xx)]);
-        let p1 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(y)]);
+        let p1 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(y)]);
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
@@ -148,9 +148,9 @@ mod tests {
         assert_eq!(4, tt.count());
 
         // One predicate with 2 variables, another with 1, another without
-        let p = PredicateDeclaration::new("quix", &[t, t])
+        let p = PredicateDeclaration::new("quix", &[&t, &t])
             .as_specific(&[Value::Object(x), Value::Object(xx)]);
-        let p1 = PredicateDeclaration::new("corge", &[t]).as_specific(&[Value::Object(y)]);
+        let p1 = PredicateDeclaration::new("corge", &[&t]).as_specific(&[Value::Object(y)]);
         let p2 = PredicateDeclaration::new("grault", &[]).as_specific(&[]);
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1), FM::pred(p2)]));
         let tt = TruthTable::new(&f);
@@ -165,11 +165,11 @@ mod tests {
         let t = types.get_or_create("foo");
 
         let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", t);
-        let y = objects.get_or_create("y", t);
+        let x = objects.get_or_create("x", &t);
+        let y = objects.get_or_create("y", &t);
 
-        let p = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(x)]);
-        let p1 = PredicateDeclaration::new("b", &[t]).as_specific(&[Value::Object(y)]);
+        let p = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("b", &[&t]).as_specific(&[Value::Object(y)]);
 
         let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p1.clone())]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
@@ -204,11 +204,11 @@ mod tests {
         let t = types.get_or_create("foo");
 
         let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", t);
-        let y = objects.get_or_create("y", t);
+        let x = objects.get_or_create("x", &t);
+        let y = objects.get_or_create("y", &t);
 
-        let p = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(x)]);
-        let p1 = PredicateDeclaration::new("b", &[t]).as_specific(&[Value::Object(y)]);
+        let p = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("b", &[&t]).as_specific(&[Value::Object(y)]);
 
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).only_true_rows().collect::<Vec<_>>();
@@ -222,11 +222,11 @@ mod tests {
         let t = types.get_or_create("foo");
 
         let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", t);
-        let y = objects.get_or_create("y", t);
+        let x = objects.get_or_create("x", &t);
+        let y = objects.get_or_create("y", &t);
 
-        let p = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(x)]);
-        let p1 = PredicateDeclaration::new("a", &[t]).as_specific(&[Value::Object(y)]);
+        let p = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(x)]);
+        let p1 = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(y)]);
 
         let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p1.clone())]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();

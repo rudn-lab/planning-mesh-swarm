@@ -69,7 +69,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasName, N, D> {
             .enumerate()
             .map(|(i, t)| ActionParameterRef {
                 parameter_handle: ParameterHandle { idx: i },
-                r#type: *t,
+                r#type: t.clone(),
             })
             .collect::<Vec<_>>()
             .try_into()
@@ -92,7 +92,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasParameters, N, D> {
     {
         ActionBuilder {
             name: self.name,
-            precondition: Some(precondition(&self.parameters.unwrap())),
+            precondition: Some(precondition(self.parameters.as_ref().unwrap())),
             parameters: self.parameters,
             effect: None,
             state: PhantomData,
@@ -107,7 +107,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasPrecondition, N, D> {
     {
         ActionBuilder {
             name: self.name,
-            effect: Some(effect(&self.parameters.unwrap())),
+            effect: Some(effect(self.parameters.as_ref().unwrap())),
             parameters: self.parameters,
             precondition: self.precondition,
             state: PhantomData,
@@ -143,21 +143,23 @@ mod tests {
         let t = types.get_or_create("foo");
         let t1 = types.get_or_create("bar");
 
-        let p = PredicateDeclaration::new("foo", &[t]);
-        let p1 = PredicateDeclaration::new("bar", &[t1]);
+        let p = PredicateDeclaration::new("foo", &[&t]);
+        let p1 = PredicateDeclaration::new("bar", &[&t1]);
 
         let _action = ActionBuilder::new("flip")
             .parameters(&[t, t1])
             .precondition(|params| {
                 Formula::new(FM::and(&[
-                    FM::pred(p.as_specific(&[Value::ActionParam(params[0])])),
-                    FM::not(&FM::pred(p1.as_specific(&[Value::ActionParam(params[1])]))),
+                    FM::pred(p.as_specific(&[Value::ActionParam(params[0].clone())])),
+                    FM::not(&FM::pred(
+                        p1.as_specific(&[Value::ActionParam(params[1].clone())]),
+                    )),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p.as_specific(&[Value::ActionParam(params[0])])),
-                    Pr::pred(p1.as_specific(&[Value::ActionParam(params[1])])),
+                    Pr::not(p.as_specific(&[Value::ActionParam(params[0].clone())])),
+                    Pr::pred(p1.as_specific(&[Value::ActionParam(params[1].clone())])),
                 ])
             })
             .build();

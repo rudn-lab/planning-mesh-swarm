@@ -3,6 +3,7 @@
 #![feature(abort_unwind)]
 #![feature(trait_upcasting)]
 #![feature(coverage_attribute)]
+#![feature(debug_closure_helpers)]
 #![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
@@ -14,6 +15,7 @@ pub mod predicate;
 pub mod state;
 pub mod truth_table;
 pub mod r#type;
+mod util;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

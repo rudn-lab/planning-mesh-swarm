@@ -666,17 +666,17 @@ mod tests {
         let t = types.get_or_create("foo");
 
         let mut objects = ObjectCollection::default();
-        let a = objects.get_or_create("a", t);
-        let b = objects.get_or_create("b", t);
-        let c = objects.get_or_create("c", t);
-        let d = objects.get_or_create("d", t);
-        let e = objects.get_or_create("e", t);
+        let a = objects.get_or_create("a", &t);
+        let b = objects.get_or_create("b", &t);
+        let c = objects.get_or_create("c", &t);
+        let d = objects.get_or_create("d", &t);
+        let e = objects.get_or_create("e", &t);
 
-        let p = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(a)]);
-        let p1 = PredicateDeclaration::new("bar", &[t]).as_specific(&[Value::Object(b)]);
-        let p2 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(c)]);
-        let p3 = PredicateDeclaration::new("qux", &[t]).as_specific(&[Value::Object(d)]);
-        let p4 = PredicateDeclaration::new("corge", &[t]).as_specific(&[Value::Object(e)]);
+        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(a)]);
+        let p1 = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(b)]);
+        let p2 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(c)]);
+        let p3 = PredicateDeclaration::new("qux", &[&t]).as_specific(&[Value::Object(d)]);
+        let p4 = PredicateDeclaration::new("corge", &[&t]).as_specific(&[Value::Object(e)]);
 
         let formula = Formula::new(FM::and(&[
             FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),
@@ -701,17 +701,17 @@ mod tests {
         let t = types.get_or_create("foo");
 
         let mut objects = ObjectCollection::default();
-        let a = objects.get_or_create("a", t);
-        let b = objects.get_or_create("b", t);
-        let c = objects.get_or_create("c", t);
-        let d = objects.get_or_create("d", t);
-        let e = objects.get_or_create("e", t);
+        let a = objects.get_or_create("a", &t);
+        let b = objects.get_or_create("b", &t);
+        let c = objects.get_or_create("c", &t);
+        let d = objects.get_or_create("d", &t);
+        let e = objects.get_or_create("e", &t);
 
-        let p = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(a)]);
-        let p1 = PredicateDeclaration::new("bar", &[t]).as_specific(&[Value::Object(b)]);
-        let p2 = PredicateDeclaration::new("baz", &[t]).as_specific(&[Value::Object(c)]);
-        let p3 = PredicateDeclaration::new("qux", &[t]).as_specific(&[Value::Object(d)]);
-        let p4 = PredicateDeclaration::new("corge", &[t]).as_specific(&[Value::Object(e)]);
+        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(a)]);
+        let p1 = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(b)]);
+        let p2 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(c)]);
+        let p3 = PredicateDeclaration::new("qux", &[&t]).as_specific(&[Value::Object(d)]);
+        let p4 = PredicateDeclaration::new("corge", &[&t]).as_specific(&[Value::Object(e)]);
 
         let formula = Formula::new(FM::and(&[
             FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),

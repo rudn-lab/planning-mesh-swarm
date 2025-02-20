@@ -18,10 +18,10 @@ pub struct PredicateDeclaration {
 }
 
 impl PredicateDeclaration {
-    pub fn new(name: &str, arguments: &[TypeHandle]) -> Self {
+    pub fn new(name: &str, arguments: &[&TypeHandle]) -> Self {
         Self {
             name: INTERNER.lock().get_or_intern(name),
-            arguments: arguments.to_vec(),
+            arguments: arguments.iter().map(|&v| v.clone()).collect(),
         }
     }
 
@@ -44,7 +44,7 @@ impl PredicateDeclaration {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
     Object(ObjectHandle),
     ActionParam(ActionParameterRef),
@@ -55,7 +55,7 @@ pub struct ParameterHandle {
     pub(crate) idx: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ActionParameterRef {
     pub(crate) parameter_handle: ParameterHandle,
     pub(crate) r#type: TypeHandle,
@@ -194,19 +194,19 @@ mod tests {
         let mut types = TypeCollection::default();
         let t = types.get_or_create("t");
         let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", t);
+        let x = objects.get_or_create("x", &t);
 
-        let p = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(x)]);
-        let mut p1 = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(x)]);
+        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
+        let mut p1 = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
         p1.unique_marker = p.unique_marker;
 
         assert!(p == p1);
 
         // Different because of type
         let t1 = types.get_or_create("t1");
-        let y = objects.get_or_create("y", t1);
-        let p = PredicateDeclaration::new("foo", &[t]).as_specific(&[Value::Object(x)]);
-        let mut p1 = PredicateDeclaration::new("foo", &[t1]).as_specific(&[Value::Object(y)]);
+        let y = objects.get_or_create("y", &t1);
+        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
+        let mut p1 = PredicateDeclaration::new("foo", &[&t1]).as_specific(&[Value::Object(y)]);
         p1.unique_marker = p.unique_marker;
 
         assert!(p != p1);

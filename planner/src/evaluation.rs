@@ -5,7 +5,6 @@ use crate::{
     expression::Not,
     object::{ObjectCollection, ObjectHandle},
     predicate::{ActionParameterRef, Predicate, ResolvedPredicate},
-    r#type::TypeCollection,
 };
 use alloc::{
     collections::{BTreeMap, BTreeSet},
@@ -39,33 +38,29 @@ pub type PredicateResolution = BTreeSet<ResolvedPredicate>;
 
 pub type ActionResolution = BTreeSet<BTreeMap<ActionParameterRef, BTreeSet<ObjectHandle>>>;
 
+#[allow(
+    clippy::mutable_key_type,
+    reason = "See SmartHandle Hash and Ord impls."
+)]
 pub trait ResolutionContext {
     fn is_resolution_of(
         &self,
         predicate: &Predicate,
         resolved_predicate: &ResolvedPredicate,
-        types: &TypeCollection,
         objects: &ObjectCollection,
     ) -> bool;
 
     fn resolve_predicate(
         &self,
         predicate: &Predicate,
-        types: &TypeCollection,
         objects: &ObjectCollection,
     ) -> PredicateResolution;
 
     fn resolve_negated_predicate(
         &self,
         predicate: &Not<Predicate>,
-        types: &TypeCollection,
         objects: &ObjectCollection,
     ) -> PredicateResolution;
 
-    fn resolve_action(
-        &self,
-        action: Action,
-        types: &TypeCollection,
-        objects: &ObjectCollection,
-    ) -> ActionResolution;
+    fn resolve_action(&self, action: Action, objects: &ObjectCollection) -> ActionResolution;
 }
