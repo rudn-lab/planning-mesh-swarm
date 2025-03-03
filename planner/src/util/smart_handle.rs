@@ -1,17 +1,19 @@
 use alloc::rc::Rc;
-use core::cell::Ref;
 use core::fmt::Debug;
 use core::{hash::Hash, marker::PhantomData, ops::Deref};
 
 pub trait Handleable: Clone + PartialEq {}
 
 pub trait Storage<T: Handleable> {
-    fn get<S: Storage<T>>(&self, handle: &SmartHandle<T, S>) -> impl Deref<Target = T> + '_;
+    fn get<S: Storage<T>>(&self, handle: &SmartHandle<T, S>) -> T;
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct Idx(pub(crate) usize);
 
 #[derive(Clone)]
 pub struct SmartHandle<T: Handleable, S: Storage<T>> {
-    pub(crate) idx: usize,
+    pub(crate) idx: Idx,
     container: Rc<S>,
     _marker: PhantomData<T>,
 }
@@ -23,14 +25,22 @@ pub struct SmartHandle<T: Handleable, S: Storage<T>> {
 impl<T: Handleable, S: Storage<T>> Debug for SmartHandle<T, S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let handle_to = core::any::type_name::<T>().split("::").last().unwrap();
-        write!(f, "Handle<{}>({})", handle_to, self.idx)
+        write!(f, "Handle<{}>({})", handle_to, self.idx.0)
     }
 }
 
 impl<T: Handleable, S: Storage<T>> SmartHandle<T, S> {
-    pub(crate) fn new(idx: usize, container: Rc<S>) -> Self {
+    pub(crate) fn new(idx: Idx, container: Rc<S>) -> Self {
         Self {
             idx,
+            container,
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn from_raw(idx: usize, container: Rc<S>) -> Self {
+        Self {
+            idx: Idx(idx),
             container,
             _marker: PhantomData,
         }
@@ -43,37 +53,19 @@ impl<T: Handleable, S: Storage<T>> PartialEq for SmartHandle<T, S> {
     }
 }
 
-impl<T: Handleable, S: Storage<T>> Eq for SmartHandle<T, S> {}
-
-impl<T, S> PartialEq<Ref<'_, SmartHandle<T, S>>> for SmartHandle<T, S>
-where
-    T: Handleable,
-    S: Storage<T>,
-{
-    fn eq(&self, other: &Ref<SmartHandle<T, S>>) -> bool {
+impl<T: Handleable, S: Storage<T>> PartialEq<&SmartHandle<T, S>> for SmartHandle<T, S> {
+    fn eq(&self, other: &&SmartHandle<T, S>) -> bool {
         *self == **other
     }
 }
 
-impl<T, S> PartialEq<Ref<'_, SmartHandle<T, S>>> for &SmartHandle<T, S>
-where
-    T: Handleable,
-    S: Storage<T>,
-{
-    fn eq(&self, other: &Ref<SmartHandle<T, S>>) -> bool {
-        **self == **other
+impl<T: Handleable, S: Storage<T>> PartialEq<SmartHandle<T, S>> for &SmartHandle<T, S> {
+    fn eq(&self, other: &SmartHandle<T, S>) -> bool {
+        **self == *other
     }
 }
 
-impl<T, S> PartialEq<&SmartHandle<T, S>> for Ref<'_, SmartHandle<T, S>>
-where
-    T: Handleable,
-    S: Storage<T>,
-{
-    fn eq(&self, other: &&SmartHandle<T, S>) -> bool {
-        **self == **other
-    }
-}
+impl<T: Handleable, S: Storage<T>> Eq for SmartHandle<T, S> {}
 
 /// Fields that have interior mutability aren't being used here
 impl<T: Handleable, S: Storage<T>> PartialOrd for SmartHandle<T, S> {
@@ -97,7 +89,7 @@ impl<T: Handleable, S: Storage<T>> Hash for SmartHandle<T, S> {
 }
 
 impl<T: Handleable, S: Storage<T>> SmartHandle<T, S> {
-    pub fn inner(&self) -> impl Deref<Target = T> + '_ {
+    pub fn inner(&self) -> T {
         self.container.get(self)
     }
 
@@ -109,7 +101,7 @@ impl<T: Handleable, S: Storage<T>> SmartHandle<T, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::cell::{Ref, RefCell};
+    use core::cell::RefCell;
 
     impl Handleable for Thing {}
 
@@ -140,7 +132,7 @@ mod tests {
                 }
             }) {
                 return SmartHandle {
-                    idx,
+                    idx: Idx(idx),
                     container: Rc::new(self.clone()),
                     _marker: PhantomData,
                 };
@@ -149,7 +141,7 @@ mod tests {
             let idx = self.data.borrow().len();
             self.data.borrow_mut().push(thing);
             SmartHandle {
-                idx,
+                idx: Idx(idx),
                 container: Rc::new(self.clone()),
                 _marker: PhantomData,
             }
@@ -157,8 +149,8 @@ mod tests {
     }
 
     impl<T: Handleable> Storage<T> for Container<T> {
-        fn get<S: Storage<T>>(&self, handle: &SmartHandle<T, S>) -> impl Deref<Target = T> + '_ {
-            Ref::map(self.data.borrow(), |d| &d[handle.idx])
+        fn get<S: Storage<T>>(&self, handle: &SmartHandle<T, S>) -> T {
+            self.data.borrow()[handle.idx.0].clone()
         }
     }
 
@@ -184,19 +176,19 @@ mod tests {
         let mut cont = Container::new();
 
         let ha = cont.add(a.clone());
-        assert_eq!(*ha.inner(), a.clone());
-        assert_eq!(*cont.get(&ha), a.clone());
-        assert_eq!(*ha.container().get(&ha), a.clone());
+        assert_eq!(ha.inner(), a.clone());
+        assert_eq!(cont.get(&ha), a.clone());
+        assert_eq!(ha.container().get(&ha), a.clone());
 
         let hb = cont.add(b.clone());
-        assert_eq!(*hb.inner(), b.clone());
-        assert_eq!(*cont.get(&hb), b.clone());
-        assert_eq!(*hb.container().get(&hb), b.clone());
+        assert_eq!(hb.inner(), b.clone());
+        assert_eq!(cont.get(&hb), b.clone());
+        assert_eq!(hb.container().get(&hb), b.clone());
 
         let hc = cont.add(c.clone());
-        assert_eq!(*hc.inner(), c.clone());
-        assert_eq!(*cont.get(&hc), c.clone());
-        assert_eq!(*hc.container().get(&hc), c.clone());
+        assert_eq!(hc.inner(), c.clone());
+        assert_eq!(cont.get(&hc), c.clone());
+        assert_eq!(hc.container().get(&hc), c.clone());
 
         let mut correct = vec![a, b, c];
         assert_eq!(*cont.data.borrow(), correct);
@@ -205,9 +197,9 @@ mod tests {
         assert_eq!(*hc.container().data.borrow(), correct);
 
         let hd = cont.add(d.clone());
-        assert_eq!(*hd.inner(), d.clone());
-        assert_eq!(*cont.get(&hd), d.clone());
-        assert_eq!(*hd.container().get(&hd), d.clone());
+        assert_eq!(hd.inner(), d.clone());
+        assert_eq!(cont.get(&hd), d.clone());
+        assert_eq!(hd.container().get(&hd), d.clone());
 
         correct.push(d);
         assert_eq!(*cont.data.borrow(), correct);

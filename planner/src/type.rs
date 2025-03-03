@@ -1,5 +1,5 @@
 use crate::{
-    util::smart_handle::{Handleable, SmartHandle, Storage},
+    util::smart_handle::{Handleable, Idx, SmartHandle, Storage},
     InternerSymbol, INTERNER,
 };
 use alloc::{
@@ -33,6 +33,9 @@ pub type TypeHandle = SmartHandle<Type, TypeCollection>;
 pub type SubTypeHandle = TypeHandle;
 pub type SuperTypeHandle = TypeHandle;
 
+type SubTypeIdx = Idx;
+type SuperTypeIdx = Idx;
+
 #[derive(Debug, Clone)]
 pub enum TypeError {
     AlreadyHasSuperType(TypeHandle),
@@ -46,8 +49,8 @@ pub enum TypeError {
 #[derive(Debug, Clone, Default)]
 pub struct TypeCollection {
     types: Rc<RefCell<Vec<Type>>>,
-    supertypes: Rc<RefCell<BTreeMap<SubTypeHandle, SuperTypeHandle>>>,
-    subtypes: Rc<RefCell<BTreeMap<SuperTypeHandle, Vec<SubTypeHandle>>>>,
+    supertypes: Rc<RefCell<BTreeMap<SubTypeIdx, SuperTypeIdx>>>,
+    subtypes: Rc<RefCell<BTreeMap<SuperTypeIdx, Vec<SubTypeIdx>>>>,
 }
 
 impl TypeCollection {
@@ -63,12 +66,12 @@ impl TypeCollection {
                 None
             }
         }) {
-            return SmartHandle::new(idx, Rc::new(self.clone()));
+            return TypeHandle::from_raw(idx, Rc::new(self.clone()));
         }
 
         let idx = self.types.borrow().len();
         self.types.borrow_mut().push(r#type);
-        SmartHandle::new(idx, Rc::new(self.clone()))
+        TypeHandle::from_raw(idx, Rc::new(self.clone()))
     }
 
     pub fn create_inheritance(
@@ -76,8 +79,11 @@ impl TypeCollection {
         sub_type: &SubTypeHandle,
         super_type: &SuperTypeHandle,
     ) -> Result<(), TypeError> {
-        if let Some(t) = self.supertypes.borrow().get(sub_type) {
-            return Err(TypeError::AlreadyHasSuperType(t.clone()));
+        if let Some(tidx) = self.supertypes.borrow().get(&sub_type.idx) {
+            return Err(TypeError::AlreadyHasSuperType(TypeHandle::new(
+                *tidx,
+                Rc::new(self.clone()),
+            )));
         }
 
         if self.inherits(super_type, sub_type) {
@@ -85,69 +91,64 @@ impl TypeCollection {
         }
 
         let mut supertypes = self.supertypes.borrow_mut();
-        supertypes.insert(sub_type.clone(), super_type.clone());
+        supertypes.insert(sub_type.idx, super_type.idx);
 
         self.subtypes
             .borrow_mut()
-            .entry(super_type.clone())
-            .and_modify(|e| e.push(sub_type.clone()))
-            .or_insert_with(|| vec![sub_type.clone()]);
+            .entry(super_type.idx)
+            .and_modify(|e| e.push(sub_type.idx))
+            .or_insert_with(|| vec![sub_type.idx]);
 
         Ok(())
     }
 
-    pub fn get_parent(&self, r#type: &TypeHandle) -> Option<Ref<TypeHandle>> {
-        Ref::filter_map(self.supertypes.borrow(), |s| s.get(r#type)).ok()
+    pub fn get_parent(&self, r#type: &TypeHandle) -> Option<TypeHandle> {
+        Ref::filter_map(self.supertypes.borrow(), |s| s.get(&r#type.idx))
+            .ok()
+            .map(|v| TypeHandle::new(*v, Rc::new(self.clone())))
     }
 
     /// Get sequence of all types that are ancestors of the current type, from most specific to most generic.
     /// The provided type is not included in the sequence.
-    pub fn get_parents(&self, r#type: impl Deref<Target = TypeHandle>) -> Vec<Ref<TypeHandle>> {
-        let first_parent = self.get_parent(&r#type);
-        if let Some(fp) = first_parent {
-            let mut parents = VecDeque::new();
-            let mut parent_ref = fp;
-            parents.push_back(Ref::clone(&parent_ref));
-            while let Some(ancestor) = self.get_parent(&parent_ref) {
-                parents.push_back(Ref::clone(&ancestor));
-                parent_ref = ancestor;
-            }
+    pub fn get_parents(&self, r#type: impl Deref<Target = TypeHandle>) -> Vec<TypeHandle> {
+        self.get_parent(&r#type)
+            .map(|mut parent| {
+                let mut parents: VecDeque<TypeHandle> = VecDeque::new();
+                parents.push_back(parent.clone());
+                while let Some(ancestor) = self.get_parent(&parent) {
+                    parents.push_back(ancestor.clone());
+                    parent = ancestor;
+                }
 
-            parents.into()
-        } else {
-            vec![]
-        }
+                parents.into()
+            })
+            .unwrap_or_default()
     }
 
-    pub fn get_direct_subtypes(&self, r#type: &TypeHandle) -> Vec<Ref<TypeHandle>> {
-        if let Ok(t) = Ref::filter_map(self.subtypes.borrow(), |s| s.get(r#type)) {
-            let mut subtypes = VecDeque::new();
-            let mut idx = 0;
-            while let Ok(val) = Ref::filter_map(Ref::clone(&t), |v| v.get(idx)) {
-                subtypes.push_back(val);
-                idx += 1;
-            }
-            subtypes.into()
-        } else {
-            vec![]
-        }
+    pub fn get_direct_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle> {
+        Ref::filter_map(self.subtypes.borrow(), |s| s.get(&r#type.idx))
+            .map(|subtypes| {
+                subtypes
+                    .iter()
+                    .map(|idx| TypeHandle::new(*idx, Rc::new(self.clone())))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    pub fn get_subtypes(&self, r#type: &TypeHandle) -> Vec<Ref<TypeHandle>> {
+    pub fn get_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle> {
         let mut ts: VecDeque<_> = self.get_direct_subtypes(r#type).into();
         let mut subtypes = VecDeque::new();
         while let Some(t) = ts.pop_front() {
-            subtypes.push_back(Ref::clone(&t));
-            let t = self.get_direct_subtypes(&t);
-            ts.extend(t.into_iter());
+            let tt = self.get_direct_subtypes(&t);
+            subtypes.push_back(t);
+            ts.extend(tt.into_iter());
         }
         subtypes.into()
     }
 
     pub fn inherits(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool {
-        self.get_parents(sub_type)
-            .iter()
-            .any(|v| **v == *super_type)
+        self.get_parents(sub_type).iter().any(|v| *v == *super_type)
     }
 
     pub fn inherits_or_eq(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool {
@@ -164,13 +165,10 @@ impl TypeCollection {
 }
 
 impl Storage<Type> for TypeCollection {
-    fn get<S: Storage<Type>>(
-        &self,
-        handle: &SmartHandle<Type, S>,
-    ) -> impl Deref<Target = Type> + '_ {
+    fn get<S: Storage<Type>>(&self, handle: &SmartHandle<Type, S>) -> Type {
         // Cannot panic, because the only way to create a handle is
         // through the TypeCollection
-        Ref::map(self.types.borrow(), |types| &types[handle.idx])
+        self.types.borrow()[handle.idx.0]
     }
 }
 
@@ -196,7 +194,7 @@ mod tests {
         assert_eq!(types.len(), 2);
 
         let tt1 = types.get(&t1);
-        assert_eq!(*tt1, Type::new("foo"));
+        assert_eq!(tt1, Type::new("foo"));
     }
 
     #[test]
@@ -209,7 +207,7 @@ mod tests {
 
         let res = types.create_inheritance(&t1, &t2);
         assert!(res.is_ok());
-        assert_eq!(*types.get_parent(&t1).unwrap(), t2);
+        assert_eq!(types.get_parent(&t1).unwrap(), t2);
 
         let _ = types.create_inheritance(&t2, &t3);
         assert_eq!(

@@ -1,7 +1,6 @@
 #![feature(allocator_api)] // For nohash-hasher, https://github.com/rust-lang/rust/issues/32838
 #![feature(iter_advance_by)]
 #![feature(abort_unwind)]
-#![feature(trait_upcasting)]
 #![feature(coverage_attribute)]
 #![feature(debug_closure_helpers)]
 #![cfg_attr(not(test), no_std)]
