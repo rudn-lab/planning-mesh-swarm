@@ -1,7 +1,7 @@
 use crate::{
+    entity::TypeHandle,
     expression::{And, Dnf, Primitives},
     predicate::{ActionParameterRef, ParameterHandle},
-    r#type::TypeHandle,
     sealed::Sealed,
     InternerSymbol, INTERNER,
 };
@@ -130,18 +130,18 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasEffect, N, D> {
 #[coverage(off)]
 mod tests {
     use crate::{
+        entity::EntityStorage,
         expression::{Formula, FormulaMembers as FM, Primitives as Pr},
         predicate::{PredicateDeclaration, Value},
-        r#type::TypeCollection,
     };
 
     use super::*;
 
     #[test]
     pub fn test_build_action() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
-        let t1 = types.get_or_create("bar");
+        let mut types = EntityStorage::default();
+        let t = types.get_or_create_type("foo");
+        let t1 = types.get_or_create_type("bar");
 
         let p = PredicateDeclaration::new("foo", &[&t]);
         let p1 = PredicateDeclaration::new("bar", &[&t1]);

@@ -478,9 +478,8 @@ impl_with_map!(&T, T: Evaluable => Cnf);
 #[coverage(off)]
 mod tests {
     use super::*;
-    use crate::object::ObjectCollection;
+    use crate::entity::EntityStorage;
     use crate::predicate::{PredicateDeclaration, ResolvedPredicate, Value};
-    use crate::r#type::TypeCollection;
     use alloc::vec::Vec;
 
     /// A simple evaluator used to check expression evaluation.
@@ -662,15 +661,14 @@ mod tests {
 
     #[test]
     fn test_formula_to_dnf() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("foo");
 
-        let mut objects = ObjectCollection::default();
-        let a = objects.get_or_create("a", &t);
-        let b = objects.get_or_create("b", &t);
-        let c = objects.get_or_create("c", &t);
-        let d = objects.get_or_create("d", &t);
-        let e = objects.get_or_create("e", &t);
+        let a = entities.get_or_create_object("a", &t);
+        let b = entities.get_or_create_object("b", &t);
+        let c = entities.get_or_create_object("c", &t);
+        let d = entities.get_or_create_object("d", &t);
+        let e = entities.get_or_create_object("e", &t);
 
         let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(a)]);
         let p1 = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(b)]);
@@ -697,15 +695,14 @@ mod tests {
 
     #[test]
     fn test_formula_to_cnf() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("foo");
 
-        let mut objects = ObjectCollection::default();
-        let a = objects.get_or_create("a", &t);
-        let b = objects.get_or_create("b", &t);
-        let c = objects.get_or_create("c", &t);
-        let d = objects.get_or_create("d", &t);
-        let e = objects.get_or_create("e", &t);
+        let a = entities.get_or_create_object("a", &t);
+        let b = entities.get_or_create_object("b", &t);
+        let c = entities.get_or_create_object("c", &t);
+        let d = entities.get_or_create_object("d", &t);
+        let e = entities.get_or_create_object("e", &t);
 
         let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(a)]);
         let p1 = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(b)]);

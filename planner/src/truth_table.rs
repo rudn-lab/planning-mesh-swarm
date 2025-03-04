@@ -104,21 +104,19 @@ impl<T: Evaluable, const F: bool> Iterator for FilteredTruthTable<T, F> {
 mod tests {
     use super::*;
     use crate::{
+        entity::EntityStorage,
         expression::{FormulaMembers as FM, *},
-        object::ObjectCollection,
         predicate::{PredicateDeclaration, Value},
-        r#type::TypeCollection,
     };
 
     #[test]
     fn test_size() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("foo");
 
-        let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", &t);
-        let xx = objects.get_or_create("xx", &t);
-        let y = objects.get_or_create("y", &t);
+        let x = entities.get_or_create_object("x", &t);
+        let xx = entities.get_or_create_object("xx", &t);
+        let y = entities.get_or_create_object("y", &t);
 
         // Degenerative case, predicates have no arguments
         let p = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
@@ -129,8 +127,8 @@ mod tests {
         assert_eq!(1, tt.count());
 
         // Two predicats with arguments
-        let p = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(x)]);
-        let p1 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(y)]);
+        let p = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(x.clone())]);
+        let p1 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(y.clone())]);
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
@@ -139,8 +137,8 @@ mod tests {
 
         // Same as above, but more variables, which doesn't matter
         let p = PredicateDeclaration::new("bar", &[&t, &t])
-            .as_specific(&[Value::Object(x), Value::Object(xx)]);
-        let p1 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(y)]);
+            .as_specific(&[Value::Object(x.clone()), Value::Object(xx.clone())]);
+        let p1 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(y.clone())]);
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
@@ -161,12 +159,11 @@ mod tests {
 
     #[test]
     fn test_validity() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("foo");
 
-        let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", &t);
-        let y = objects.get_or_create("y", &t);
+        let x = entities.get_or_create_object("x", &t);
+        let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(x)]);
         let p1 = PredicateDeclaration::new("b", &[&t]).as_specific(&[Value::Object(y)]);
@@ -200,12 +197,11 @@ mod tests {
 
     #[test]
     fn only_true_rows_are_always_true() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("foo");
 
-        let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", &t);
-        let y = objects.get_or_create("y", &t);
+        let x = entities.get_or_create_object("x", &t);
+        let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(x)]);
         let p1 = PredicateDeclaration::new("b", &[&t]).as_specific(&[Value::Object(y)]);
@@ -218,12 +214,11 @@ mod tests {
 
     #[test]
     fn only_false_rows_are_always_false() {
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("foo");
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("foo");
 
-        let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", &t);
-        let y = objects.get_or_create("y", &t);
+        let x = entities.get_or_create_object("x", &t);
+        let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(x)]);
         let p1 = PredicateDeclaration::new("a", &[&t]).as_specific(&[Value::Object(y)]);

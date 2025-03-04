@@ -7,13 +7,12 @@
 
 extern crate alloc;
 pub mod action;
+pub mod entity;
 pub mod evaluation;
 pub mod expression;
-pub mod object;
 pub mod predicate;
 pub mod state;
 pub mod truth_table;
-pub mod r#type;
 mod util;
 
 use rand::SeedableRng;

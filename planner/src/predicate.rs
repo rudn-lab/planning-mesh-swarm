@@ -1,7 +1,6 @@
 use crate::{
+    entity::{ObjectHandle, TypeHandle},
     evaluation::{Evaluable, EvaluationContext},
-    object::ObjectHandle,
-    r#type::TypeHandle,
     InternerSymbol, INTERNER, RANDOM,
 };
 use alloc::{vec, vec::Vec};
@@ -110,8 +109,8 @@ impl Predicate {
                 .values
                 .iter()
                 .map(|v| match v {
-                    Value::Object(o) => *o,
-                    Value::ActionParam(_) => *resolution.next().unwrap(),
+                    Value::Object(o) => o.clone(),
+                    Value::ActionParam(_) => resolution.next().unwrap().clone(),
                 })
                 .collect(),
             unique_marker: self.unique_marker,
@@ -170,7 +169,7 @@ impl PartialEq for ResolvedPredicate {
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
-    use crate::{object::ObjectCollection, r#type::TypeCollection};
+    use crate::entity::EntityStorage;
 
     use super::*;
     use core::assert;
@@ -191,20 +190,20 @@ mod tests {
         assert!(p != p1);
 
         // Same, because of the marker and all other args
-        let mut types = TypeCollection::default();
-        let t = types.get_or_create("t");
-        let mut objects = ObjectCollection::default();
-        let x = objects.get_or_create("x", &t);
+        let mut entities = EntityStorage::default();
+        let t = entities.get_or_create_type("t");
+        let x = entities.get_or_create_object("x", &t);
 
-        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
-        let mut p1 = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
+        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x.clone())]);
+        let mut p1 =
+            PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x.clone())]);
         p1.unique_marker = p.unique_marker;
 
         assert!(p == p1);
 
         // Different because of type
-        let t1 = types.get_or_create("t1");
-        let y = objects.get_or_create("y", &t1);
+        let t1 = entities.get_or_create_type("t1");
+        let y = entities.get_or_create_object("y", &t1);
         let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
         let mut p1 = PredicateDeclaration::new("foo", &[&t1]).as_specific(&[Value::Object(y)]);
         p1.unique_marker = p.unique_marker;
