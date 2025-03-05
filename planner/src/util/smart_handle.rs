@@ -1,6 +1,7 @@
 use alloc::rc::Rc;
 use core::fmt::Debug;
 use core::{hash::Hash, marker::PhantomData, ops::Deref};
+use gazebo::dupe::Dupe;
 
 pub trait Handleable: Clone + PartialEq {}
 
@@ -8,14 +9,29 @@ pub trait Storage<T: Handleable> {
     fn get<S: Storage<T>>(&self, handle: &SmartHandle<T, S>) -> T;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Dupe, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Idx(pub(crate) usize);
 
-#[derive(Clone)]
 pub struct SmartHandle<T: Handleable, S: Storage<T>> {
     pub(crate) idx: Idx,
     container: Rc<S>,
     _marker: PhantomData<T>,
+}
+
+impl<T: Handleable, S: Storage<T>> Clone for SmartHandle<T, S> {
+    fn clone(&self) -> Self {
+        Self {
+            idx: self.idx.dupe(),
+            container: Rc::clone(&self.container),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T: Handleable, S: Storage<T>> Dupe for SmartHandle<T, S> {
+    fn dupe(&self) -> Self {
+        self.clone()
+    }
 }
 
 /// This __has__ to be implemented manually.
