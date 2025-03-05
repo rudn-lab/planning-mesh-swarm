@@ -1,7 +1,6 @@
 use bevy::{ecs::system::SystemId, prelude::*};
-use bevy_tweening::{Animator, AnimatorState};
 
-use crate::robot::motion_types::BusyRobot;
+use crate::clock::{Simulation, SimulationTime};
 
 #[derive(Resource, Default)]
 pub(crate) struct PauseState {
@@ -51,9 +50,11 @@ fn handle_spacebar_pause(
     input: Res<ButtonInput<KeyCode>>,
     handlers: Res<PauseHandlerSystems>,
     mut commands: Commands,
+    mut simulation_time: ResMut<Time<Simulation>>,
 ) {
     if input.just_pressed(KeyCode::Space) {
         pause_state.paused = !pause_state.paused;
+        simulation_time.set_paused(pause_state.paused);
         commands.run_system(handlers.on_pause_state_changed(pause_state.paused));
     }
 }
@@ -73,17 +74,11 @@ fn pause_overlay_scale(
 }
 
 fn on_pause_logic(
-    mut busy_robots: Query<&mut Animator<Transform>, With<BusyRobot>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     camera: Query<Entity, With<Camera2d>>,
 ) {
-    // For all busy robots, pause their animations
-    for mut animator in busy_robots.iter_mut() {
-        animator.state = AnimatorState::Paused;
-    }
-
     // Spawn the pause overlay
     let camera_id = camera.single();
     let root = commands
@@ -134,15 +129,9 @@ fn on_pause_logic(
 }
 
 fn on_unpause_logic(
-    mut busy_robots: Query<&mut Animator<Transform>, With<BusyRobot>>,
     mut commands: Commands,
     pause_overlay: Query<Entity, With<PauseOverlayMarker>>,
 ) {
-    // For all busy robots, unpause their animations
-    for mut animator in busy_robots.iter_mut() {
-        animator.state = AnimatorState::Playing;
-    }
-
     // Despawn the pause overlay
     for entity in pause_overlay.iter() {
         commands.entity(entity).despawn_recursive();

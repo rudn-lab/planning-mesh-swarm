@@ -8,7 +8,10 @@ use bevy_pancam::PanCamPlugin;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_tweening::TweeningPlugin;
 
-use crate::robot::robot_spawn_menu::GhostRobotPlugin;
+use crate::{
+    animator::SimAnimatorPlugin, clock::SimulationClockPlugin,
+    robot::robot_spawn_menu::GhostRobotPlugin,
+};
 
 /// Plugin that contains most of the plugins we're using
 pub(super) struct MyPlugins;
@@ -44,6 +47,8 @@ impl Plugin for MyPlugins {
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
         .add_plugins(crate::ui::Ui)
-        .add_plugins(GhostRobotPlugin);
+        .add_plugins(GhostRobotPlugin)
+        .add_plugins(SimulationClockPlugin)
+        .add_plugins(SimAnimatorPlugin::<Transform>::default());
     }
 }

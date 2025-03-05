@@ -1,5 +1,7 @@
 use core::marker::PhantomData;
 
+use crate::AsyncUtils;
+
 /// Received Signal Strength indicator: a number that represents how good the signal is.
 /// Higher is better.
 pub struct RSSI(pub u8);
@@ -46,16 +48,6 @@ where
         }
         res
     }
-}
-
-/// This trait provides some basic utilities from the async runtime.
-pub trait AsyncUtils {
-    /// This function creates a task that will sleep for the given duration.
-    async fn sleep(&self, duration: core::time::Duration);
-
-    /// This function will write the given data to the log.
-    /// Used for debugging.
-    async fn log(&self, data: &str);
 }
 
 /// The NIC that receives messages from many different peers.

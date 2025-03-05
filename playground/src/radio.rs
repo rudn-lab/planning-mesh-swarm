@@ -5,6 +5,7 @@ use crate::AntennaRenderingPlugin;
 
 pub(crate) mod antenna;
 pub(crate) mod antenna_reach_vis_mat;
+pub(crate) mod flying_message;
 pub(crate) mod nic_components;
 pub(crate) mod peer_connection;
 pub(crate) mod radio_reach_tooltip;

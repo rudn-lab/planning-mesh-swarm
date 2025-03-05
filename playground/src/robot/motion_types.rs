@@ -1,9 +1,10 @@
-use async_channel::{Receiver, Sender};
+use async_channel::Receiver;
 use bevy::{prelude::*, tasks::Task};
 use high_level_cmds::MotionCommand;
 
 use crate::{
     bg_grid::grid_pos_to_world,
+    clock::SimulationInstant,
     radio::virtual_nic::{MessageType, VirtualPeerId, VirtualRadioRequest},
 };
 
@@ -95,10 +96,19 @@ impl RobotOrientation {
 #[derive(Component)]
 pub(crate) struct IdleRobot;
 
+/// Component that marks robots that are currently waiting on a sleep to elapse.
+#[derive(Component)]
+pub(crate) struct SleepingRobot {
+    pub(crate) duration: core::time::Duration,
+    pub(crate) started_at: SimulationInstant,
+    pub(crate) on_complete: Option<oneshot::Sender<()>>,
+}
+
 /// Component that marks robots that are currently performing an animation in response to a motion command.
 #[derive(Component)]
 pub(crate) struct BusyRobot {
     pub(crate) command: MotionCommand,
+    pub(crate) on_complete: Option<oneshot::Sender<()>>,
 }
 
 /// Values that are inherent to a robot's anatomy.
@@ -121,7 +131,6 @@ pub(crate) struct RobotState {
     pub(crate) orientation: RobotOrientation,
 
     pub(crate) from_chassis: Receiver<VirtualChassisCommand>,
-    pub(crate) into_chassis: Sender<()>,
 
     pub(crate) from_radio: Receiver<VirtualRadioRequest>,
 
@@ -136,7 +145,10 @@ pub(crate) struct RobotState {
     pub(crate) radio_task: Task<()>,
 
     /// Log messages
-    pub(crate) log: Vec<String>,
+    pub(crate) log: Vec<(SimulationInstant, String)>,
+
+    /// If the radio is sleeping, this represents when the sleep elapses.
+    pub(crate) radio_sleep_state: Option<(SimulationInstant, oneshot::Sender<()>)>,
 
     /// Channels that are waiting for a message to arrive to this robot's receiver NIC.
     pub(crate) msg_receivers: Vec<oneshot::Sender<(VirtualPeerId, MessageType)>>,

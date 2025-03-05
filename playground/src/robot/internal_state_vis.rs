@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use egui::{Color32, RichText};
+use egui::{text::LayoutJob, Color32, RichText};
 
 use crate::{
     radio::{
@@ -21,6 +21,17 @@ impl Plugin for InternalStatePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, visualize_internal_state);
     }
+}
+
+fn format_duration(duration: core::time::Duration) -> String {
+    let secs = duration.as_secs();
+    let nanos = duration.subsec_nanos();
+
+    let fractional = nanos as f64 / 1_000_000_000.0; // Convert to seconds
+    let formatted_fractional = format!("{:.3}", fractional); // Format to 3 decimal places
+    let formatted_fractional = formatted_fractional.trim_start_matches("0.");
+
+    format!("{}.{}", secs, formatted_fractional)
 }
 
 fn visualize_internal_state(
@@ -131,8 +142,18 @@ fn visualize_internal_state(
                         .stick_to_bottom(true)
                         .auto_shrink([false, true]) // Shrink vertically, but not horizontally
                         .show(ui, |ui| {
-                            for log in &robot_state.log {
-                                ui.label(RichText::new(log).monospace());
+                            for (time, msg) in &robot_state.log {
+                                let time_str = RichText::new(format!(
+                                    "[{}] ",
+                                    format_duration(time.into_inner())
+                                ))
+                                .monospace()
+                                .color(Color32::DARK_RED);
+                                let msg_str = RichText::new(format!("{}", msg)).monospace();
+                                ui.horizontal(|ui| {
+                                    ui.label(time_str);
+                                    ui.label(msg_str);
+                                });
                             }
 
                             if robot_state.log.is_empty() {

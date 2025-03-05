@@ -1,6 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use high_level_cmds::network_kit::{AsyncUtils, NetworkKit, ReceiverNic, TransmitterNic};
+use high_level_cmds::{
+    AsyncUtils,
+    network_kit::{NetworkKit, ReceiverNic, TransmitterNic},
+};
 
 /// This function is a basic implementation of a routing backend
 pub async fn sample_routing<

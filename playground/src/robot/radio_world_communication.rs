@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use high_level_cmds::network_kit::{ConnectionInfo, RSSI};
 
 use crate::{
+    clock::{Simulation, SimulationTime},
     pause_controller::PauseState,
     radio::{
         nic_components::VirtualNetworkInterface,
@@ -27,6 +28,7 @@ pub(crate) fn update_robot_radios(
 
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    time: Res<Time<Simulation>>,
 ) {
     if pause_state.paused {
         return;
@@ -43,10 +45,24 @@ pub(crate) fn update_robot_radios(
             .msg_receivers
             .retain(|receiver| !receiver.is_closed());
 
+        // If this robot's radio is sleeping, check if the sleep has expired.
+        if let Some((sleep_time, ok)) = robot_state.radio_sleep_state.take() {
+            if time.get_instant() > sleep_time {
+                robot_state.radio_sleep_state = None;
+                ok.send(()).unwrap();
+            } else {
+                // put back the value
+                robot_state.radio_sleep_state = Some((sleep_time, ok));
+            }
+        }
+
         while let Ok(message) = robot_state.from_radio.try_recv() {
             match message {
+                crate::radio::virtual_nic::VirtualRadioRequest::Sleep((duration, ok)) => {
+                    robot_state.radio_sleep_state = Some((time.get_instant() + duration, ok));
+                }
                 crate::radio::virtual_nic::VirtualRadioRequest::Log((msg, ok)) => {
-                    robot_state.log.push(msg);
+                    robot_state.log.push((time.get_instant(), msg));
                     ok.send(()).unwrap();
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::GetSelfPeerId(sender) => {
@@ -184,7 +200,6 @@ pub(crate) fn update_robot_radios(
                         }
                     }
                 }
-
                 crate::radio::virtual_nic::VirtualRadioRequest::Ping(idx, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     match my_nics.get_mut(idx) {
@@ -331,12 +346,12 @@ pub(crate) fn update_robot_radios(
                     sender.send(Ok(())).unwrap();
                     continue 'next_message;
                 }
-
                 crate::radio::virtual_nic::VirtualRadioRequest::Log(_) => unreachable!(),
                 crate::radio::virtual_nic::VirtualRadioRequest::Receive(_sender) => unreachable!(),
                 crate::radio::virtual_nic::VirtualRadioRequest::GetSelfPeerId(_sender) => {
                     unreachable!()
                 }
+                crate::radio::virtual_nic::VirtualRadioRequest::Sleep(_) => unreachable!(),
             }
         }
     }

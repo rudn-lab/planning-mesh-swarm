@@ -2,11 +2,13 @@ use bevy::{
     app::{Plugin, Update},
     ecs::{entity::Entity, event::EventWriter, system::ResMut},
     prelude::Query,
+    time::Time,
 };
 use bevy_egui::EguiContexts;
-use egui::ComboBox;
+use egui::{ComboBox, Widget};
 
 use crate::{
+    clock::{Simulation, SimulationTime},
     radio::nic_components::{AuraVisualizationMode, SelectedAuraVisualizationMode},
     robot::{motion_types::RobotState, onclick_handling::SelectionChanged},
 };
@@ -27,6 +29,7 @@ fn left_panel(
     mut ev_ghost_robot_spawn: EventWriter<crate::robot::robot_spawn_menu::InitGhostRobot>,
 
     mut aura_mode: ResMut<SelectedAuraVisualizationMode>,
+    mut time: ResMut<Time<Simulation>>,
 ) {
     let ctx = contexts.ctx_mut();
     let mut robots = robots.iter().collect::<Vec<_>>();
@@ -63,6 +66,19 @@ fn left_panel(
                         ui.selectable_value(&mut aura_mode.mode, *mode, mode.to_string());
                     }
                 });
+
+            ui.separator();
+
+            ui.label("Simulation speed:");
+
+            let mut speed = time.context_mut().speed;
+            let resp = egui::Slider::new(&mut speed, 0.01..=100.0)
+                .logarithmic(true)
+                .show_value(true)
+                .ui(ui);
+            if resp.changed() {
+                time.set_speed(speed);
+            }
 
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         });

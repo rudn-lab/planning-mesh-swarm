@@ -1,18 +1,18 @@
-use std::num::NonZero;
+use std::{num::NonZero, time::Duration};
 
-use high_level_cmds::chassis::Chassis;
+use high_level_cmds::{chassis::Chassis, AsyncUtils};
 
-pub(crate) async fn simple_business_logic(mut chassis: impl Chassis) {
+pub(crate) async fn simple_business_logic(mut chassis: impl Chassis + Send) {
     loop {
-        chassis.log("Doing right turn").await;
+        chassis.utils().log("Doing right turn").await;
         chassis.forward(NonZero::new(2).unwrap()).await;
         chassis.turn_right(NonZero::new(1).unwrap()).await;
 
-        chassis.log("Going back to start").await;
+        chassis.utils().log("Going back to start").await;
         chassis.forward(NonZero::new(1).unwrap()).await;
         chassis.turn_right(NonZero::new(1).unwrap()).await;
 
-        chassis.log("Waiting").await;
-        async_std::task::sleep(std::time::Duration::from_secs(2)).await;
+        chassis.utils().log("Waiting").await;
+        chassis.utils().sleep(Duration::from_secs(2)).await;
     }
 }

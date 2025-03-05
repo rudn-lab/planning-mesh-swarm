@@ -1,13 +1,19 @@
 use bevy::{prelude::*, tasks::IoTaskPool};
-use bevy_tweening::{Animator, TweenCompleted};
+use bevy_tweening::TweenCompleted;
 use internal_state_vis::InternalStatePlugin;
 use motion_anim::{get_tween, update_robot_tweens_after_props_change};
-use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotProps, RobotState};
+use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotProps, RobotState, SleepingRobot};
 use onclick_handling::{on_selection_event, SelectedRobot, SelectionChanged};
 use radio_world_communication::update_robot_radios;
 use virtual_chassis::VirtualChassis;
 
-use crate::{pause_controller::PauseState, radio::virtual_nic::new_virtual_network_kit, CELL_SIZE};
+use crate::{
+    animator::SimAnimator,
+    clock::{Simulation, SimulationTime},
+    pause_controller::PauseState,
+    radio::virtual_nic::new_virtual_network_kit,
+    CELL_SIZE,
+};
 
 mod async_queue_wrapper;
 mod business_logic;
@@ -42,11 +48,9 @@ impl RobotBundle {
         turn_speed: f32,
     ) -> Self {
         let (from_robot_sender, from_robot_receiver) = async_channel::unbounded();
-        let (to_robot_sender, to_robot_receiver) = async_channel::unbounded();
 
         let chassis = VirtualChassis {
             tx: from_robot_sender,
-            rx: to_robot_receiver,
         };
 
         let my_logic = IoTaskPool::get().spawn(business_logic::simple_business_logic(chassis));
@@ -79,7 +83,6 @@ impl RobotBundle {
                 orientation: RobotOrientation::Up,
 
                 from_chassis: from_robot_receiver,
-                into_chassis: to_robot_sender,
                 business_task: my_logic,
 
                 from_radio,
@@ -88,6 +91,7 @@ impl RobotBundle {
                 queued_messages: vec![],
 
                 log: vec![],
+                radio_sleep_state: None,
             },
             robot_props: RobotProps {
                 drive_speed,
@@ -102,6 +106,7 @@ fn update_idle_robots(
     mut robot_query: Query<(Entity, &RobotProps, &mut RobotState), With<IdleRobot>>,
     mut commands: Commands,
     pause_state: Res<PauseState>,
+    time: Res<Time<Simulation>>,
 ) {
     // If we are paused, do nothing
     // This will keep the robots from beginning to move,
@@ -121,19 +126,27 @@ fn update_idle_robots(
                 virtual_chassis::VirtualChassisCommand::Motion(motion_command) => {
                     commands.entity(entity).remove::<IdleRobot>();
                     commands.entity(entity).insert(BusyRobot {
-                        command: motion_command,
+                        command: motion_command.0,
+                        on_complete: Some(motion_command.1),
                     });
 
-                    let tween = get_tween(motion_command, &props, &robot_state);
-                    commands.entity(entity).insert(Animator::new(tween));
+                    let tween = get_tween(motion_command.0, &props, &robot_state);
+                    commands.entity(entity).insert(SimAnimator::new(tween));
                 }
                 virtual_chassis::VirtualChassisCommand::Log(message) => {
                     // Add the log entry to the robot state's log
-                    robot_state.log.push(message);
+                    robot_state.log.push((time.get_instant(), message.0));
 
                     // Immediately acknowledge the message
                     // (the acknowledgement could only be delayed if we had been paused when the message was sent)
-                    robot_state.into_chassis.try_send(()).unwrap();
+                    message.1.send(()).unwrap();
+                }
+                virtual_chassis::VirtualChassisCommand::Sleep((duration, on_complete)) => {
+                    commands.entity(entity).insert(SleepingRobot {
+                        duration,
+                        started_at: time.get_instant(),
+                        on_complete: Some(on_complete),
+                    });
                 }
             }
         }
@@ -145,8 +158,8 @@ fn update_busy_robots(
         Entity,
         &mut Transform,
         &mut RobotState,
-        &BusyRobot,
-        &Animator<Transform>,
+        &mut BusyRobot,
+        &SimAnimator<Transform>,
     )>,
     mut commands: Commands,
     mut event_reader: EventReader<TweenCompleted>,
@@ -161,7 +174,9 @@ fn update_busy_robots(
         return;
     }
 
-    for (entity, mut transform, mut robot_state, busy_robot, _animator) in robot_query.iter_mut() {
+    for (entity, mut transform, mut robot_state, mut busy_robot, _animator) in
+        robot_query.iter_mut()
+    {
         if robot_ids_to_update.contains(&robot_state.id) {
             // The animation has completed, so the robot is now in its new position
             // Finalize the animation by moving the robot to its final position
@@ -171,13 +186,31 @@ fn update_busy_robots(
 
             // Remove the old components, mark the robot as idle
             // and send a message to the runner
-            commands.entity(entity).remove::<Animator<Transform>>();
+            commands.entity(entity).remove::<SimAnimator<Transform>>();
             commands.entity(entity).remove::<BusyRobot>();
             commands.entity(entity).insert(IdleRobot);
 
             // println!("Finished executing robot command: {:?}", busy_robot.command);
 
-            robot_state.into_chassis.try_send(()).unwrap();
+            busy_robot.on_complete.take().map(|v| v.send(()).unwrap());
+        }
+    }
+}
+
+fn update_sleeping_robots(
+    mut robot_query: Query<(Entity, Mut<SleepingRobot>)>,
+    mut commands: Commands,
+    time: Res<Time<Simulation>>,
+) {
+    // For every robot that is sleeping,
+    // check whether the sleep duration has elapsed
+    for (entity, mut sleeping_robot) in robot_query.iter_mut() {
+        if time.get_instant() - sleeping_robot.started_at > sleeping_robot.duration {
+            commands.entity(entity).remove::<SleepingRobot>();
+            sleeping_robot
+                .on_complete
+                .take()
+                .map(|v| v.send(()).unwrap());
         }
     }
 }
@@ -188,6 +221,7 @@ impl Plugin for RobotBehaviorPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
+        app.add_systems(FixedUpdate, update_sleeping_robots);
         app.add_systems(FixedUpdate, update_robot_radios);
         app.add_systems(FixedUpdate, on_selection_event);
         app.add_systems(FixedUpdate, update_robot_tweens_after_props_change);

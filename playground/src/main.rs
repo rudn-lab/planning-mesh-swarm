@@ -1,5 +1,7 @@
+pub(crate) mod animator;
 pub(crate) mod bg_grid;
 pub(crate) mod bg_grid_mat;
+pub(crate) mod clock;
 pub(crate) mod fps_monitor;
 mod pause_controller;
 mod plugins;

@@ -1,5 +1,6 @@
-use high_level_cmds::network_kit::{
-    AsyncUtils, ConnectionInfo, NetworkKit, ReceiverNic, TransmitterNic,
+use high_level_cmds::{
+    network_kit::{ConnectionInfo, NetworkKit, ReceiverNic, TransmitterNic},
+    AsyncUtils,
 };
 
 pub(crate) type VirtualPeerId = u64;
@@ -43,7 +44,12 @@ impl AsyncStdAsyncUtils {
 
 impl AsyncUtils for AsyncStdAsyncUtils {
     async fn sleep(&self, duration: core::time::Duration) {
-        async_std::task::sleep(duration).await;
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(VirtualRadioRequest::Sleep((duration, tx)))
+            .await
+            .unwrap();
+        rx.await.unwrap();
     }
 
     async fn log(&self, data: &str) {
@@ -63,6 +69,9 @@ impl AsyncUtils for AsyncStdAsyncUtils {
 /// Each variant represents an action that the NIC code wants to happen:
 /// read this as "The NIC wants to...".
 pub(crate) enum VirtualRadioRequest {
+    /// Sleep for the given duration.
+    Sleep((core::time::Duration, AckTx)),
+
     /// Add a message to the robot log.
     Log((String, AckTx)),
     /// Receive a message.

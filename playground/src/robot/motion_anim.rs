@@ -3,11 +3,11 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_tweening::{
     lens::{TransformPositionLens, TransformRotateZLens},
-    Animator, Tween, Tweenable,
+    Tween, Tweenable,
 };
 use high_level_cmds::MotionCommand;
 
-use crate::{robot::RobotState, CELL_SIZE};
+use crate::{animator::SimAnimator, robot::RobotState, CELL_SIZE};
 
 use super::motion_types::{BusyRobot, RobotProps};
 
@@ -83,7 +83,7 @@ fn get_turn_tween(turns_cw: i32, props: &RobotProps, state: &RobotState) -> Twee
 pub(crate) fn update_robot_tweens_after_props_change(
     mut changed_robots: Query<
         (
-            &mut Animator<Transform>,
+            &mut SimAnimator<Transform>,
             &RobotProps,
             &RobotState,
             &BusyRobot,
@@ -96,7 +96,7 @@ pub(crate) fn update_robot_tweens_after_props_change(
         let mut new_tween = get_tween(busy.command, props, state);
 
         // Get the old tween's progress, and apply it to the new tween
-        let old_progress = animator.tweenable().progress();
+        let old_progress = animator.tweenable.progress();
         new_tween.set_progress(old_progress);
 
         // Replace the old tween with the new tween

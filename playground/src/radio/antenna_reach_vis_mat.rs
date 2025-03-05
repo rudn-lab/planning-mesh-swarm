@@ -29,7 +29,7 @@ impl Default for AntennaReachVisualizationMaterial {
         Self {
             radius: 10.0 * CENTIMETER,
             center: Vec2::ZERO,
-            threshold: 0.05,
+            threshold: 0.00,
             camera_scale: 1.0,
             is_selected: 0.0,
             shade_color: Vec4::new(0.0, 1.0, 0.0, 0.5),

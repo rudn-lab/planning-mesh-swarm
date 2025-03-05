@@ -50,7 +50,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var angle = atan2(in.world_position.x - center.x, in.world_position.y - center.y);
     var wave = sin((angle * 20.0) + time);
 
-    var epsilon = 0.002 * camera_scale;
+    var epsilon = 0.00005 * camera_scale;
     if (abs(value - threshold * camera_scale) < epsilon) {
       if (wave > 0.0) {
         out = vec4<f32>(1.0, 1.0, 0.0, 1.0);
