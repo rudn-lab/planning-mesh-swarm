@@ -61,6 +61,10 @@ impl<T: Handleable, S: Storage<T>> SmartHandle<T, S> {
             _marker: PhantomData,
         }
     }
+
+    pub fn value(&self) -> T {
+        self.container.get(self)
+    }
 }
 
 impl<T: Handleable, S: Storage<T>> PartialEq for SmartHandle<T, S> {

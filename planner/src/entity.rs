@@ -50,11 +50,11 @@ impl TypeHandle {
     }
 
     pub fn get_objects_strict(&self) -> Vec<ObjectHandle> {
-        self.container().get_by_type_strict(self)
+        self.container().get_objects_by_type_strict(self)
     }
 
     pub fn get_objects(&self) -> Vec<ObjectHandle> {
-        self.container().get_by_type(self)
+        self.container().get_objects_by_type(self)
     }
 }
 
@@ -124,9 +124,9 @@ impl EntityStorage {
         sub_type: &SubTypeHandle,
         super_type: &SuperTypeHandle,
     ) -> Result<(), TypeError> {
-        if let Some(tidx) = self.supertypes.borrow().get(&sub_type.idx) {
+        if let Some(idx) = self.supertypes.borrow().get(&sub_type.idx) {
             return Err(TypeError::AlreadyHasSuperType(TypeHandle::new(
-                *tidx,
+                *idx,
                 Rc::new(self.clone()),
             )));
         }
@@ -203,7 +203,7 @@ impl EntityStorage {
         ObjectHandle::from_raw(idx, Rc::new(self.clone()))
     }
 
-    pub fn get_by_type_strict(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
+    pub fn get_objects_by_type_strict(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
         self.objects
             .borrow()
             .iter()
@@ -218,13 +218,13 @@ impl EntityStorage {
             .collect()
     }
 
-    pub fn get_by_type(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
-        let mut res = self.get_by_type_strict(r#type);
+    pub fn get_objects_by_type(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
+        let mut res = self.get_objects_by_type_strict(r#type);
 
         let types = r#type.container();
 
         for t in types.get_subtypes(r#type) {
-            res.extend(self.get_by_type_strict(&t).into_iter());
+            res.extend(self.get_objects_by_type_strict(&t).into_iter());
         }
 
         res
@@ -257,6 +257,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_creation() {
+        let mut entities = EntityStorage::default();
+
+        let t1 = entities.get_or_create_type("foo");
+        let t2 = entities.get_or_create_type("bar");
+        assert_ne!(t1, t2);
+
+        let t11 = entities.get_or_create_type("foo");
+        assert_eq!(t1, t11);
+
+        let o1 = entities.get_or_create_object("a", &t1);
+        let o2 = entities.get_or_create_object("b", &t2);
+        assert_ne!(o1, o2);
+
+        let o11 = entities.get_or_create_object("a", &t1);
+        assert_eq!(o1, o11);
+
+        let o3 = entities.get_or_create_object("a", &t2);
+        assert_ne!(o3, o1);
+        assert_ne!(o3, o2);
+
+        assert_eq!(t1.value(), Type::new("foo"));
+        assert_eq!(o1.value(), Object::new("a"));
+    }
+
+    #[test]
+    fn test_wrappers() {
+        let mut entities = EntityStorage::default();
+
+        let t1 = entities.get_or_create_type("foo");
+        let t2 = entities.get_or_create_type("bar");
+        let t3 = entities.get_or_create_type("bar");
+        let t4 = entities.get_or_create_type("qux");
+        let _ = entities.create_inheritance(&t2, &t1);
+        let _ = entities.create_inheritance(&t3, &t2);
+        let _ = entities.create_inheritance(&t4, &t1);
+
+        let _ = entities.get_or_create_object("o10", &t1);
+        let _ = entities.get_or_create_object("o11", &t1);
+
+        let _ = entities.get_or_create_object("o20", &t2);
+        let _ = entities.get_or_create_object("o21", &t2);
+
+        let _ = entities.get_or_create_object("o30", &t3);
+        let _ = entities.get_or_create_object("o31", &t3);
+        let _ = entities.get_or_create_object("o31", &t3);
+
+        let _ = entities.get_or_create_object("o40", &t4);
+        let _ = entities.get_or_create_object("o41", &t4);
+        let _ = entities.get_or_create_object("o41", &t4);
+
+        assert_eq!(t1.direct_subtypes(), entities.get_direct_subtypes(&t1));
+        assert_eq!(t1.subtypes(), entities.get_subtypes(&t1));
+        assert_eq!(t1.inherits(&t2), entities.inherits(&t1, &t2));
+        assert_eq!(t2.inherits(&t1), entities.inherits(&t2, &t1));
+        assert_eq!(t1.inherits_or_eq(&t2), entities.inherits_or_eq(&t1, &t2));
+        assert_eq!(t1.inherits_or_eq(&t3), entities.inherits_or_eq(&t1, &t3));
+        assert_eq!(
+            t4.get_objects_strict(),
+            entities.get_objects_by_type_strict(&t4)
+        );
+        assert_eq!(t1.get_objects(), entities.get_objects_by_type(&t1));
+    }
+
+    #[test]
     fn test_type_inheritance() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("foo");
@@ -266,7 +331,6 @@ mod tests {
 
         let res = entities.create_inheritance(&t1, &t2);
         assert!(res.is_ok());
-        println!("{:?}", entities);
 
         let _ = entities.create_inheritance(&t2, &t3);
         let res = entities.create_inheritance(&t1, &t3);
@@ -349,7 +413,10 @@ mod tests {
         let o10 = entities.get_or_create_object("o10", &t1);
         let o11 = entities.get_or_create_object("o11", &t1);
         let o12 = entities.get_or_create_object("o12", &t1);
-        assert_eq!(entities.get_by_type_strict(&t1), vec![o10, o11, o12]);
+        assert_eq!(
+            entities.get_objects_by_type_strict(&t1),
+            vec![o10, o11, o12]
+        );
 
         let o6 = entities.get_or_create_object("o6", &t6);
 
@@ -357,15 +424,24 @@ mod tests {
         let o70 = entities.get_or_create_object("o7", &t7);
         let _ = entities.get_or_create_object("o7", &t7);
         let _ = entities.get_or_create_object("o7", &t7);
-        assert_eq!(entities.get_by_type_strict(&t7), vec![&o70]);
+        assert_eq!(entities.get_objects_by_type_strict(&t7), vec![&o70]);
 
         let o80 = entities.get_or_create_object("o80", &t8);
         let o81 = entities.get_or_create_object("o81", &t8);
         let o82 = entities.get_or_create_object("o82", &t8);
-        assert_eq!(entities.get_by_type(&t8), vec![&o80, &o81, &o82]);
+        assert_eq!(entities.get_objects_by_type(&t8), vec![&o80, &o81, &o82]);
 
-        assert_eq!(entities.get_by_type(&t4), Vec::<ObjectHandle>::new());
-        assert_eq!(entities.get_by_type(&t5), vec![&o6, &o70, &o80, &o81, &o82]);
-        assert_eq!(entities.get_by_type(&t3), vec![&o6, &o70, &o80, &o81, &o82]);
+        assert_eq!(
+            entities.get_objects_by_type(&t4),
+            Vec::<ObjectHandle>::new()
+        );
+        assert_eq!(
+            entities.get_objects_by_type(&t5),
+            vec![&o6, &o70, &o80, &o81, &o82]
+        );
+        assert_eq!(
+            entities.get_objects_by_type(&t3),
+            vec![&o6, &o70, &o80, &o81, &o82]
+        );
     }
 }
