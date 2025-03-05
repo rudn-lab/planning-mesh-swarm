@@ -1,6 +1,6 @@
 use core::ops::Deref;
 
-use crate::predicate::Predicate;
+use crate::calculus::predicate::Predicate;
 use alloc::vec::Vec;
 
 pub trait Evaluable: Clone {

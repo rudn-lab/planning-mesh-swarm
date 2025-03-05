@@ -1,6 +1,6 @@
 use crate::{
+    calculus::predicate::Predicate,
     evaluation::{Evaluable, EvaluationContext},
-    predicate::Predicate,
 };
 use alloc::vec::Vec;
 
@@ -104,9 +104,9 @@ impl<T: Evaluable, const F: bool> Iterator for FilteredTruthTable<'_, T, F> {
 mod tests {
     use super::*;
     use crate::{
+        calculus::predicate::{PredicateBuilder, Value},
+        calculus::propositional::{FormulaMembers as FM, *},
         entity::EntityStorage,
-        expression::{FormulaMembers as FM, *},
-        predicate::{PredicateBuilder, Value},
     };
 
     #[test]

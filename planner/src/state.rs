@@ -1,9 +1,9 @@
 use crate::{
     action::{Action, ActionParameter},
+    calculus::predicate::{Predicate, PredicateError, ResolvedPredicate, Value},
+    calculus::propositional::{DnfMembers, Expression, NormalForm, Not, Primitives},
     entity::ObjectHandle,
     evaluation::Evaluable,
-    expression::{DnfMembers, Expression, NormalForm, Not, Primitives},
-    predicate::{Predicate, PredicateError, ResolvedPredicate, Value},
 };
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -205,9 +205,11 @@ mod tests {
     use super::*;
     use crate::{
         action::{ActionBuilder, ParameterHandle},
+        calculus::predicate::*,
+        calculus::propositional::{
+            And, Dnf, DnfMembers, Formula, FormulaMembers as FM, Primitives as Pr,
+        },
         entity::*,
-        expression::{And, Dnf, DnfMembers, Formula, FormulaMembers as FM, Primitives as Pr},
-        predicate::*,
     };
 
     #[test]

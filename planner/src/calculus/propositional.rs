@@ -7,8 +7,8 @@ use itertools::Itertools;
 use paste::paste;
 
 use crate::{
+    calculus::predicate::Predicate,
     evaluation::{Evaluable, EvaluationContext},
-    predicate::Predicate,
     truth_table::TruthTable,
 };
 
@@ -478,8 +478,8 @@ impl_with_map!(&T, T: Evaluable => Cnf);
 #[coverage(off)]
 mod tests {
     use super::*;
+    use crate::calculus::predicate::{Predicate, PredicateBuilder, ResolvedPredicate, Value};
     use crate::entity::EntityStorage;
-    use crate::predicate::{Predicate, PredicateBuilder, ResolvedPredicate, Value};
     use alloc::vec::Vec;
 
     /// A simple evaluator used to check expression evaluation.

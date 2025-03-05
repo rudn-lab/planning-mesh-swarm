@@ -1,6 +1,6 @@
 use crate::{
+    calculus::propositional::{And, Dnf, Primitives},
     entity::TypeHandle,
-    expression::{And, Dnf, Primitives},
     sealed::Sealed,
     InternerSymbol, INTERNER,
 };
@@ -141,9 +141,9 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasEffect, N, D> {
 #[coverage(off)]
 mod tests {
     use crate::{
+        calculus::predicate::{PredicateBuilder, Value},
+        calculus::propositional::{Formula, FormulaMembers as FM, Primitives as Pr},
         entity::EntityStorage,
-        expression::{Formula, FormulaMembers as FM, Primitives as Pr},
-        predicate::{PredicateBuilder, Value},
     };
 
     use super::*;
