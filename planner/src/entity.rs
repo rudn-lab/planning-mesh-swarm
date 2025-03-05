@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_subentities() {
+    fn test_subtypes() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -310,8 +310,6 @@ mod tests {
         let _ = entities.create_inheritance(&t7, &t5);
         let _ = entities.create_inheritance(&t8, &t7);
 
-        let entities = entities;
-
         assert_eq!(entities.get_subtypes(&t8), Vec::<&TypeHandle>::new());
         assert_eq!(entities.get_subtypes(&t7), vec![&t8]);
         assert_eq!(entities.get_subtypes(&t6), Vec::<&TypeHandle>::new());
@@ -326,5 +324,48 @@ mod tests {
             entities.get_subtypes(&t1),
             vec![&t2, &t3, &t4, &t5, &t6, &t7, &t8]
         );
+    }
+
+    #[test]
+    fn test_objects() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+        let t3 = entities.get_or_create_type("t3");
+        let t4 = entities.get_or_create_type("t4");
+        let t5 = entities.get_or_create_type("t5");
+        let t6 = entities.get_or_create_type("t6");
+        let t7 = entities.get_or_create_type("t7");
+        let t8 = entities.get_or_create_type("t8");
+
+        let _ = entities.create_inheritance(&t2, &t1);
+        let _ = entities.create_inheritance(&t3, &t2);
+        let _ = entities.create_inheritance(&t4, &t3);
+        let _ = entities.create_inheritance(&t5, &t3);
+        let _ = entities.create_inheritance(&t6, &t5);
+        let _ = entities.create_inheritance(&t7, &t5);
+        let _ = entities.create_inheritance(&t8, &t7);
+
+        let o10 = entities.get_or_create_object("o10", &t1);
+        let o11 = entities.get_or_create_object("o11", &t1);
+        let o12 = entities.get_or_create_object("o12", &t1);
+        assert_eq!(entities.get_by_type_strict(&t1), vec![o10, o11, o12]);
+
+        let o6 = entities.get_or_create_object("o6", &t6);
+
+        // Same name
+        let o70 = entities.get_or_create_object("o7", &t7);
+        let _ = entities.get_or_create_object("o7", &t7);
+        let _ = entities.get_or_create_object("o7", &t7);
+        assert_eq!(entities.get_by_type_strict(&t7), vec![&o70]);
+
+        let o80 = entities.get_or_create_object("o80", &t8);
+        let o81 = entities.get_or_create_object("o81", &t8);
+        let o82 = entities.get_or_create_object("o82", &t8);
+        assert_eq!(entities.get_by_type(&t8), vec![&o80, &o81, &o82]);
+
+        assert_eq!(entities.get_by_type(&t4), Vec::<ObjectHandle>::new());
+        assert_eq!(entities.get_by_type(&t5), vec![&o6, &o70, &o80, &o81, &o82]);
+        assert_eq!(entities.get_by_type(&t3), vec![&o6, &o70, &o80, &o81, &o82]);
     }
 }
