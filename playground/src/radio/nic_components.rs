@@ -6,8 +6,45 @@ use crate::{robot::onclick_handling::SelectedRobot, CENTIMETER};
 
 use super::{
     antenna::AntennaReach, antenna_reach_vis_mat::AntennaReachVisualizationMaterial,
-    virtual_nic::MessageType,
+    radio_reach_tooltip::HoveredRobot, virtual_nic::MessageType,
 };
+
+#[derive(Resource, Clone, Copy, Default)]
+pub(crate) struct SelectedAuraVisualizationMode {
+    pub(crate) mode: AuraVisualizationMode,
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Default)]
+pub(crate) enum AuraVisualizationMode {
+    None,
+    Selected,
+    SelectedAndHovered,
+    #[default]
+    All,
+}
+
+impl AuraVisualizationMode {
+    pub(crate) fn variants() -> &'static [AuraVisualizationMode] {
+        &[
+            AuraVisualizationMode::None,
+            AuraVisualizationMode::Selected,
+            AuraVisualizationMode::SelectedAndHovered,
+            AuraVisualizationMode::All,
+        ]
+    }
+}
+
+impl ToString for AuraVisualizationMode {
+    fn to_string(&self) -> String {
+        match self {
+            AuraVisualizationMode::None => "None",
+            AuraVisualizationMode::Selected => "Only selected",
+            AuraVisualizationMode::SelectedAndHovered => "Selected and hovered",
+            AuraVisualizationMode::All => "All",
+        }
+        .to_string()
+    }
+}
 
 /// This component is used as a child of the robot entity to indicate that it has a virtual network interface.
 /// In the model, it's a sender interface:
@@ -92,11 +129,31 @@ fn update_antenna_reach_vis_material(
     )>,
     camera_query: Query<&OrthographicProjection, With<Camera2d>>,
     selected_robot: Res<SelectedRobot>,
+    hovered_robot: Res<HoveredRobot>,
+    mode: Res<SelectedAuraVisualizationMode>,
     time: Res<Time>,
 ) {
     let camera = camera_query.single();
     for (mut material, transform, nic, parent) in query.iter_mut() {
         if let Some(material) = materials.get_mut(&mut material.0) {
+            let this_robot_is_selected = selected_robot.robot.is_some_and(|v| v == parent.get());
+            let this_robot_is_hovered = hovered_robot.0.is_some_and(|v| v == parent.get());
+
+            let should_hide_this = match mode.mode {
+                AuraVisualizationMode::None => true,
+                AuraVisualizationMode::Selected => !this_robot_is_selected,
+                AuraVisualizationMode::SelectedAndHovered => {
+                    !this_robot_is_selected && !this_robot_is_hovered
+                }
+                AuraVisualizationMode::All => false,
+            };
+
+            if should_hide_this {
+                material.is_selected = 0.0;
+                material.shade_color = Vec4::ZERO;
+                continue;
+            }
+
             match nic.reach {
                 AntennaReach::Circular { max_reach } => {
                     material.radius = max_reach;
@@ -113,10 +170,13 @@ fn update_antenna_reach_vis_material(
             .into();
 
             material.camera_scale = camera.scale;
-            material.is_selected = if selected_robot.robot.is_some_and(|v| v == parent.get()) {
-                1.0
-            } else {
-                0.0
+            material.is_selected = match mode.mode {
+                AuraVisualizationMode::None => 0.0,
+                AuraVisualizationMode::Selected => this_robot_is_selected.into(),
+                AuraVisualizationMode::SelectedAndHovered => {
+                    (this_robot_is_hovered || this_robot_is_selected).into()
+                }
+                AuraVisualizationMode::All => this_robot_is_selected.into(),
             };
             material.time = time.elapsed_secs_wrapped();
         }

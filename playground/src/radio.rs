@@ -1,4 +1,5 @@
 use bevy::app::{App, Plugin};
+use nic_components::SelectedAuraVisualizationMode;
 
 use crate::AntennaRenderingPlugin;
 
@@ -16,5 +17,6 @@ impl Plugin for RadioPlugin {
         app.add_plugins(radio_reach_tooltip::RadioReachTooltipPlugin);
         app.add_plugins(AntennaRenderingPlugin);
         app.add_plugins(peer_connection::PeerConnectionPlugin);
+        app.insert_resource(SelectedAuraVisualizationMode::default());
     }
 }
