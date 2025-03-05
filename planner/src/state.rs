@@ -3,7 +3,7 @@ use crate::{
     entity::ObjectHandle,
     evaluation::Evaluable,
     expression::{DnfMembers, Expression, NormalForm, Not, Primitives},
-    predicate::{Predicate, ResolvedPredicate, Value},
+    predicate::{Predicate, PredicateError, ResolvedPredicate, Value},
 };
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -120,7 +120,7 @@ impl State {
             })
             // Build all possible predicates with them
             .multi_cartesian_product()
-            .map(|vars| {
+            .filter_map(|vars| {
                 let mut vars = vars.iter();
                 let resolution = pos_predicate
                     .values()
@@ -130,7 +130,21 @@ impl State {
                         Value::ActionParam(_) => vars.next(),
                     })
                     .collect::<Vec<_>>();
-                pos_predicate.into_resolved(&resolution)
+                match pos_predicate.into_resolved(&resolution) {
+                    Ok(p) => Some(p),
+                    Err(e) => match e {
+                        PredicateError::TypeMismatch => {
+                            log::warn!("Type mismatch when resolving predicate");
+                            None
+                        }
+                        PredicateError::WrongNumberOfResolutions => {
+                            log::warn!(
+                                "Wrong number of resolutin arguments when resolving predicate"
+                            );
+                            None
+                        }
+                    },
+                }
             })
             .collect::<BTreeSet<_>>()
     }
@@ -211,7 +225,7 @@ mod tests {
             .values([Value::object(&x), Value::object(&y)])
             .build()
             .unwrap();
-        let rp = ps.into_resolved(&[]);
+        let rp = ps.into_resolved(&[]).unwrap();
         // Just for the test creating a predicate with the same name
         // to simulate that there migth be several different
         // resolved versions of the same predicate in a state.
@@ -224,11 +238,11 @@ mod tests {
             .values([Value::object(&x), Value::object(&b)])
             .build()
             .unwrap();
-        let rp1 = p1.into_resolved(&[]);
+        let rp1 = p1.into_resolved(&[]).unwrap();
 
         let p2 = PredicateBuilder::new("bar").arguments([&t]);
         let ps2 = p2.values([Value::object(&c)]).build().unwrap();
-        let rp2 = ps2.into_resolved(&[]);
+        let rp2 = ps2.into_resolved(&[]).unwrap();
 
         let state = State::default().with_predicates(&[rp.clone(), rp1.clone(), rp2.clone()]);
 
@@ -276,10 +290,10 @@ mod tests {
         assert_eq!(
             state.resolve_negated_predicate(&Not::new(&p4)),
             BTreeSet::from([
-                p4.into_resolved(&[&x]),
-                p4.into_resolved(&[&y]),
-                p4.into_resolved(&[&b]),
-                p4.into_resolved(&[&c]),
+                p4.into_resolved(&[&x]).unwrap(),
+                p4.into_resolved(&[&y]).unwrap(),
+                p4.into_resolved(&[&b]).unwrap(),
+                p4.into_resolved(&[&c]).unwrap(),
             ])
         );
     }

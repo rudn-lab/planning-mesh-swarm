@@ -37,6 +37,18 @@ impl Sealed for HasArguments {}
 impl Sealed for HasValues {}
 impl Sealed for HasResolvedValues {}
 
+#[derive(Debug)]
+pub enum PredicateError {
+    TypeMismatch,
+    WrongNumberOfResolutions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Value {
+    Object(ObjectHandle),
+    ActionParam(ActionParameter),
+}
+
 #[derive(Debug, Clone)]
 pub struct PredicateBuilder<S: PredicateBuilderState, const N: usize> {
     name: InternerSymbol,
@@ -117,11 +129,6 @@ impl PredicateBuilder<HasArguments, 0> {
     }
 }
 
-#[derive(Debug)]
-pub enum PredicateError {
-    TypeMismatch,
-}
-
 impl<const N: usize> PredicateBuilder<HasValues, N> {
     pub fn build(self) -> Result<Predicate, PredicateError> {
         let name = self.name;
@@ -169,12 +176,6 @@ impl<const N: usize> PredicateBuilder<HasResolvedValues, N> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Value {
-    Object(ObjectHandle),
-    ActionParam(ActionParameter),
-}
-
 impl Value {
     pub fn object(handle: &ObjectHandle) -> Self {
         Self::Object(handle.dupe())
@@ -215,9 +216,35 @@ impl Predicate {
     /// # Arguments
     ///
     /// * `resolution` - all missing values, correspongind to [Value::ActionParam]
-    pub fn into_resolved(&self, resolution: &[&ObjectHandle]) -> ResolvedPredicate {
+    pub fn into_resolved(
+        &self,
+        resolution: &[&ObjectHandle],
+    ) -> Result<ResolvedPredicate, PredicateError> {
+        if self
+            .values
+            .iter()
+            .filter(|v| matches!(v, Value::ActionParam(_)))
+            .count()
+            != resolution.len()
+        {
+            return Err(PredicateError::WrongNumberOfResolutions);
+        }
+
+        if !self
+            .values
+            .iter()
+            .filter_map(|v| match v {
+                Value::Object(_) => None,
+                Value::ActionParam(ap) => Some(ap),
+            })
+            .zip(resolution)
+            .all(|(v, r)| v.r#type == r.r#type())
+        {
+            return Err(PredicateError::TypeMismatch);
+        }
+
         let mut resolution = resolution.iter();
-        ResolvedPredicate {
+        Ok(ResolvedPredicate {
             name: self.name,
             arguments: self.arguments.clone(),
             values: self
@@ -230,7 +257,7 @@ impl Predicate {
                 .map(Dupe::dupe)
                 .collect(),
             unique_marker: self.unique_marker,
-        }
+        })
     }
 }
 
@@ -272,7 +299,7 @@ impl PartialEq for ResolvedPredicate {
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
-    use crate::entity::EntityStorage;
+    use crate::{action::ParameterHandle, entity::EntityStorage};
 
     use super::*;
     use core::assert;
@@ -331,11 +358,46 @@ mod tests {
 
     #[test]
     fn test_builder() {
-        todo!()
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+        let _ = entities.create_inheritance(&t2, &t1);
+        let o1 = entities.get_or_create_object("o1", &t1);
+        let o2 = entities.get_or_create_object("o2", &t2);
+
+        let p = PredicateBuilder::new("foo").arguments([&t1, &t2]);
+
+        let p1 = p.values([Value::object(&o1), Value::object(&o1)]).build();
+        assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
+
+        let p1 = p.resolved_values([&o1, &o1]).build();
+        assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
+
+        let ap1 = ActionParameter {
+            parameter_handle: ParameterHandle { idx: 0 },
+            r#type: t1.clone(),
+        };
+        let ap2 = ActionParameter {
+            parameter_handle: ParameterHandle { idx: 1 },
+            r#type: t2,
+        };
+
+        let p1 = p.values([Value::param(&ap1), Value::param(&ap1)]).build();
+        assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
+        let p1 = p
+            .values([Value::param(&ap1), Value::param(&ap2)])
+            .build()
+            .unwrap();
+
+        let pr1 = p1.into_resolved(&[&o2, &o1]);
+        assert!(matches!(pr1, Err(PredicateError::TypeMismatch)));
+
+        let pr1 = p1.into_resolved(&[&o1, &o2, &o1]);
+        assert!(matches!(pr1, Err(PredicateError::WrongNumberOfResolutions)));
     }
 
     #[test]
-    fn test_builder_shortcut() {
+    fn test_builder_shortcut_equality() {
         let p1 = PredicateBuilder::new("foo")
             .arguments([])
             .values([])
@@ -354,7 +416,22 @@ mod tests {
     }
 
     #[test]
-    fn test_resolutions() {
-        todo!()
+    fn test_resolution_equality() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+        let _ = entities.create_inheritance(&t2, &t1);
+        let o1 = entities.get_or_create_object("o1", &t1);
+        let o2 = entities.get_or_create_object("o2", &t2);
+
+        let pb1 = PredicateBuilder::new("foo").arguments([&t1, &t2]);
+        let p1 = pb1
+            .values([Value::object(&o1), Value::object(&o2)])
+            .build()
+            .unwrap();
+        let pr1 = p1.into_resolved(&[]).unwrap();
+        let pr2 = pb1.resolved_values([&o1, &o2]).build().unwrap();
+
+        assert_eq!(pr1, pr2);
     }
 }
