@@ -479,7 +479,7 @@ impl_with_map!(&T, T: Evaluable => Cnf);
 mod tests {
     use super::*;
     use crate::entity::EntityStorage;
-    use crate::predicate::{PredicateDeclaration, ResolvedPredicate, Value};
+    use crate::predicate::{Predicate, PredicateBuilder, ResolvedPredicate, Value};
     use alloc::vec::Vec;
 
     /// A simple evaluator used to check expression evaluation.
@@ -505,7 +505,7 @@ mod tests {
     }
 
     impl EvaluationContext for Evaluator {
-        fn eval(&self, predicate: Predicate) -> bool {
+        fn eval(&self, predicate: &Predicate) -> bool {
             self.true_predicates
                 .iter()
                 .any(|tp| tp.name() == predicate.name())
@@ -514,9 +514,10 @@ mod tests {
 
     #[test]
     fn test_basic_and() {
-        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
-        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
-        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
+        let t = PredicateBuilder::new("truth").arguments([]);
+        let f = PredicateBuilder::new("falsehood").arguments([]).build();
+        let evaluator = Evaluator::new(&[t.clone().build_resolved()]);
+        let t = t.build();
 
         let and = And::new(&[t.clone(), t.clone(), t.clone()]);
         assert!(and.eval(&evaluator));
@@ -527,9 +528,10 @@ mod tests {
 
     #[test]
     fn test_basic_or() {
-        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
-        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
-        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
+        let t = PredicateBuilder::new("truth").arguments([]);
+        let f = PredicateBuilder::new("falsehood").arguments([]).build();
+        let evaluator = Evaluator::new(&[t.clone().build_resolved()]);
+        let t = t.build();
 
         let or = Or::new(&[t.clone(), t.clone(), t.clone()]);
         assert!(or.eval(&evaluator));
@@ -543,9 +545,10 @@ mod tests {
 
     #[test]
     fn test_basic_not() {
-        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
-        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
-        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
+        let t = PredicateBuilder::new("truth").arguments([]);
+        let f = PredicateBuilder::new("falsehood").arguments([]).build();
+        let evaluator = Evaluator::new(&[t.clone().build_resolved()]);
+        let t = t.build();
 
         let not = Not::new(&f.clone());
         assert!(not.eval(&evaluator));
@@ -558,8 +561,9 @@ mod tests {
 
     #[test]
     fn test_formula() {
-        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
-        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
+        let t = PredicateBuilder::new("truth").arguments([]);
+        let evaluator = Evaluator::new(&[t.clone().build_resolved()]);
+        let t = t.build();
 
         let formula = Formula::new(FM::and(&[
             FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t.clone()))]),
@@ -579,9 +583,10 @@ mod tests {
 
     #[test]
     fn test_basic_dnf() {
-        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
-        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
-        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
+        let t = PredicateBuilder::new("truth").arguments([]);
+        let f = PredicateBuilder::new("falsehood").arguments([]).build();
+        let evaluator = Evaluator::new(&[t.clone().build_resolved()]);
+        let t = t.build();
 
         let dnf = Dnf::new(&[
             D::and(&[NF::pred(t.clone()), NF::pred(f.clone())]),
@@ -594,9 +599,10 @@ mod tests {
 
     #[test]
     fn test_basic_cnf() {
-        let t = PredicateDeclaration::new("truth", &[]).as_specific(&[]);
-        let f = PredicateDeclaration::new("falsehood", &[]).as_specific(&[]);
-        let evaluator = Evaluator::new(&[t.as_resolved(&[])]);
+        let t = PredicateBuilder::new("truth").arguments([]);
+        let f = PredicateBuilder::new("falsehood").arguments([]).build();
+        let evaluator = Evaluator::new(&[t.clone().build_resolved()]);
+        let t = t.build();
 
         let cnf = Cnf::new(&[
             C::or(&[NF::pred(t.clone()), NF::pred(f.clone())]),
@@ -609,51 +615,45 @@ mod tests {
 
     #[test]
     fn test_expression_get_predicates() {
-        let t = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
+        let p = PredicateBuilder::new("foo").arguments([]).build();
 
         // All predicates are the smame
         let expression = FM::and(&[
-            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t.clone()))]),
-            FM::pred(t.clone()),
+            FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p.clone()))]),
+            FM::pred(p.clone()),
             FM::not(&FM::and(&[
-                FM::pred(t.clone()),
-                FM::not(&FM::pred(t.clone())),
+                FM::pred(p.clone()),
+                FM::not(&FM::pred(p.clone())),
             ])),
         ]);
 
         assert_eq!(1, expression.predicates().len());
 
         // All predicates are unique
-        let t = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
-        let t1 = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
-        let t2 = PredicateDeclaration::new("baz", &[]).as_specific(&[]);
-        let t3 = PredicateDeclaration::new("qux", &[]).as_specific(&[]);
-        let t4 = PredicateDeclaration::new("corge", &[]).as_specific(&[]);
+        let p = PredicateBuilder::new("foo").arguments([]).build();
+        let p1 = PredicateBuilder::new("bar").arguments([]).build();
+        let p2 = PredicateBuilder::new("baz").arguments([]).build();
+        let p3 = PredicateBuilder::new("qux").arguments([]).build();
+        let p4 = PredicateBuilder::new("corge").arguments([]).build();
 
         let expression = FM::and(&[
-            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t1.clone()))]),
-            FM::pred(t2.clone()),
-            FM::not(&FM::and(&[
-                FM::pred(t3.clone()),
-                FM::not(&FM::pred(t4.clone())),
-            ])),
+            FM::or(&[FM::pred(p), FM::not(&FM::pred(p1))]),
+            FM::pred(p2),
+            FM::not(&FM::and(&[FM::pred(p3), FM::not(&FM::pred(p4))])),
         ]);
 
         assert_eq!(5, expression.predicates().len());
 
         // Predicates are "reused" after "transformation".
         // Look at Predicate.unique_marker.
-        let t = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
-        let t1 = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
-        let t2 = PredicateDeclaration::new("baz", &[]).as_specific(&[]);
+        let p = PredicateBuilder::new("foo").arguments([]).build();
+        let p1 = PredicateBuilder::new("bar").arguments([]).build();
+        let p2 = PredicateBuilder::new("baz").arguments([]).build();
 
         let expression = FM::and(&[
-            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t1.clone()))]),
-            FM::pred(t2.clone()),
-            FM::not(&FM::and(&[
-                FM::pred(t1.clone()),
-                FM::not(&FM::pred(t2.clone())),
-            ])),
+            FM::or(&[FM::pred(p), FM::not(&FM::pred(p1.clone()))]),
+            FM::pred(p2.clone()),
+            FM::not(&FM::and(&[FM::pred(p1), FM::not(&FM::pred(p2))])),
         ]);
 
         assert_eq!(3, expression.predicates().len());
@@ -670,11 +670,31 @@ mod tests {
         let d = entities.get_or_create_object("d", &t);
         let e = entities.get_or_create_object("e", &t);
 
-        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(a)]);
-        let p1 = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(b)]);
-        let p2 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(c)]);
-        let p3 = PredicateDeclaration::new("qux", &[&t]).as_specific(&[Value::Object(d)]);
-        let p4 = PredicateDeclaration::new("corge", &[&t]).as_specific(&[Value::Object(e)]);
+        let p = PredicateBuilder::new("foo")
+            .arguments([&t])
+            .values([Value::object(&a)])
+            .build()
+            .unwrap();
+        let p1 = PredicateBuilder::new("bar")
+            .arguments([&t])
+            .values([Value::object(&b)])
+            .build()
+            .unwrap();
+        let p2 = PredicateBuilder::new("baz")
+            .arguments([&t])
+            .values([Value::object(&c)])
+            .build()
+            .unwrap();
+        let p3 = PredicateBuilder::new("qux")
+            .arguments([&t])
+            .values([Value::object(&d)])
+            .build()
+            .unwrap();
+        let p4 = PredicateBuilder::new("corge")
+            .arguments([&t])
+            .values([Value::object(&e)])
+            .build()
+            .unwrap();
 
         let formula = Formula::new(FM::and(&[
             FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),
@@ -704,11 +724,31 @@ mod tests {
         let d = entities.get_or_create_object("d", &t);
         let e = entities.get_or_create_object("e", &t);
 
-        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(a)]);
-        let p1 = PredicateDeclaration::new("bar", &[&t]).as_specific(&[Value::Object(b)]);
-        let p2 = PredicateDeclaration::new("baz", &[&t]).as_specific(&[Value::Object(c)]);
-        let p3 = PredicateDeclaration::new("qux", &[&t]).as_specific(&[Value::Object(d)]);
-        let p4 = PredicateDeclaration::new("corge", &[&t]).as_specific(&[Value::Object(e)]);
+        let p = PredicateBuilder::new("foo")
+            .arguments([&t])
+            .values([Value::object(&a)])
+            .build()
+            .unwrap();
+        let p1 = PredicateBuilder::new("bar")
+            .arguments([&t])
+            .values([Value::object(&b)])
+            .build()
+            .unwrap();
+        let p2 = PredicateBuilder::new("baz")
+            .arguments([&t])
+            .values([Value::object(&c)])
+            .build()
+            .unwrap();
+        let p3 = PredicateBuilder::new("qux")
+            .arguments([&t])
+            .values([Value::object(&d)])
+            .build()
+            .unwrap();
+        let p4 = PredicateBuilder::new("corge")
+            .arguments([&t])
+            .values([Value::object(&e)])
+            .build()
+            .unwrap();
 
         let formula = Formula::new(FM::and(&[
             FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),

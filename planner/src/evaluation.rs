@@ -23,5 +23,5 @@ where
 }
 
 pub trait EvaluationContext {
-    fn eval(&self, predicate: Predicate) -> bool;
+    fn eval(&self, predicate: &Predicate) -> bool;
 }

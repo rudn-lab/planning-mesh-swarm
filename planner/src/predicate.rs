@@ -1,69 +1,198 @@
 use crate::{
+    action::ActionParameter,
     entity::{ObjectHandle, TypeHandle},
     evaluation::{Evaluable, EvaluationContext},
+    sealed::Sealed,
     InternerSymbol, INTERNER, RANDOM,
 };
 use alloc::{vec, vec::Vec};
-use core::fmt::Debug;
+use core::{fmt::Debug, marker::PhantomData};
+use gazebo::dupe::Dupe;
+use getset::Getters;
 use rand::Rng;
 
-/// A predicate how it is defined in the domain.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PredicateDeclaration {
-    /// Name of the predicate.
-    pub(crate) name: InternerSymbol,
-    /// Arguments to the predicate.
-    pub(crate) arguments: Vec<TypeHandle>,
+#[allow(private_bounds)]
+pub trait PredicateBuilderState: Sealed {}
+
+#[derive(Debug, Clone)]
+pub struct New;
+#[derive(Debug, Clone)]
+pub struct HasName;
+#[derive(Debug, Clone)]
+pub struct HasArguments;
+#[derive(Debug, Clone)]
+pub struct HasValues;
+#[derive(Debug, Clone)]
+pub struct HasResolvedValues;
+
+impl PredicateBuilderState for New {}
+impl PredicateBuilderState for HasName {}
+impl PredicateBuilderState for HasArguments {}
+impl PredicateBuilderState for HasValues {}
+impl PredicateBuilderState for HasResolvedValues {}
+
+impl Sealed for New {}
+impl Sealed for HasName {}
+impl Sealed for HasArguments {}
+impl Sealed for HasValues {}
+impl Sealed for HasResolvedValues {}
+
+#[derive(Debug, Clone)]
+pub struct PredicateBuilder<S: PredicateBuilderState, const N: usize> {
+    name: InternerSymbol,
+    arguments: Option<[TypeHandle; N]>,
+    values: Option<[Value; N]>,
+    resolved_values: Option<[ObjectHandle; N]>,
+    state: PhantomData<S>,
 }
 
-impl PredicateDeclaration {
-    pub fn new(name: &str, arguments: &[&TypeHandle]) -> Self {
-        Self {
+impl<const N: usize> PredicateBuilder<New, N> {
+    pub fn new(name: &str) -> PredicateBuilder<HasName, N> {
+        PredicateBuilder {
             name: INTERNER.lock().get_or_intern(name),
-            arguments: arguments.iter().map(|&v| v.clone()).collect(),
+            arguments: None,
+            values: None,
+            resolved_values: None,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<const N: usize> PredicateBuilder<HasName, N> {
+    pub fn arguments(self, arguments: [&TypeHandle; N]) -> PredicateBuilder<HasArguments, N> {
+        PredicateBuilder {
+            name: self.name,
+            arguments: Some(arguments.map(Dupe::dupe)),
+            values: None,
+            resolved_values: None,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<const N: usize> PredicateBuilder<HasArguments, N> {
+    pub fn values(&self, values: [Value; N]) -> PredicateBuilder<HasValues, N> {
+        PredicateBuilder {
+            name: self.name,
+            arguments: self.arguments.clone(),
+            values: Some(values),
+            resolved_values: None,
+            state: PhantomData,
         }
     }
 
-    pub fn as_specific(&self, values: &[Value]) -> Predicate {
+    pub fn resolved_values(
+        &self,
+        values: [&ObjectHandle; N],
+    ) -> PredicateBuilder<HasResolvedValues, N> {
+        PredicateBuilder {
+            name: self.name,
+            arguments: self.arguments.clone(),
+            values: None,
+            resolved_values: Some(values.map(Dupe::dupe)),
+            state: PhantomData,
+        }
+    }
+}
+
+impl PredicateBuilder<HasArguments, 0> {
+    pub fn build(self) -> Predicate {
+        let unique_marker = RANDOM.lock().gen();
         Predicate {
-            declaration: self.clone(),
-            values: values.to_vec(),
-            unique_marker: RANDOM.lock().gen(),
+            name: self.name,
+            arguments: self.arguments.unwrap().to_vec(),
+            values: vec![],
+            unique_marker,
         }
     }
 
-    /// Creates a new resolved predicate,
-    /// taking all parameter resolutions as argument
-    pub fn as_resolved(&self, resolution: &[ObjectHandle]) -> ResolvedPredicate {
+    pub fn build_resolved(self) -> ResolvedPredicate {
+        let unique_marker = RANDOM.lock().gen();
         ResolvedPredicate {
-            declaration: self.clone(),
-            values: resolution.to_vec(),
-            unique_marker: RANDOM.lock().gen(),
+            name: self.name,
+            arguments: self.arguments.unwrap().to_vec(),
+            values: vec![],
+            unique_marker,
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum PredicateError {
+    TypeMismatch,
+}
+
+impl<const N: usize> PredicateBuilder<HasValues, N> {
+    pub fn build(self) -> Result<Predicate, PredicateError> {
+        let name = self.name;
+        let arguments = self.arguments.unwrap();
+        let unique_marker = RANDOM.lock().gen();
+        let values = self.values.unwrap();
+
+        if !values.iter().zip(&arguments).all(|(v, a)| match v {
+            Value::Object(o) => o.r#type().inherits_or_eq(a),
+            Value::ActionParam(ap) => ap.r#type.inherits_or_eq(a),
+        }) {
+            return Err(PredicateError::TypeMismatch);
+        }
+
+        Ok(Predicate {
+            name,
+            arguments: arguments.to_vec(),
+            values: values.to_vec(),
+            unique_marker,
+        })
+    }
+}
+
+impl<const N: usize> PredicateBuilder<HasResolvedValues, N> {
+    pub fn build(self) -> Result<ResolvedPredicate, PredicateError> {
+        let name = self.name;
+        let arguments = self.arguments.unwrap();
+        let unique_marker = RANDOM.lock().gen();
+        let values = self.resolved_values.unwrap();
+
+        if !values
+            .iter()
+            .zip(&arguments)
+            .all(|(v, a)| v.r#type().inherits_or_eq(a))
+        {
+            return Err(PredicateError::TypeMismatch);
+        }
+
+        Ok(ResolvedPredicate {
+            name,
+            arguments: arguments.to_vec(),
+            values: values.to_vec(),
+            unique_marker,
+        })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
     Object(ObjectHandle),
-    ActionParam(ActionParameterRef),
+    ActionParam(ActionParameter),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ParameterHandle {
-    pub(crate) idx: usize,
-}
+impl Value {
+    pub fn object(handle: &ObjectHandle) -> Self {
+        Self::Object(handle.dupe())
+    }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ActionParameterRef {
-    pub(crate) parameter_handle: ParameterHandle,
-    pub(crate) r#type: TypeHandle,
+    pub fn param(param: &ActionParameter) -> Self {
+        Self::ActionParam(param.dupe())
+    }
 }
 
 /// A predicate how it is used in actions.
-#[derive(Debug, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
 pub struct Predicate {
-    declaration: PredicateDeclaration,
+    #[getset(get = "pub")]
+    name: InternerSymbol,
+    #[getset(get = "pub")]
+    arguments: Vec<TypeHandle>,
+    #[getset(get = "pub")]
     values: Vec<Value>,
     /// A marker to help distinguish real predicates from copies
     /// made when transforming an expression.
@@ -76,42 +205,29 @@ pub struct Predicate {
     /// On the other hand, in the CNF above the two `p`s and `q`s are the same predicate
     /// __and__ the same variables, and the expression should not be treated as having 4 inputs,
     /// but only 2.
+    #[getset(get = "pub")]
     unique_marker: u32,
 }
 
 impl Predicate {
-    pub fn name(&self) -> InternerSymbol {
-        self.declaration.name
-    }
-
-    pub fn arguments(&self) -> &[TypeHandle] {
-        &self.declaration.arguments
-    }
-
-    pub fn values(&self) -> Vec<Value> {
-        self.values.to_vec()
-    }
-
-    pub fn unique_marker(&self) -> u32 {
-        self.unique_marker
-    }
-
     /// Creates a new resolved predicate.
     ///
-    /// This method (unlike [PredicateDeclaration::as_resolved()])
-    /// only need the resolved values for the
-    /// [ArgumentValue::ActionParameter] values.
-    pub fn as_resolved(&self, resolution: &[ObjectHandle]) -> ResolvedPredicate {
+    /// # Arguments
+    ///
+    /// * `resolution` - all missing values, correspongind to [Value::ActionParam]
+    pub fn into_resolved(&self, resolution: &[&ObjectHandle]) -> ResolvedPredicate {
         let mut resolution = resolution.iter();
         ResolvedPredicate {
-            declaration: self.declaration.clone(),
+            name: self.name,
+            arguments: self.arguments.clone(),
             values: self
                 .values
                 .iter()
                 .map(|v| match v {
-                    Value::Object(o) => o.clone(),
-                    Value::ActionParam(_) => resolution.next().unwrap().clone(),
+                    Value::Object(o) => o,
+                    Value::ActionParam(_) => *resolution.next().unwrap(),
                 })
+                .map(Dupe::dupe)
                 .collect(),
             unique_marker: self.unique_marker,
         }
@@ -120,7 +236,7 @@ impl Predicate {
 
 impl Evaluable for Predicate {
     fn eval(&self, context: &impl EvaluationContext) -> bool {
-        context.eval(self.clone())
+        context.eval(self)
     }
 
     fn predicates(&self) -> Vec<Predicate> {
@@ -130,39 +246,26 @@ impl Evaluable for Predicate {
 
 impl PartialEq for Predicate {
     fn eq(&self, other: &Self) -> bool {
-        self.declaration == other.declaration && self.values == other.values
+        self.name == other.name && self.arguments == other.arguments && self.values == other.values
     }
 }
 
 /// A fully resolved predicate how it is stored in a state.
-#[derive(Debug, Clone, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
 pub struct ResolvedPredicate {
-    declaration: PredicateDeclaration,
+    #[getset(get = "pub")]
+    name: InternerSymbol,
+    #[getset(get = "pub")]
+    arguments: Vec<TypeHandle>,
+    #[getset(get = "pub")]
     values: Vec<ObjectHandle>,
+    #[getset(get = "pub")]
     unique_marker: u32,
-}
-
-impl ResolvedPredicate {
-    pub fn name(&self) -> InternerSymbol {
-        self.declaration.name
-    }
-
-    pub fn arguments(&self) -> &[TypeHandle] {
-        &self.declaration.arguments
-    }
-
-    pub fn values(&self) -> &[ObjectHandle] {
-        &self.values
-    }
-
-    pub fn unique_marker(&self) -> u32 {
-        self.unique_marker
-    }
 }
 
 impl PartialEq for ResolvedPredicate {
     fn eq(&self, other: &Self) -> bool {
-        self.declaration == other.declaration && self.values == other.values
+        self.name == other.name && self.arguments == other.arguments && self.values == other.values
     }
 }
 
@@ -177,15 +280,14 @@ mod tests {
     #[test]
     fn test_equality() {
         // Same predicates, even though the marker is different for each one
-        let p = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
-        let p1 = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
-
+        let p = PredicateBuilder::new("foo").arguments([]).build();
+        let p1 = PredicateBuilder::new("foo").arguments([]).build();
         assert!(p == p1);
         assert!(p.unique_marker != p1.unique_marker);
 
         // Different because of marker and name
-        let p = PredicateDeclaration::new("foo", &[]).as_specific(&[]);
-        let p1 = PredicateDeclaration::new("bar", &[]).as_specific(&[]);
+        let p = PredicateBuilder::new("foo").arguments([]).build();
+        let p1 = PredicateBuilder::new("bar").arguments([]).build();
 
         assert!(p != p1);
 
@@ -194,9 +296,16 @@ mod tests {
         let t = entities.get_or_create_type("t");
         let x = entities.get_or_create_object("x", &t);
 
-        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x.clone())]);
-        let mut p1 =
-            PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x.clone())]);
+        let p = PredicateBuilder::new("foo")
+            .arguments([&t])
+            .values([Value::object(&x)])
+            .build()
+            .unwrap();
+        let mut p1 = PredicateBuilder::new("foo")
+            .arguments([&t])
+            .values([Value::object(&x)])
+            .build()
+            .unwrap();
         p1.unique_marker = p.unique_marker;
 
         assert!(p == p1);
@@ -204,10 +313,48 @@ mod tests {
         // Different because of type
         let t1 = entities.get_or_create_type("t1");
         let y = entities.get_or_create_object("y", &t1);
-        let p = PredicateDeclaration::new("foo", &[&t]).as_specific(&[Value::Object(x)]);
-        let mut p1 = PredicateDeclaration::new("foo", &[&t1]).as_specific(&[Value::Object(y)]);
+
+        let p = PredicateBuilder::new("foo")
+            .arguments([&t])
+            .values([Value::object(&x)])
+            .build()
+            .unwrap();
+        let mut p1 = PredicateBuilder::new("foo")
+            .arguments([&t1])
+            .values([Value::object(&y)])
+            .build()
+            .unwrap();
         p1.unique_marker = p.unique_marker;
 
         assert!(p != p1);
+    }
+
+    #[test]
+    fn test_builder() {
+        todo!()
+    }
+
+    #[test]
+    fn test_builder_shortcut() {
+        let p1 = PredicateBuilder::new("foo")
+            .arguments([])
+            .values([])
+            .build()
+            .unwrap();
+        let p2 = PredicateBuilder::new("foo").arguments([]).build();
+        assert_eq!(p1, p2);
+
+        let pr1 = PredicateBuilder::new("foo")
+            .arguments([])
+            .resolved_values([])
+            .build()
+            .unwrap();
+        let pr2 = PredicateBuilder::new("foo").arguments([]).build_resolved();
+        assert_eq!(pr1, pr2);
+    }
+
+    #[test]
+    fn test_resolutions() {
+        todo!()
     }
 }
