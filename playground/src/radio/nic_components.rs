@@ -5,24 +5,28 @@ use bevy::{prelude::*, sprite::Material2dPlugin};
 use crate::{robot::onclick_handling::SelectedRobot, CENTIMETER};
 
 use super::{
-    antenna::AntennaReach,
-    antenna_reach_vis_mat::AntennaReachVisualizationMaterial,
-    virtual_nic::{MessageType, VirtualPeerId},
+    antenna::AntennaReach, antenna_reach_vis_mat::AntennaReachVisualizationMaterial,
+    virtual_nic::MessageType,
 };
 
 /// This component is used as a child of the robot entity to indicate that it has a virtual network interface.
+/// In the model, it's a sender interface:
+/// every robot has a receiver interface implicitly.
 #[derive(Component, Debug)]
 pub(crate) struct VirtualNetworkInterface {
     /// The sequential number of this NIC.
-    /// The first NIC is 0, the second is 1, etc.
+    /// The first NIC on a robot is 0, the second is 1, etc.
     ///
     /// If any NICs are removed, these indexes are (treated as if they are) shifted backwards.
     pub(crate) index: usize,
     pub(crate) reach: AntennaReach,
     pub(crate) color: Srgba,
 
-    /// If this NIC is paired with another NIC, this is the index of the other NIC.
-    pub(crate) paired_with: Option<VirtualPeerId>,
+    /// If this NIC is paired with a receiver, this is the index of the robot whose receiver it is paired with.
+    // pub(crate) paired_with: Option<VirtualPeerId>,
+
+    /// If this NIC is paired with a receiver, this is the entity that represents that pairing.
+    pub(crate) peer_connection: Option<Entity>,
 
     /// The messages that this NIC would like to send to its pair.
     pub(crate) pending_messages: VecDeque<MessageType>,
@@ -56,7 +60,8 @@ impl NicBundle {
                 },
                 color,
                 index,
-                paired_with: None,
+                // paired_with: None,
+                peer_connection: None,
                 pending_messages: VecDeque::new(),
             },
             material: MeshMaterial2d(material),

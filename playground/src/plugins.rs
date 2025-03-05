@@ -1,6 +1,6 @@
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*,
-    render::RenderPlugin, window::WindowResolution, winit::WinitSettings,
+    window::WindowResolution, winit::WinitSettings,
 };
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;

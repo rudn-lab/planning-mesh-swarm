@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use high_level_cmds::network_kit::{AsyncUtils, NetworkKit, ReceiverNic, TransmitterNic};
 
 /// This function is a basic implementation of a routing backend
@@ -11,7 +13,7 @@ pub async fn sample_routing<
 >(
     mut kit: NetworkKit<PeerId, MsgType, RecvNicType, SendNicType, AsyncUtilsImpl, SENDER_COUNT>,
 ) where
-    PeerId: Default + Copy + core::fmt::Debug,
+    PeerId: Default + Copy + core::fmt::Debug + Eq + core::hash::Hash + Ord,
     SendNicType: TransmitterNic<PeerId, MsgType>,
     RecvNicType: ReceiverNic<PeerId, MsgType>,
     AsyncUtilsImpl: AsyncUtils,
@@ -45,10 +47,48 @@ pub async fn sample_routing<
         let mut peers = [PeerId::default(); 100];
         let scan_count = kit.senders[0].scan(&mut peers).await.unwrap();
 
+        let mut peers_seen = HashSet::new();
         for peer in peers.iter().take(scan_count) {
             kit.utils
                 .log(format!("Found peer {:?}", peer).as_str())
                 .await;
+            peers_seen.insert(*peer);
+        }
+
+        let mut peers_paired = HashSet::new();
+        for sender in kit.senders.iter_mut() {
+            if let Ok(x) = sender.get_peer().await {
+                if let Some(peer) = x {
+                    peers_paired.insert(peer);
+                }
+            }
+        }
+
+        let mut peers_unpaired = peers_seen
+            .difference(&peers_paired)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        kit.utils
+            .log(
+                format!(
+                    "I see {} peers that I haven't paired with",
+                    peers_unpaired.len()
+                )
+                .as_str(),
+            )
+            .await;
+
+        for (i, sender) in kit.senders.iter_mut().enumerate() {
+            if let Ok(None) = sender.get_peer().await {
+                let Some(peer_to_pair) = peers_unpaired.pop() else {
+                    continue;
+                };
+                kit.utils
+                    .log(format!("Pairing NIC {i} with peer {:?}", peer_to_pair).as_str())
+                    .await;
+                sender.pair(peer_to_pair).await.unwrap();
+            }
         }
     }
 }

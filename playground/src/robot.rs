@@ -1,6 +1,5 @@
-use bevy::{prelude::*, tasks::IoTaskPool, utils::hashbrown::HashMap};
+use bevy::{prelude::*, tasks::IoTaskPool};
 use bevy_tweening::{Animator, TweenCompleted};
-use high_level_cmds::network_kit::RSSI;
 use internal_state_vis::InternalStatePlugin;
 use motion_anim::{get_tween, update_robot_tweens_after_props_change};
 use motion_types::{BusyRobot, IdleRobot, RobotOrientation, RobotProps, RobotState};
@@ -8,11 +7,7 @@ use onclick_handling::{on_selection_event, SelectedRobot, SelectionChanged};
 use radio_world_communication::update_robot_radios;
 use virtual_chassis::VirtualChassis;
 
-use crate::{
-    pause_controller::PauseState,
-    radio::{nic_components::VirtualNetworkInterface, virtual_nic::new_virtual_network_kit},
-    CELL_SIZE,
-};
+use crate::{pause_controller::PauseState, radio::virtual_nic::new_virtual_network_kit, CELL_SIZE};
 
 mod async_queue_wrapper;
 mod business_logic;

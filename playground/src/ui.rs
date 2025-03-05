@@ -1,10 +1,9 @@
 use bevy::{
     app::{Plugin, Update},
     ecs::{entity::Entity, event::EventWriter},
-    prelude::{Camera2d, Local, OrthographicProjection, Query, Res, With},
+    prelude::Query,
 };
 use bevy_egui::EguiContexts;
-use bevy_pancam::PanCam;
 
 use crate::robot::{motion_types::RobotState, onclick_handling::SelectionChanged};
 
@@ -21,6 +20,7 @@ fn left_panel(
     mut contexts: EguiContexts,
     robots: Query<(Entity, &RobotState)>,
     mut ev_writer: EventWriter<SelectionChanged>,
+    mut ev_ghost_robot_spawn: EventWriter<crate::robot::robot_spawn_menu::InitGhostRobot>,
 ) {
     let ctx = contexts.ctx_mut();
     let mut robots = robots.iter().collect::<Vec<_>>();
@@ -43,6 +43,9 @@ fn left_panel(
                 });
             }
 
+            if ui.button("New Robot").clicked() {
+                ev_ghost_robot_spawn.send(crate::robot::robot_spawn_menu::InitGhostRobot);
+            }
             ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         });
 }

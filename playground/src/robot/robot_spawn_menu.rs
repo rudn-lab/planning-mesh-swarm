@@ -15,11 +15,12 @@ pub(crate) struct GhostRobotPlugin;
 
 impl Plugin for GhostRobotPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init_ghost_robot);
+        app.add_systems(Update, init_ghost_robot);
         app.add_systems(Update, update_ghost_robot);
         app.add_systems(Update, ghost_robot_config_menu);
         app.add_systems(Update, materialize_ghost_robot);
         app.add_event::<MaterializeGhostRobot>();
+        app.add_event::<InitGhostRobot>();
     }
 }
 
@@ -29,6 +30,11 @@ impl Plugin for GhostRobotPlugin {
 /// If there is no ghost robot, then this event is ignored.
 #[derive(Event, Default, Clone, Copy)]
 struct MaterializeGhostRobot;
+
+/// This event is sent when we need to add a ghost robot to the world.
+/// If there is already a ghost robot, then this event is ignored.
+#[derive(Event, Default, Clone, Copy)]
+pub(crate) struct InitGhostRobot;
 
 #[derive(Component)]
 struct GhostRobot {
@@ -70,7 +76,30 @@ impl GhostRobotBundle {
     }
 }
 
-fn init_ghost_robot(world: &mut World) {
+fn init_ghost_robot(
+    existing_ghost_robot: Query<Entity, With<GhostRobot>>,
+    mut events: EventReader<InitGhostRobot>,
+    mut commands: Commands,
+    mut exec_system: Local<Option<SystemId>>,
+) {
+    if events.read().next().is_some() {
+        log::info!("Received InitGhostRobot event");
+        // Check whether there is already a ghost robot;
+        // if so, ignore this event
+        if existing_ghost_robot.iter().next().is_some() {
+            log::info!("There is already a ghost robot, ignoring InitGhostRobot event");
+            return;
+        }
+
+        // There is not already a ghost robot, so spawn one
+        if exec_system.is_none() {
+            *exec_system = Some(commands.register_system(perform_init_ghost_robot));
+        }
+        commands.run_system(exec_system.unwrap());
+    }
+}
+
+fn perform_init_ghost_robot(world: &mut World) {
     let bundle = GhostRobotBundle::new((0, 0), world);
     world.commands().spawn(bundle);
 }
@@ -80,12 +109,12 @@ fn ghost_robot_config_menu(
     mut ghost_robot: Query<(Entity, &mut GhostRobot, &mut Transform)>,
     mut commands: Commands,
 ) {
-    let Ok((entity, mut ghost_robot, mut transform)) = ghost_robot.get_single_mut() else {
+    let Ok((entity, ghost_robot, _transform)) = ghost_robot.get_single_mut() else {
         return;
     };
 
     let mut stay_open = true;
-    let resp = egui::Window::new("New Robot Config")
+    egui::Window::new("New Robot Config")
         .open(&mut stay_open)
         .show(contexts.ctx_mut(), |ui| {
             ui.horizontal(|ui| {
@@ -99,7 +128,7 @@ fn ghost_robot_config_menu(
 
             ui.separator();
 
-            ui.small("Esc or close to cancel, Enter or click to confirm");
+            ui.small("Esc or close to cancel, Enter to confirm");
             ui.small("R to rotate");
         })
         .unwrap();
