@@ -4,15 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-dyn-clone = "1.0.17"
 gazebo = "0.8.1"
 getset = "0.1.4"
-impl-enum = "0.3.1"
 itertools = { version = "0.14.0", default-features = false, features = ["use_alloc"] }
 lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
 paste = "1.0.15"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_chacha = { version = "0.3.1", default-features = false }
-slotmap = { version = "1.0.7", default-features = false }
 spin = "0.9.8"
 string-interner = { version = "0.18.0", default-features = false, features = ["inline-more", "backends"] }
