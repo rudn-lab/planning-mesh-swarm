@@ -11,6 +11,138 @@ use gazebo::dupe::Dupe;
 use getset::Getters;
 use rand::Rng;
 
+/// A predicate how it is used in actions.
+#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
+pub struct Predicate {
+    #[getset(get = "pub")]
+    name: InternerSymbol,
+    #[getset(get = "pub")]
+    arguments: Vec<TypeHandle>,
+    #[getset(get = "pub")]
+    values: Vec<Value>,
+    /// A marker to help distinguish real predicates from copies
+    /// made when transforming an expression.
+    ///
+    /// Used to distinguish predicates with the same name and arguments
+    /// when doing normalization. For example:
+    /// `p XOR q` can be transformed into the following CNF: `(NOT p OR NOT q) AND (p OR q)`
+    /// In this example even if p and q are the same predicate,
+    /// they are still independent variables in the expression.
+    /// On the other hand, in the CNF above the two `p`s and `q`s are the same predicate
+    /// __and__ the same variables, and the expression should not be treated as having 4 inputs,
+    /// but only 2.
+    #[getset(get = "pub")]
+    unique_marker: u32,
+}
+
+impl Predicate {
+    /// Creates a new resolved predicate.
+    ///
+    /// # Arguments
+    ///
+    /// * `resolution` - all missing values, correspongind to [Value::ActionParam]
+    pub fn into_resolved(
+        &self,
+        resolution: &[&ObjectHandle],
+    ) -> Result<ResolvedPredicate, PredicateError> {
+        if self
+            .values
+            .iter()
+            .filter(|v| matches!(v, Value::ActionParam(_)))
+            .count()
+            != resolution.len()
+        {
+            return Err(PredicateError::WrongNumberOfResolutions);
+        }
+
+        if !self
+            .values
+            .iter()
+            .filter_map(|v| match v {
+                Value::Object(_) => None,
+                Value::ActionParam(ap) => Some(ap),
+            })
+            .zip(resolution)
+            .all(|(v, r)| v.r#type == r.r#type())
+        {
+            return Err(PredicateError::TypeMismatch);
+        }
+
+        let mut resolution = resolution.iter();
+        Ok(ResolvedPredicate {
+            name: self.name,
+            arguments: self.arguments.clone(),
+            values: self
+                .values
+                .iter()
+                .map(|v| match v {
+                    Value::Object(o) => o,
+                    Value::ActionParam(_) => *resolution.next().unwrap(),
+                })
+                .map(Dupe::dupe)
+                .collect(),
+            unique_marker: self.unique_marker,
+        })
+    }
+}
+
+impl Evaluable for Predicate {
+    fn eval(&self, context: &impl EvaluationContext) -> bool {
+        context.eval(self)
+    }
+
+    fn predicates(&self) -> Vec<Predicate> {
+        vec![self.clone()]
+    }
+}
+
+impl PartialEq for Predicate {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.arguments == other.arguments && self.values == other.values
+    }
+}
+
+/// A fully resolved predicate how it is stored in a state.
+#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
+pub struct ResolvedPredicate {
+    #[getset(get = "pub")]
+    name: InternerSymbol,
+    #[getset(get = "pub")]
+    arguments: Vec<TypeHandle>,
+    #[getset(get = "pub")]
+    values: Vec<ObjectHandle>,
+    #[getset(get = "pub")]
+    unique_marker: u32,
+}
+
+impl PartialEq for ResolvedPredicate {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.arguments == other.arguments && self.values == other.values
+    }
+}
+
+#[derive(Debug)]
+pub enum PredicateError {
+    TypeMismatch,
+    WrongNumberOfResolutions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Value {
+    Object(ObjectHandle),
+    ActionParam(ActionParameter),
+}
+
+impl Value {
+    pub fn object(handle: &ObjectHandle) -> Self {
+        Self::Object(handle.dupe())
+    }
+
+    pub fn param(param: &ActionParameter) -> Self {
+        Self::ActionParam(param.dupe())
+    }
+}
+
 #[allow(private_bounds)]
 pub trait PredicateBuilderState: Sealed {}
 
@@ -36,18 +168,6 @@ impl Sealed for HasName {}
 impl Sealed for HasArguments {}
 impl Sealed for HasValues {}
 impl Sealed for HasResolvedValues {}
-
-#[derive(Debug)]
-pub enum PredicateError {
-    TypeMismatch,
-    WrongNumberOfResolutions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Value {
-    Object(ObjectHandle),
-    ActionParam(ActionParameter),
-}
 
 #[derive(Debug, Clone)]
 pub struct PredicateBuilder<S: PredicateBuilderState, const N: usize> {
@@ -173,126 +293,6 @@ impl<const N: usize> PredicateBuilder<HasResolvedValues, N> {
             values: values.to_vec(),
             unique_marker,
         })
-    }
-}
-
-impl Value {
-    pub fn object(handle: &ObjectHandle) -> Self {
-        Self::Object(handle.dupe())
-    }
-
-    pub fn param(param: &ActionParameter) -> Self {
-        Self::ActionParam(param.dupe())
-    }
-}
-
-/// A predicate how it is used in actions.
-#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
-pub struct Predicate {
-    #[getset(get = "pub")]
-    name: InternerSymbol,
-    #[getset(get = "pub")]
-    arguments: Vec<TypeHandle>,
-    #[getset(get = "pub")]
-    values: Vec<Value>,
-    /// A marker to help distinguish real predicates from copies
-    /// made when transforming an expression.
-    ///
-    /// Used to distinguish predicates with the same name and arguments
-    /// when doing normalization. For example:
-    /// `p XOR q` can be transformed into the following CNF: `(NOT p OR NOT q) AND (p OR q)`
-    /// In this example even if p and q are the same predicate,
-    /// they are still independent variables in the expression.
-    /// On the other hand, in the CNF above the two `p`s and `q`s are the same predicate
-    /// __and__ the same variables, and the expression should not be treated as having 4 inputs,
-    /// but only 2.
-    #[getset(get = "pub")]
-    unique_marker: u32,
-}
-
-impl Predicate {
-    /// Creates a new resolved predicate.
-    ///
-    /// # Arguments
-    ///
-    /// * `resolution` - all missing values, correspongind to [Value::ActionParam]
-    pub fn into_resolved(
-        &self,
-        resolution: &[&ObjectHandle],
-    ) -> Result<ResolvedPredicate, PredicateError> {
-        if self
-            .values
-            .iter()
-            .filter(|v| matches!(v, Value::ActionParam(_)))
-            .count()
-            != resolution.len()
-        {
-            return Err(PredicateError::WrongNumberOfResolutions);
-        }
-
-        if !self
-            .values
-            .iter()
-            .filter_map(|v| match v {
-                Value::Object(_) => None,
-                Value::ActionParam(ap) => Some(ap),
-            })
-            .zip(resolution)
-            .all(|(v, r)| v.r#type == r.r#type())
-        {
-            return Err(PredicateError::TypeMismatch);
-        }
-
-        let mut resolution = resolution.iter();
-        Ok(ResolvedPredicate {
-            name: self.name,
-            arguments: self.arguments.clone(),
-            values: self
-                .values
-                .iter()
-                .map(|v| match v {
-                    Value::Object(o) => o,
-                    Value::ActionParam(_) => *resolution.next().unwrap(),
-                })
-                .map(Dupe::dupe)
-                .collect(),
-            unique_marker: self.unique_marker,
-        })
-    }
-}
-
-impl Evaluable for Predicate {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
-        context.eval(self)
-    }
-
-    fn predicates(&self) -> Vec<Predicate> {
-        vec![self.clone()]
-    }
-}
-
-impl PartialEq for Predicate {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.arguments == other.arguments && self.values == other.values
-    }
-}
-
-/// A fully resolved predicate how it is stored in a state.
-#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
-pub struct ResolvedPredicate {
-    #[getset(get = "pub")]
-    name: InternerSymbol,
-    #[getset(get = "pub")]
-    arguments: Vec<TypeHandle>,
-    #[getset(get = "pub")]
-    values: Vec<ObjectHandle>,
-    #[getset(get = "pub")]
-    unique_marker: u32,
-}
-
-impl PartialEq for ResolvedPredicate {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.arguments == other.arguments && self.values == other.values
     }
 }
 
