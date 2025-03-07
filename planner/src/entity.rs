@@ -111,12 +111,12 @@ impl EntityStorage {
                 None
             }
         }) {
-            return TypeHandle::from_raw(idx, Rc::new(self.clone()));
+            return TypeHandle::from_raw(idx, self.clone());
         }
 
         let idx = self.types.borrow().len();
         self.types.borrow_mut().push(r#type);
-        TypeHandle::from_raw(idx, Rc::new(self.clone()))
+        TypeHandle::from_raw(idx, self.clone())
     }
 
     pub fn create_inheritance(
@@ -127,7 +127,7 @@ impl EntityStorage {
         if let Some(idx) = self.supertypes.borrow().get(&sub_type.idx) {
             return Err(TypeError::AlreadyHasSuperType(TypeHandle::new(
                 *idx,
-                Rc::new(self.clone()),
+                self.clone(),
             )));
         }
 
@@ -152,7 +152,7 @@ impl EntityStorage {
             .map(|subtypes| {
                 subtypes
                     .iter()
-                    .map(|idx| TypeHandle::new(*idx, Rc::new(self.clone())))
+                    .map(|idx| TypeHandle::new(*idx, self.clone()))
                     .collect()
             })
             .unwrap_or_default()
@@ -195,12 +195,12 @@ impl EntityStorage {
                 }
             })
         {
-            return ObjectHandle::from_raw(idx, Rc::new(self.clone()));
+            return ObjectHandle::from_raw(idx, self.clone());
         }
 
         let idx = self.objects.borrow().len();
         self.objects.borrow_mut().push((object, r#type));
-        ObjectHandle::from_raw(idx, Rc::new(self.clone()))
+        ObjectHandle::from_raw(idx, self.clone())
     }
 
     pub fn get_objects_by_type_strict(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
@@ -210,7 +210,7 @@ impl EntityStorage {
             .enumerate()
             .filter_map(|(i, &(_, ti))| {
                 if ti == r#type.idx {
-                    Some(ObjectHandle::from_raw(i, Rc::new(self.clone())))
+                    Some(ObjectHandle::from_raw(i, self.clone()))
                 } else {
                     None
                 }
@@ -231,7 +231,7 @@ impl EntityStorage {
     }
 
     pub fn get_type(&self, object: &ObjectHandle) -> TypeHandle {
-        TypeHandle::new(self.objects.borrow()[object.idx.0].1, Rc::new(self.clone()))
+        TypeHandle::new(self.objects.borrow()[object.idx.0].1, self.clone())
     }
 }
 
@@ -278,8 +278,8 @@ mod tests {
         assert_ne!(o3, o1);
         assert_ne!(o3, o2);
 
-        assert_eq!(t1.value(), Type::new("foo"));
-        assert_eq!(o1.value(), Object::new("a"));
+        assert_eq!(t1.inner(), Type::new("foo"));
+        assert_eq!(o1.inner(), Object::new("a"));
     }
 
     #[test]

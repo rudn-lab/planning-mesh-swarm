@@ -40,7 +40,7 @@ impl Predicate {
     ///
     /// # Arguments
     ///
-    /// * `resolution` - all missing values, correspongind to [Value::ActionParam]
+    /// * `resolution` - all missing values, correspongind to [Value::ActionParameter]
     pub fn into_resolved(
         &self,
         resolution: &[&ObjectHandle],
@@ -48,7 +48,7 @@ impl Predicate {
         if self
             .values
             .iter()
-            .filter(|v| matches!(v, Value::ActionParam(_)))
+            .filter(|v| matches!(v, Value::ActionParameter(_)))
             .count()
             != resolution.len()
         {
@@ -60,7 +60,7 @@ impl Predicate {
             .iter()
             .filter_map(|v| match v {
                 Value::Object(_) => None,
-                Value::ActionParam(ap) => Some(ap),
+                Value::ActionParameter(ap) => Some(ap),
             })
             .zip(resolution)
             .all(|(v, r)| v.r#type == r.r#type())
@@ -77,12 +77,25 @@ impl Predicate {
                 .iter()
                 .map(|v| match v {
                     Value::Object(o) => o,
-                    Value::ActionParam(_) => *resolution.next().unwrap(),
+                    Value::ActionParameter(_) => *resolution.next().unwrap(),
                 })
                 .map(Dupe::dupe)
                 .collect(),
             unique_marker: self.unique_marker,
         })
+    }
+
+    /// Returns only [Value::ActionParameter]
+    /// and their indices from this predicate's values array
+    pub fn action_parameters(&self) -> Vec<(usize, &ActionParameter)> {
+        self.values
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| match v {
+                Value::Object(_) => None,
+                Value::ActionParameter(ap) => Some((i, ap)),
+            })
+            .collect::<Vec<_>>()
     }
 }
 
@@ -91,8 +104,8 @@ impl Evaluable for Predicate {
         context.eval(self)
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
-        vec![self.clone()]
+    fn predicates(&self) -> Vec<&Predicate> {
+        vec![self]
     }
 }
 
@@ -115,6 +128,25 @@ pub struct ResolvedPredicate {
     unique_marker: u32,
 }
 
+impl ResolvedPredicate {
+    /// Checks whether this predicate is a possible resolution of another predicate
+    pub fn is_resolution_of(&self, predicate: &Predicate) -> bool {
+        if predicate.name() != self.name() || predicate.arguments().len() != self.arguments().len()
+        {
+            return false;
+        }
+
+        predicate
+            .values()
+            .iter()
+            .zip(self.values())
+            .all(|(av, v)| match av {
+                Value::Object(o) => o == v,
+                Value::ActionParameter(ap) => v.r#type().inherits_or_eq(&ap.r#type),
+            })
+    }
+}
+
 impl PartialEq for ResolvedPredicate {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.arguments == other.arguments && self.values == other.values
@@ -130,7 +162,7 @@ pub enum PredicateError {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
     Object(ObjectHandle),
-    ActionParam(ActionParameter),
+    ActionParameter(ActionParameter),
 }
 
 impl Value {
@@ -139,7 +171,7 @@ impl Value {
     }
 
     pub fn param(param: &ActionParameter) -> Self {
-        Self::ActionParam(param.dupe())
+        Self::ActionParameter(param.dupe())
     }
 }
 
@@ -258,7 +290,7 @@ impl<const N: usize> PredicateBuilder<HasValues, N> {
 
         if !values.iter().zip(&arguments).all(|(v, a)| match v {
             Value::Object(o) => o.r#type().inherits_or_eq(a),
-            Value::ActionParam(ap) => ap.r#type.inherits_or_eq(a),
+            Value::ActionParameter(ap) => ap.r#type.inherits_or_eq(a),
         }) {
             return Err(PredicateError::TypeMismatch);
         }
@@ -299,7 +331,7 @@ impl<const N: usize> PredicateBuilder<HasResolvedValues, N> {
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
-    use crate::{action::ParameterHandle, entity::EntityStorage};
+    use crate::entity::EntityStorage;
 
     use super::*;
     use core::assert;
@@ -374,11 +406,11 @@ mod tests {
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
         let ap1 = ActionParameter {
-            parameter_handle: ParameterHandle { idx: 0 },
+            parameter_handle: 0,
             r#type: t1.clone(),
         };
         let ap2 = ActionParameter {
-            parameter_handle: ParameterHandle { idx: 1 },
+            parameter_handle: 1,
             r#type: t2,
         };
 

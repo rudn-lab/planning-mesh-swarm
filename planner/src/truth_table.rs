@@ -15,7 +15,7 @@ impl<E: Evaluable> EvaluationContext for TruthTable<'_, E> {
             // and 0s -- that should be false.
             // We filter only true ones.
             .filter(|(i, _)| ((self.curr_row() >> i) & 1) == 1)
-            .any(|(_, p)| p == predicate)
+            .any(|(_, &p)| p == predicate)
     }
 }
 
@@ -23,7 +23,7 @@ impl<E: Evaluable> EvaluationContext for TruthTable<'_, E> {
 pub struct TruthTable<'a, T: Evaluable> {
     curr_row: usize,
     formula: &'a T,
-    predicates: Vec<Predicate>,
+    predicates: Vec<&'a Predicate>,
     size: usize,
 }
 
@@ -38,11 +38,13 @@ impl<'a, T: Evaluable> TruthTable<'a, T> {
             .filter(|p| !p.arguments().is_empty())
             .collect::<Vec<_>>();
 
+        let num_predicates = predicates.len();
+
         Self {
             curr_row: 0,
             formula,
-            predicates: predicates.to_vec(),
-            size: 2usize.checked_pow(predicates.len() as u32).unwrap(),
+            predicates,
+            size: 2usize.checked_pow(num_predicates as u32).unwrap(),
         }
     }
 
@@ -58,7 +60,7 @@ impl<'a, T: Evaluable> TruthTable<'a, T> {
         self.curr_row
     }
 
-    pub fn columns(&self) -> &[Predicate] {
+    pub fn columns(&self) -> &[&Predicate] {
         &self.predicates
     }
 }
