@@ -40,7 +40,7 @@ impl<T: Evaluable> Evaluable for And<T> {
         self.o.iter().all(|e| e.eval(context))
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         self.o
             .iter()
             .flat_map(Evaluable::predicates)
@@ -74,7 +74,7 @@ impl<T: Evaluable> Evaluable for Or<T> {
         self.o.iter().any(|e| e.eval(context))
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         self.o
             .iter()
             .flat_map(Evaluable::predicates)
@@ -108,7 +108,7 @@ impl<T: Evaluable> Evaluable for Not<T> {
         !self.o.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         self.o.predicates()
     }
 }
@@ -149,7 +149,7 @@ impl Evaluable for FormulaMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         match self {
             Self::And(and) => and
                 .o
@@ -166,7 +166,7 @@ impl Evaluable for FormulaMembers {
                     .collect()
             }
             Self::Not(not) => not.predicates(),
-            Self::Pred(p) => vec![p.clone()],
+            Self::Pred(p) => vec![p],
         }
     }
 }
@@ -187,7 +187,7 @@ impl Evaluable for Formula {
         self.e.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         self.e.predicates()
     }
 }
@@ -218,10 +218,10 @@ impl Evaluable for Primitives {
         }
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         match self {
             Self::Not(not) => not.predicates(),
-            Self::Pred(p) => vec![p.clone()],
+            Self::Pred(p) => vec![p],
         }
     }
 }
@@ -250,7 +250,7 @@ impl Evaluable for DnfMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         match self {
             Self::And(and) => and
                 .o
@@ -265,7 +265,7 @@ impl Evaluable for DnfMembers {
 }
 
 pub trait NormalForm<T: Evaluable> {
-    fn expression(&self) -> impl Expression<T>;
+    fn expression(&self) -> &impl Expression<T>;
 }
 
 #[derive(Debug, Clone)]
@@ -285,8 +285,8 @@ impl<T: Evaluable> NormalForm<T> for Dnf
 where
     Or<DnfMembers>: Expression<T>,
 {
-    fn expression(&self) -> impl Expression<T> {
-        self.f.clone()
+    fn expression(&self) -> &impl Expression<T> {
+        &self.f
     }
 }
 
@@ -295,7 +295,7 @@ impl Evaluable for Dnf {
         self.f.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         self.f.predicates()
     }
 }
@@ -316,7 +316,11 @@ macro_rules! map_to {
                     (Cnf) => { [<$form Members>]::or };
                 }
 
-                let predicates = tt.columns().to_vec();
+                let predicates = tt
+                    .columns()
+                    .into_iter()
+                    .map(|v| (*v).clone())
+                    .collect::<Vec<_>>();
                 let expr = cond_rows!($form)
                     .map(|i| {
                         cond_method!($form)(
@@ -325,9 +329,9 @@ macro_rules! map_to {
                                 .enumerate()
                                 .map(|(n, p)| {
                                     if ((i >> n) & 1) == cond_value!($form) {
-                                        Primitives::pred(p.clone())
+                                        Primitives::pred((*p).clone())
                                     } else {
-                                        Primitives::not(p.clone())
+                                        Primitives::not((*p).clone())
                                     }
                                 })
                                 .collect::<Vec<_>>(),
@@ -413,7 +417,7 @@ impl Evaluable for CnfMembers {
         }
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         match self {
             Self::Or(or) => {
                 or.o.iter()
@@ -448,8 +452,8 @@ impl<T: Evaluable> NormalForm<T> for Cnf
 where
     And<CnfMembers>: Expression<T>,
 {
-    fn expression(&self) -> impl Expression<T> {
-        self.f.clone()
+    fn expression(&self) -> &impl Expression<T> {
+        &self.f
     }
 }
 
@@ -458,7 +462,7 @@ impl Evaluable for Cnf {
         self.f.eval(context)
     }
 
-    fn predicates(&self) -> Vec<Predicate> {
+    fn predicates(&self) -> Vec<&Predicate> {
         self.f.predicates()
     }
 }

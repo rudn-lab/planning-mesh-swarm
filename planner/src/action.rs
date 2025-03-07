@@ -9,14 +9,9 @@ use core::{fmt::Debug, marker::PhantomData};
 use gazebo::dupe::Dupe;
 use getset::Getters;
 
-#[derive(Debug, Clone, Dupe, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ParameterHandle {
-    pub(crate) idx: usize,
-}
-
 #[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ActionParameter {
-    pub(crate) parameter_handle: ParameterHandle,
+    pub(crate) parameter_handle: usize,
     pub(crate) r#type: TypeHandle,
 }
 
@@ -79,7 +74,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasName, N, D> {
             .iter()
             .enumerate()
             .map(|(i, &t)| ActionParameter {
-                parameter_handle: ParameterHandle { idx: i },
+                parameter_handle: i,
                 r#type: t.dupe(),
             })
             .collect::<Vec<_>>()
