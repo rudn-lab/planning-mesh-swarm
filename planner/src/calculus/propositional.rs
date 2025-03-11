@@ -7,8 +7,10 @@ use itertools::Itertools;
 use paste::paste;
 
 use crate::{
-    calculus::predicate::Predicate,
-    evaluation::{Evaluable, EvaluationContext},
+    calculus::{
+        evaluation::{Evaluable, EvaluationContext},
+        predicate::Predicate,
+    },
     truth_table::TruthTable,
 };
 

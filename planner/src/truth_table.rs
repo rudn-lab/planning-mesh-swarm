@@ -1,6 +1,6 @@
-use crate::{
-    calculus::predicate::Predicate,
+use crate::calculus::{
     evaluation::{Evaluable, EvaluationContext},
+    predicate::Predicate,
 };
 use alloc::vec::Vec;
 

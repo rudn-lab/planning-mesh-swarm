@@ -1,11 +1,11 @@
 use crate::{
     action::{Action, ActionParameter},
+    calculus::evaluation::Evaluable,
     calculus::{
         predicate::{Predicate, ResolvedPredicate},
         propositional::{DnfMembers, Expression, NormalForm, Not, Primitives},
     },
     entity::ObjectHandle,
-    evaluation::Evaluable,
 };
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;

@@ -9,7 +9,6 @@ extern crate alloc;
 pub mod action;
 pub mod calculus;
 pub mod entity;
-pub mod evaluation;
 pub mod state;
 pub mod truth_table;
 mod util;
