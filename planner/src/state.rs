@@ -38,9 +38,11 @@ impl State {
         self.predicates
             .iter()
             .filter(|rp| rp.is_resolution_of(predicate))
+            // Get only those values that correspond to an action parameter
             .flat_map(|rp| {
                 keys.iter()
                     .zip(keys.iter().map(|(i, _)| rp.values()[*i].dupe()))
+                    .map(|((_, ap), v)| (ap, v))
                     .collect_vec()
             })
             // This just transforms a list of ResolvedPredicates to the output type
@@ -48,7 +50,7 @@ impl State {
                 keys.iter()
                     .map(|&(_, k)| (k, BTreeSet::new()))
                     .collect::<BTreeMap<_, _>>(),
-                |mut acc, (&(_, ap), v)| {
+                |mut acc, (ap, v)| {
                     acc.entry(ap)
                         .and_modify(|s: &mut BTreeSet<_>| {
                             let _ = s.insert(v.dupe());
@@ -68,8 +70,7 @@ impl State {
         predicate: &'a Not<Predicate>,
     ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
         let predicate = predicate.predicates()[0];
-        let a = self
-            .resolve_predicate(predicate)
+        self.resolve_predicate(predicate)
             .into_iter()
             // Because it's a negated predicate,
             // possible resolutions should be all objects
@@ -84,8 +85,7 @@ impl State {
 
                 (r, objects)
             })
-            .collect::<BTreeMap<_, _>>();
-        a
+            .collect::<BTreeMap<_, _>>()
     }
 
     #[allow(
@@ -335,7 +335,8 @@ mod tests {
             (&action_params[1], BTreeSet::from([y.clone()])),
         ])]);
 
-        assert_eq!(res, correct_resolution)
+        // println!("res: {:#?}", res);
+        assert_eq!(res, correct_resolution);
     }
 
     #[test]
