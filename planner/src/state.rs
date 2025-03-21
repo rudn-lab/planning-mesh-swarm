@@ -8,13 +8,12 @@ use crate::{
     entity::ObjectHandle,
 };
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::vec::Vec;
 use gazebo::dupe::Dupe;
 use itertools::Itertools;
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct State {
-    predicates: Vec<ResolvedPredicate>,
+    predicates: BTreeSet<ResolvedPredicate>,
 }
 
 impl State {
@@ -24,11 +23,37 @@ impl State {
     }
 }
 
+/// All possible valid resolutions for action parameters.
+///
+/// All permutations of the values are valid resolutions in a state.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ParameterResolution<'a>(
+    pub(crate) BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>,
+);
+
+impl<'a> ParameterResolution<'a> {
+    /// Transforms the inner map of [ActionParameter] to multiple [ObjectHandle]s
+    /// into several simple maps of [ActionParameter] to one [ObjectHandle].
+    pub(crate) fn as_simple(
+        &'a self,
+    ) -> impl Iterator<Item = BTreeMap<&'a ActionParameter, ObjectHandle>> + use<'a> {
+        self.0.values().multi_cartesian_product().map(|s| {
+            self.0
+                .keys()
+                .copied()
+                .zip(s.into_iter().map(Dupe::dupe))
+                .collect::<BTreeMap<_, _>>()
+        })
+    }
+}
+
 impl State {
     #[allow(
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
+    /// This returns a "raw" map, because a predicate may not
+    /// have all of the parameters in it, so it's only a partial resolution.
     fn resolve_predicate<'a>(
         &'a self,
         predicate: &'a Predicate,
@@ -47,6 +72,12 @@ impl State {
             })
             // This just transforms a list of ResolvedPredicates to the output type
             .fold(
+                // Populating accumulator with all of the keys,
+                // because even if there's no resolution for a predicate
+                // we still need somehting that holds the value's type
+                // (like ap in this case) to use later.
+                // Because this method is being called for positive predicates
+                // __and__ for negated ones too.
                 keys.iter()
                     .map(|&(_, k)| (k, BTreeSet::new()))
                     .collect::<BTreeMap<_, _>>(),
@@ -65,6 +96,8 @@ impl State {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
+    /// This returns a "raw" map, because a predicate may not
+    /// have all of the parameters in it, so it's only a partial resolution.
     fn resolve_negated_predicate<'a>(
         &'a self,
         predicate: &'a Not<Predicate>,
@@ -106,10 +139,7 @@ impl State {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    pub fn resolve_action<'a>(
-        &'a self,
-        action: &'a Action,
-    ) -> BTreeSet<BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>> {
+    pub fn resolve_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterResolution<'a>> {
         action
             .precondition()
             .expression()
@@ -121,19 +151,22 @@ impl State {
                 // in order to evaluate the whole DNF to true.
                 // This allows us to treat all operands in isolation
                 DnfMembers::And(and) => {
-                    let o = and
-                        .o
-                        .iter()
-                        .fold(BTreeMap::default(), |mut acc: BTreeMap<_, _>, p| {
+                    let o = and.members().iter().fold(
+                        BTreeMap::default(),
+                        |mut acc: BTreeMap<_, _>, p| {
                             self.handle_primitives(p).iter().for_each(|(k, v)| {
                                 acc.entry(*k)
                                     .and_modify(|s: &mut BTreeSet<_>| {
+                                        // Because we're doing intersection here
+                                        // the resulting resolution set should apply
+                                        // to all predicates with this parameter
                                         *s = s.intersection(v).cloned().collect()
                                     })
                                     .or_insert_with(|| v.clone());
                             });
                             acc
-                        });
+                        },
+                    );
 
                     if o.is_empty() {
                         None
@@ -143,8 +176,41 @@ impl State {
                 }
                 DnfMembers::Prim(p) => Some(self.handle_primitives(p)),
             })
+            // Filter out those resolutions that don't cover all parameters
+            .filter(|r| r.values().filter(|v| !v.is_empty()).count() == action.parameters().len())
+            .map(ParameterResolution)
             .collect::<BTreeSet<_>>()
     }
+
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
+    pub fn apply_modification(&mut self, modifications: BTreeSet<ModifyState>) {
+        modifications.into_iter().for_each(|m| {
+            match m {
+                ModifyState::Add(p) => self.predicates.insert(p),
+                ModifyState::Del(p) => self.predicates.remove(&p),
+            };
+        });
+    }
+
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
+    pub fn unapply_modification(&mut self, modifications: BTreeSet<ModifyState>) {
+        let _ = modifications.into_iter().map(|m| match m {
+            ModifyState::Add(predicate) => self.predicates.remove(&predicate),
+            ModifyState::Del(predicate) => self.predicates.insert(predicate),
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModifyState {
+    Add(ResolvedPredicate),
+    Del(ResolvedPredicate),
 }
 
 #[allow(
@@ -179,7 +245,7 @@ mod tests {
             .values([Value::object(&x), Value::object(&y)])
             .build()
             .unwrap();
-        let rp = ps.into_resolved(&[]).unwrap();
+        let rp = ps.into_resolved(&BTreeMap::new()).unwrap();
         // Just for the test creating a predicate with the same name
         // to simulate that there migth be several different
         // resolved versions of the same predicate in a state.
@@ -192,11 +258,11 @@ mod tests {
             .values([Value::object(&x), Value::object(&b)])
             .build()
             .unwrap();
-        let rp1 = p1.into_resolved(&[]).unwrap();
+        let rp1 = p1.into_resolved(&BTreeMap::new()).unwrap();
 
         let p2 = PredicateBuilder::new("bar").arguments([&t]);
         let ps2 = p2.values([Value::object(&c)]).build().unwrap();
-        let rp2 = ps2.into_resolved(&[]).unwrap();
+        let rp2 = ps2.into_resolved(&BTreeMap::new()).unwrap();
 
         let state = State::default().with_predicates(&[rp.clone(), rp1.clone(), rp2.clone()]);
 
@@ -281,16 +347,38 @@ mod tests {
         let rp3 = p3.resolved_values([&y]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp3]);
 
-        let action_params = action.parameters().to_owned();
+        let action_params = action.parameters();
         let res = state.resolve_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([BTreeMap::from([
+        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
             (&action_params[0], BTreeSet::from([x.clone()])),
             (&action_params[1], BTreeSet::from([y.clone()])),
+        ]))]);
+
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([BTreeSet::from([
+            ModifyState::Del(p1.resolved_values([&x]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values([&y]).build().unwrap()),
         ])]);
 
-        assert_eq!(res, correct_resolution)
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 
     #[test]
@@ -326,17 +414,38 @@ mod tests {
         let rp1 = p1.resolved_values([&x]).build().unwrap();
         let state = State::default().with_predicates(&[rp1]);
 
-        let action_params = action.parameters().to_owned();
+        let action_params = action.parameters();
         let res = state.resolve_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([BTreeMap::from([
+        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
             (&action_params[0], BTreeSet::from([x.clone()])),
             (&action_params[1], BTreeSet::from([y.clone()])),
+        ]))]);
+
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([BTreeSet::from([
+            ModifyState::Del(p1.resolved_values([&x]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values([&y]).build().unwrap()),
         ])]);
 
-        // println!("res: {:#?}", res);
-        assert_eq!(res, correct_resolution);
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 
     #[test]
@@ -377,16 +486,38 @@ mod tests {
         let rp2 = p2.resolved_values([&y1]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp2]);
 
-        let action_params = action.parameters().to_owned();
+        let action_params = action.parameters();
         let res = state.resolve_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x2])),
-            (&action_params[1], BTreeSet::from([y2])),
+        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+            (&action_params[0], BTreeSet::from([x2.dupe()])),
+            (&action_params[1], BTreeSet::from([y2.dupe()])),
+        ]))]);
+
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([BTreeSet::from([
+            ModifyState::Add(p1.resolved_values([&x2]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
         ])]);
 
-        assert_eq!(res, correct_resolution)
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 
     #[test]
@@ -398,7 +529,6 @@ mod tests {
         let x1 = entities.get_or_create_object("x1", &t1);
         let x2 = entities.get_or_create_object("x2", &t1);
         let y1 = entities.get_or_create_object("y1", &t2);
-        let y2 = entities.get_or_create_object("y2", &t2);
 
         let p1 = PredicateBuilder::new("p1").arguments([&t1]);
         let p2 = PredicateBuilder::new("p2").arguments([&t2]);
@@ -428,16 +558,35 @@ mod tests {
         let rp21 = p2.resolved_values([&y1]).build().unwrap();
         let state = State::default().with_predicates(&[rp11, rp12, rp21]);
 
-        let action_params = action.parameters().to_owned();
         let res = state.resolve_action(&action);
-        assert!(!res.is_empty());
+        // This one is empty because not all params are resolved
+        // the output is like this:
+        // ```
+        // let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        //     (&action_params[0], BTreeSet::from([])),
+        //     (&action_params[1], BTreeSet::from([y2])),
+        // ]))]);
+        // ```
+        assert!(res.is_empty());
 
-        let correct_resolution = BTreeSet::from([BTreeMap::from([
-            (&action_params[0], BTreeSet::from([])),
-            (&action_params[1], BTreeSet::from([y2])),
-        ])]);
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::new();
 
-        assert_eq!(res, correct_resolution)
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 
     #[test]
@@ -491,16 +640,44 @@ mod tests {
         let rp2 = p2.resolved_values([&y1, &y2]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp2]);
 
-        let action_params = action.parameters().to_owned();
+        let action_params = action.parameters();
         let res = state.resolve_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x1])),
-            (&action_params[1], BTreeSet::from([y1, y3])),
-        ])]);
+        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+            (&action_params[0], BTreeSet::from([x1.dupe()])),
+            (&action_params[1], BTreeSet::from([y1.dupe(), y3.dupe()])),
+        ]))]);
 
-        assert_eq!(res, correct_resolution)
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y3, &y1]).build().unwrap()),
+            ]),
+        ]);
+
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 
     #[test]
@@ -534,21 +711,18 @@ mod tests {
                                 .unwrap(),
                         ),
                     ]),
-                    DnfMembers::prim(&Pr::not(
-                        p1.values([Value::object(&x2), Value::param(&params[0])])
-                            .build()
-                            .unwrap(),
-                    )),
-                    DnfMembers::prim(&Pr::pred(
-                        p2.values([Value::param(&params[1]), Value::object(&y2)])
-                            .build()
-                            .unwrap(),
-                    )),
-                    DnfMembers::prim(&Pr::pred(
-                        p2.values([Value::param(&params[1]), Value::object(&y2)])
-                            .build()
-                            .unwrap(),
-                    )),
+                    DnfMembers::and(&[
+                        Pr::not(
+                            p1.values([Value::object(&x2), Value::param(&params[0])])
+                                .build()
+                                .unwrap(),
+                        ),
+                        Pr::pred(
+                            p2.values([Value::param(&params[1]), Value::object(&y2)])
+                                .build()
+                                .unwrap(),
+                        ),
+                    ]),
                     DnfMembers::and(&[]),
                 ])
             })
@@ -572,24 +746,61 @@ mod tests {
         let rp2 = p2.resolved_values([&y1, &y2]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp2]);
 
-        let action_params = action.parameters().to_owned();
+        let action_params = action.parameters();
         let res = state.resolve_action(&action);
         assert!(!res.is_empty());
 
         let correct_resolution = BTreeSet::from([
-            BTreeMap::from([
-                (&action_params[0], BTreeSet::from([x1.clone()])),
-                (&action_params[1], BTreeSet::from([y1.clone(), y3])),
-            ]),
-            // Both `x1` and `x2` here, because the initial pred already doesn't
-            // resolve because of the Object as the first parameter
-            BTreeMap::from([(&action_params[0], BTreeSet::from([x1, x2]))]),
-            // This one is here only once, because of the set
-            BTreeMap::from([(&action_params[1], BTreeSet::from([y1]))]),
-            // We do not expect the 4th element, because it's empty
+            ParameterResolution(BTreeMap::from([
+                (&action_params[0], BTreeSet::from([x1.dupe()])),
+                (&action_params[1], BTreeSet::from([y1.dupe(), y3.dupe()])),
+            ])),
+            ParameterResolution(BTreeMap::from([
+                // Both `x1` and `x2` here, because the initial pred already doesn't
+                // resolve because of the Object as the first parameter
+                (&action_params[0], BTreeSet::from([x1.dupe(), x2.dupe()])),
+                (&action_params[1], BTreeSet::from([y1.dupe()])),
+            ])),
         ]);
 
-        assert_eq!(res, correct_resolution)
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y3, &y1]).build().unwrap()),
+            ]),
+            // The same as the first one, will be removed by the set
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2, &x2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+            ]),
+        ]);
+
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 
     #[test]
@@ -615,12 +826,17 @@ mod tests {
             .parameters([&t1, &tt1, &t2])
             .precondition(|params| {
                 Dnf::new(&[
-                    DnfMembers::prim(&Pr::pred(
-                        p1.values([Value::param(&params[0])]).build().unwrap(),
-                    )),
-                    DnfMembers::prim(&Pr::pred(
-                        p1.values([Value::param(&params[1])]).build().unwrap(),
-                    )),
+                    DnfMembers::and(&[
+                        Pr::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
+                        Pr::pred(pp1.values([Value::param(&params[1])]).build().unwrap()),
+                        Pr::pred(p2.values([Value::param(&params[2])]).build().unwrap()),
+                    ]),
+                    DnfMembers::and(&[
+                        Pr::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
+                        Pr::pred(p1.values([Value::param(&params[1])]).build().unwrap()),
+                        Pr::pred(p2.values([Value::param(&params[2])]).build().unwrap()),
+                    ]),
+                    // These won't get resolved as they are missing the other params
                     DnfMembers::prim(&Pr::pred(
                         pp1.values([Value::param(&params[1])]).build().unwrap(),
                     )),
@@ -651,30 +867,171 @@ mod tests {
             rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
         ]);
 
-        let action_params = action.parameters().to_owned();
+        let action_params = action.parameters();
         let res = state.resolve_action(&action);
         assert!(!res.is_empty());
 
         let correct_resolution = BTreeSet::from([
-            // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
-            // and the predicate is declared with `t1` which is a supertype of `tt1`
-            BTreeMap::from([(
-                &action_params[0],
-                BTreeSet::from([x1, x2, xx1.clone(), xx2.clone()]),
-            )]),
-            // This predicate is defined with `t1`, but it was turned into a specific
-            // with `tt1`, so it should only resolve with `tt1`
-            BTreeMap::from([(
-                &action_params[1],
-                BTreeSet::from([xx1.clone(), xx2.clone()]),
-            )]),
-            // This predicate is defined with type `tt1`, which has no subentities,
-            // so only values of this type will be resolved
-            BTreeMap::from([(&action_params[1], BTreeSet::from([xx1, xx2]))]),
-            // Same as above, no subentities
-            BTreeMap::from([(&action_params[2], BTreeSet::from([y1, y2]))]),
+            ParameterResolution(BTreeMap::from([
+                // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
+                // and the predicate is declared with `t1` which is a supertype of `tt1`
+                (
+                    &action_params[0],
+                    BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
+                ),
+                // This predicate is defined with type `tt1`, which has no subentities,
+                // so only values of this type will be resolved
+                (
+                    &action_params[1],
+                    BTreeSet::from([xx1.clone(), xx2.clone()]),
+                ),
+                // Same as above, no subentities
+                (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
+            ])),
+            ParameterResolution(BTreeMap::from([
+                (
+                    &action_params[0],
+                    BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
+                ),
+                // This predicate is defined with `t1`, but it was turned into a specific
+                // with `tt1`, so it should only resolve with `tt1`
+                (
+                    &action_params[1],
+                    BTreeSet::from([xx1.clone(), xx2.clone()]),
+                ),
+                (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
+            ])),
         ]);
 
-        assert_eq!(res, correct_resolution)
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&x2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&xx1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&xx1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&xx2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+            ]),
+            BTreeSet::from([
+                ModifyState::Del(p1.resolved_values([&xx2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+            ]),
+        ]);
+
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
+    }
+
+    #[test]
+    fn test_multiple_predicates_for_same_parameter() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+
+        let x = entities.get_or_create_object("x", &t1);
+        let y = entities.get_or_create_object("y", &t2);
+
+        let a = entities.get_or_create_object("a", &t1);
+
+        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
+        let p2 = PredicateBuilder::new("p2").arguments([&t1, &t2]);
+
+        let action = ActionBuilder::new("action")
+            .parameters([&t1, &t2])
+            .precondition(|params| {
+                Formula::new(FM::and(&[
+                    FM::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
+                    FM::pred(
+                        p2.values([Value::param(&params[0]), Value::param(&params[1])])
+                            .build()
+                            .unwrap(),
+                    ),
+                ]))
+            })
+            .effect(|params| {
+                And::new(&[
+                    Pr::not(p1.values([Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(
+                        p2.values([Value::param(&params[0]), Value::param(&params[1])])
+                            .build()
+                            .unwrap(),
+                    ),
+                ])
+            })
+            .build();
+
+        let rp11 = p1.resolved_values([&x]).build().unwrap();
+        let rp12 = p1.resolved_values([&a]).build().unwrap();
+        let rp21 = p2.resolved_values([&a, &y]).build().unwrap();
+        let state = State::default().with_predicates(&[rp11, rp12, rp21]);
+
+        let action_params = action.parameters();
+        let res = state.resolve_action(&action);
+        assert!(!res.is_empty());
+
+        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+            (&action_params[0], BTreeSet::from([a.clone()])),
+            (&action_params[1], BTreeSet::from([y.clone()])),
+        ]))]);
+
+        assert_eq!(res, correct_resolution);
+
+        let effects = action.resolved_effects(&res);
+        let correct_effects = BTreeSet::from([BTreeSet::from([
+            ModifyState::Del(p1.resolved_values([&a]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values([&a, &y]).build().unwrap()),
+        ])]);
+
+        assert_eq!(effects, correct_effects);
+
+        assert!(effects
+            .into_iter()
+            .map(|modifications| {
+                let mut st = state.clone();
+                st.apply_modification(modifications.clone());
+                (st, modifications)
+            })
+            .all(|(st, modifications)| {
+                modifications.iter().all(|m| match m {
+                    ModifyState::Add(rp) => st.predicates.contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                })
+            }));
     }
 }

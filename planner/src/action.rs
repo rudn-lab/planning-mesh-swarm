@@ -1,10 +1,14 @@
 use crate::{
-    calculus::propositional::{And, Dnf, Primitives},
+    calculus::{
+        evaluation::Evaluable,
+        propositional::{And, Dnf, Expression, Primitives},
+    },
     entity::TypeHandle,
     sealed::Sealed,
+    state::{ModifyState, ParameterResolution},
     InternerSymbol, INTERNER,
 };
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use gazebo::dupe::Dupe;
 use getset::Getters;
@@ -25,6 +29,39 @@ pub struct Action {
     precondition: Dnf,
     #[getset(get = "pub")]
     effect: And<Primitives>,
+}
+
+impl Action {
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
+    pub fn resolved_effects<'a>(
+        &'a self,
+        parameter_resolutions: &'a BTreeSet<ParameterResolution<'a>>,
+    ) -> BTreeSet<BTreeSet<ModifyState>> {
+        // For each sub expression in the original DNF
+        parameter_resolutions
+            .iter()
+            .flat_map(|r| {
+                r.as_simple().map(|s| {
+                    self.effect
+                        .members()
+                        .iter()
+                        .map(|v| match v {
+                            // TODO: handle the errors properly
+                            Primitives::Not(not) => {
+                                ModifyState::Del(not.predicates()[0].into_resolved(&s).unwrap())
+                            }
+                            Primitives::Pred(predicate) => {
+                                ModifyState::Add(predicate.into_resolved(&s).unwrap())
+                            }
+                        })
+                        .collect::<BTreeSet<ModifyState>>()
+                })
+            })
+            .collect::<BTreeSet<_>>()
+    }
 }
 
 #[allow(private_bounds)]
@@ -136,15 +173,17 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasEffect, N, D> {
 #[coverage(off)]
 mod tests {
     use crate::{
-        calculus::predicate::{PredicateBuilder, Value},
-        calculus::propositional::{Formula, FormulaMembers as FM, Primitives as Pr},
+        calculus::{
+            predicate::{PredicateBuilder, Value},
+            propositional::{Formula, FormulaMembers as FM, Primitives as Pr},
+        },
         entity::EntityStorage,
     };
 
     use super::*;
 
     #[test]
-    pub fn test_build_action() {
+    fn test_build_action() {
         let mut types = EntityStorage::default();
         let t = types.get_or_create_type("foo");
         let t1 = types.get_or_create_type("bar");

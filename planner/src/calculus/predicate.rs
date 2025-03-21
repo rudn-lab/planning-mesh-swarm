@@ -5,14 +5,14 @@ use crate::{
     sealed::Sealed,
     InternerSymbol, INTERNER, RANDOM,
 };
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use gazebo::dupe::Dupe;
 use getset::Getters;
 use rand::Rng;
 
 /// A predicate how it is used in actions.
-#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
+#[derive(Debug, Clone, Getters)]
 pub struct Predicate {
     #[getset(get = "pub")]
     name: InternerSymbol,
@@ -36,53 +36,42 @@ pub struct Predicate {
 }
 
 impl Predicate {
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
     /// Creates a new resolved predicate.
     ///
-    /// # Arguments
-    ///
-    /// * `resolution` - all missing values, correspongind to [Value::ActionParameter]
-    pub fn into_resolved(
-        &self,
-        resolution: &[&ObjectHandle],
+    /// Takes a mapping between action parameters and concrete objects to
+    /// resolve with. Crucially, the mapping can have additional action parameters
+    /// even if they aren't used in this predicate.
+    pub fn into_resolved<'a>(
+        &'a self,
+        resolution: &'a BTreeMap<&'a ActionParameter, ObjectHandle>,
     ) -> Result<ResolvedPredicate, PredicateError> {
-        if self
-            .values
+        self.values
             .iter()
-            .filter(|v| matches!(v, Value::ActionParameter(_)))
-            .count()
-            != resolution.len()
-        {
-            return Err(PredicateError::WrongNumberOfResolutions);
-        }
-
-        if !self
-            .values
-            .iter()
-            .filter_map(|v| match v {
-                Value::Object(_) => None,
-                Value::ActionParameter(ap) => Some(ap),
+            .map(|v| match v {
+                Value::Object(o) => Ok(o),
+                Value::ActionParameter(ap) => resolution
+                    .get(ap)
+                    .ok_or(PredicateError::MissingResolutionParameter)
+                    .and_then(|v| {
+                        if v.r#type().inherits_or_eq(&ap.r#type) {
+                            Ok(v)
+                        } else {
+                            Err(PredicateError::TypeMismatch)
+                        }
+                    }),
             })
-            .zip(resolution)
-            .all(|(v, r)| v.r#type == r.r#type())
-        {
-            return Err(PredicateError::TypeMismatch);
-        }
-
-        let mut resolution = resolution.iter();
-        Ok(ResolvedPredicate {
-            name: self.name,
-            arguments: self.arguments.clone(),
-            values: self
-                .values
-                .iter()
-                .map(|v| match v {
-                    Value::Object(o) => o,
-                    Value::ActionParameter(_) => *resolution.next().unwrap(),
-                })
-                .map(Dupe::dupe)
-                .collect(),
-            unique_marker: self.unique_marker,
-        })
+            .map(|v| v.cloned())
+            .collect::<Result<Vec<ObjectHandle>, PredicateError>>()
+            .map(|values| ResolvedPredicate {
+                name: self.name,
+                arguments: self.arguments.clone(),
+                values,
+                unique_marker: self.unique_marker,
+            })
     }
 
     /// Returns only [Value::ActionParameter]
@@ -115,8 +104,26 @@ impl PartialEq for Predicate {
     }
 }
 
+impl Eq for Predicate {}
+
+impl Ord for Predicate {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (&self.name, &self.arguments, &self.values).cmp(&(
+            &other.name,
+            &other.arguments,
+            &other.values,
+        ))
+    }
+}
+
+impl PartialOrd for Predicate {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// A fully resolved predicate how it is stored in a state.
-#[derive(Debug, Clone, Eq, PartialOrd, Ord, Getters)]
+#[derive(Debug, Clone, Getters)]
 pub struct ResolvedPredicate {
     #[getset(get = "pub")]
     name: InternerSymbol,
@@ -153,10 +160,29 @@ impl PartialEq for ResolvedPredicate {
     }
 }
 
+impl Eq for ResolvedPredicate {}
+
+impl Ord for ResolvedPredicate {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (&self.name, &self.arguments, &self.values).cmp(&(
+            &other.name,
+            &other.arguments,
+            &other.values,
+        ))
+    }
+}
+
+impl PartialOrd for ResolvedPredicate {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Debug)]
 pub enum PredicateError {
     TypeMismatch,
     WrongNumberOfResolutions,
+    MissingResolutionParameter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -411,7 +437,7 @@ mod tests {
         };
         let ap2 = ActionParameter {
             parameter_handle: 1,
-            r#type: t2,
+            r#type: t2.dupe(),
         };
 
         let p1 = p.values([Value::param(&ap1), Value::param(&ap1)]).build();
@@ -421,11 +447,26 @@ mod tests {
             .build()
             .unwrap();
 
-        let pr1 = p1.into_resolved(&[&o2, &o1]);
+        let pr1 = p1.into_resolved(&BTreeMap::from([(&ap1, o2.dupe()), (&ap2, o1.dupe())]));
         assert!(matches!(pr1, Err(PredicateError::TypeMismatch)));
 
-        let pr1 = p1.into_resolved(&[&o1, &o2, &o1]);
-        assert!(matches!(pr1, Err(PredicateError::WrongNumberOfResolutions)));
+        let ap3 = ActionParameter {
+            parameter_handle: 2,
+            r#type: t2,
+        };
+        let pr1 = p1.into_resolved(&BTreeMap::from([
+            (&ap1, o1.dupe()),
+            (&ap2, o2.dupe()),
+            (&ap3, o1.dupe()),
+        ]));
+        // More action parameters is not an error, they are ignored
+        assert!(pr1.is_ok());
+
+        let pr1 = p1.into_resolved(&BTreeMap::from([(&ap2, o2), (&ap3, o1)]));
+        assert!(matches!(
+            pr1,
+            Err(PredicateError::MissingResolutionParameter)
+        ));
     }
 
     #[test]
@@ -461,7 +502,7 @@ mod tests {
             .values([Value::object(&o1), Value::object(&o2)])
             .build()
             .unwrap();
-        let pr1 = p1.into_resolved(&[]).unwrap();
+        let pr1 = p1.into_resolved(&BTreeMap::new()).unwrap();
         let pr2 = pb1.resolved_values([&o1, &o2]).build().unwrap();
 
         assert_eq!(pr1, pr2);
