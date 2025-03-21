@@ -20,7 +20,7 @@ pub trait Expression<T: Evaluable> {
 
 #[derive(Debug, Clone)]
 pub struct And<T: Evaluable> {
-    pub(crate) o: Vec<T>,
+    o: Vec<T>,
 }
 
 impl<T: Evaluable> And<T> {
@@ -54,7 +54,7 @@ impl<T: Evaluable> Evaluable for And<T> {
 
 #[derive(Debug, Clone)]
 pub struct Or<T: Evaluable> {
-    pub(crate) o: Vec<T>,
+    o: Vec<T>,
 }
 
 impl<T: Evaluable> Or<T> {
@@ -88,7 +88,7 @@ impl<T: Evaluable> Evaluable for Or<T> {
 
 #[derive(Debug, Clone)]
 pub struct Not<T: Evaluable> {
-    pub(crate) o: Box<T>,
+    o: Box<T>,
 }
 
 impl<T: Evaluable> Not<T> {
