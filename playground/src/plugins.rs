@@ -10,7 +10,7 @@ use bevy_tweening::TweeningPlugin;
 
 use crate::{
     animator::SimAnimatorPlugin, clock::SimulationClockPlugin,
-    robot::robot_spawn_menu::GhostRobotPlugin,
+    radio::flying_message::FlyingMessagePlugin, robot::robot_spawn_menu::GhostRobotPlugin,
 };
 
 /// Plugin that contains most of the plugins we're using
@@ -49,6 +49,7 @@ impl Plugin for MyPlugins {
         .add_plugins(crate::ui::Ui)
         .add_plugins(GhostRobotPlugin)
         .add_plugins(SimulationClockPlugin)
-        .add_plugins(SimAnimatorPlugin::<Transform>::default());
+        .add_plugins(SimAnimatorPlugin::<Transform>::default())
+        .add_plugins(FlyingMessagePlugin);
     }
 }

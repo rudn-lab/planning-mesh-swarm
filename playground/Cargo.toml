@@ -21,3 +21,4 @@ rand_core = "0.9.0"
 float-ord = "0.3.2"
 oneshot = "0.1.10"
 routing = { version = "0.1.0", path = "../routing" }
+async-recursion = "1.1.1"

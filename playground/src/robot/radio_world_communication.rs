@@ -7,6 +7,7 @@ use crate::{
     clock::{Simulation, SimulationTime},
     pause_controller::PauseState,
     radio::{
+        flying_message::MessageCreatedEvent,
         nic_components::VirtualNetworkInterface,
         peer_connection::{PeerConnection, PeerConnectionBundle},
     },
@@ -29,6 +30,8 @@ pub(crate) fn update_robot_radios(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     time: Res<Time<Simulation>>,
+
+    mut created_msg_event: EventWriter<MessageCreatedEvent>,
 ) {
     if pause_state.paused {
         return;
@@ -47,7 +50,7 @@ pub(crate) fn update_robot_radios(
 
         // If this robot's radio is sleeping, check if the sleep has expired.
         if let Some((sleep_time, ok)) = robot_state.radio_sleep_state.take() {
-            if time.get_instant() > sleep_time {
+            if time.get_instant() >= sleep_time {
                 robot_state.radio_sleep_state = None;
                 ok.send(()).unwrap();
             } else {
@@ -148,7 +151,9 @@ pub(crate) fn update_robot_radios(
                 ) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!("robot has no NIC with idx {}", idx)))
+                            .unwrap();
                         continue;
                     };
 
@@ -214,7 +219,9 @@ pub(crate) fn update_robot_radios(
                 crate::radio::virtual_nic::VirtualRadioRequest::GetReachablePeers(idx, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!("robot has no NIC with idx {}", idx)))
+                            .unwrap();
                         continue;
                     };
 
@@ -240,7 +247,9 @@ pub(crate) fn update_robot_radios(
                 crate::radio::virtual_nic::VirtualRadioRequest::Pair(idx, pair_with, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!("robot has no NIC with idx {}", idx)))
+                            .unwrap();
                         continue;
                     };
 
@@ -285,7 +294,9 @@ pub(crate) fn update_robot_radios(
                 crate::radio::virtual_nic::VirtualRadioRequest::Unpair(idx, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!("robot has no NIC with idx {}", idx)))
+                            .unwrap();
                         continue;
                     };
 
@@ -300,31 +311,43 @@ pub(crate) fn update_robot_radios(
                 crate::radio::virtual_nic::VirtualRadioRequest::Send(idx, message_type, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!("robot has no NIC with idx {}", idx)))
+                            .unwrap();
                         continue;
                     };
 
-                    let (_nic_entity, nic, nic_transform) = nic;
+                    let (nic_entity, nic, nic_transform) = nic;
 
                     let Some(connection_entity) = nic.peer_connection else {
                         // This NIC is not paired.
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!("the NIC {} is not paired", idx)))
+                            .unwrap();
                         continue;
                     };
 
                     let Ok(connection) = connections.get(connection_entity) else {
                         // The connection entity has been deleted while we weren't looking.
                         nic.peer_connection = None;
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!(
+                                "the NIC {} was paired, but the connection was deleted",
+                                idx
+                            )))
+                            .unwrap();
                         continue;
                     };
 
                     let peer_robot = connection.destination;
-                    let Ok((_, _, mut peer_state, peer_transform)) =
-                        robot_query.get_mut(peer_robot)
-                    else {
+                    let Ok((_, _, _, peer_transform)) = robot_query.get_mut(peer_robot) else {
                         // The paired robot has been deleted while we weren't looking.
-                        sender.send(Err(())).unwrap();
+                        sender
+                            .send(Err(format!(
+                                "the NIC {} was paired with robot {}, but the robot was deleted",
+                                idx, peer_robot
+                            )))
+                            .unwrap();
                         continue;
                     };
 
@@ -338,9 +361,19 @@ pub(crate) fn update_robot_radios(
                         continue;
                     }
                     let my_robot_id = robot_ids.get(&command_sender_robot_entity).unwrap();
-                    peer_state
-                        .queued_messages
-                        .push((*my_robot_id, message_type));
+
+                    // for instant delivery:
+                    // peer_state
+                    //     .queued_messages
+                    //     .push((*my_robot_id, message_type));
+
+                    created_msg_event.send(MessageCreatedEvent {
+                        sender_nic: *nic_entity,
+                        sender_peer_id: *my_robot_id,
+                        sender_robot: command_sender_robot_entity,
+                        receiver_robot: peer_robot,
+                        message: message_type.clone(),
+                    });
 
                     // Message delivered successfully
                     sender.send(Ok(())).unwrap();

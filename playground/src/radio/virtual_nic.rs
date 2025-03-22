@@ -94,32 +94,38 @@ pub(crate) enum VirtualRadioRequest {
     /// and Err if there is no transmitter with this index.
     GetPeerOfTransmitter(
         usize,
-        oneshot::Sender<Result<Option<ConnectionInfo<VirtualPeerId>>, ()>>,
+        oneshot::Sender<Result<Option<ConnectionInfo<VirtualPeerId>>, String>>,
     ),
 
     /// Get the list of reachable peers by the transmitter of the given index.
     /// If none are reachable, return an empty Vec.
     /// If there is no transmitter with this index, return Err.
-    GetReachablePeers(usize, oneshot::Sender<Result<Vec<VirtualPeerId>, ()>>),
+    GetReachablePeers(usize, oneshot::Sender<Result<Vec<VirtualPeerId>, String>>),
 
     /// Attempt to pair with a given peer.
     /// If successful, return true, otherwise return false.
     /// If there is no transmitter with this index, return Err.
-    Pair(usize, VirtualPeerId, oneshot::Sender<Result<bool, ()>>),
+    Pair(usize, VirtualPeerId, oneshot::Sender<Result<bool, String>>),
 
     /// Attempt to unpair the NIC.
     /// If it's not paired, ignore.
     /// If there is no transmitter with this index, return Err.
-    Unpair(usize, oneshot::Sender<Result<(), ()>>),
+    Unpair(usize, oneshot::Sender<Result<(), String>>),
 
     /// Send a message to the peer that this transmitter is paired with.
     /// If there is no transmitter with this index, return Err.
-    Send(usize, MessageType, oneshot::Sender<Result<(), ()>>),
+    Send(usize, MessageType, oneshot::Sender<Result<(), String>>),
 }
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum MessageType {
     Ping,
+}
+
+impl high_level_cmds::message::MessageKind for MessageType {
+    fn ping() -> Self {
+        MessageType::Ping
+    }
 }
 
 pub(crate) struct VirtualReceiver {
@@ -169,7 +175,7 @@ impl VirtualTransmitter {
 }
 
 impl TransmitterNic<VirtualPeerId, MessageType> for VirtualTransmitter {
-    type Error = ();
+    type Error = String;
 
     async fn ping(&mut self) -> Result<(), Self::Error> {
         let (tx, rx) = oneshot::channel();
@@ -179,7 +185,7 @@ impl TransmitterNic<VirtualPeerId, MessageType> for VirtualTransmitter {
             .expect("failed to send");
         match rx.await.expect("failed to receive") {
             true => Ok(()),
-            false => Err(()),
+            false => Err(format!("failed to ping transmitter {}", self.idx)),
         }
     }
 
@@ -203,7 +209,9 @@ impl TransmitterNic<VirtualPeerId, MessageType> for VirtualTransmitter {
             .send(VirtualRadioRequest::GetPeerOfTransmitter(self.idx, tx))
             .await
             .expect("failed to send");
-        rx.await.expect("failed to receive")?.ok_or(())
+        rx.await
+            .expect("failed to receive")?
+            .ok_or(format!("no transmitter with idx {}", self.idx))
     }
 
     async fn scan(&mut self, peers: &mut [VirtualPeerId]) -> Result<usize, Self::Error> {
@@ -232,7 +240,7 @@ impl TransmitterNic<VirtualPeerId, MessageType> for VirtualTransmitter {
             .expect("failed to send");
         match rx.await.expect("failed to receive")? {
             true => Ok(()),
-            false => Err(()),
+            false => Err(format!("no transmitter with idx {}", self.idx)),
         }
     }
 

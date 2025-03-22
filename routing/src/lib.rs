@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use high_level_cmds::{
     AsyncUtils,
+    message::MessageKind,
     network_kit::{NetworkKit, ReceiverNic, TransmitterNic},
 };
 
@@ -20,6 +21,7 @@ pub async fn sample_routing<
     SendNicType: TransmitterNic<PeerId, MsgType>,
     RecvNicType: ReceiverNic<PeerId, MsgType>,
     AsyncUtilsImpl: AsyncUtils,
+    MsgType: MessageKind,
 {
     loop {
         let live_senders = kit.live_senders().await;
@@ -83,14 +85,27 @@ pub async fn sample_routing<
             .await;
 
         for (i, sender) in kit.senders.iter_mut().enumerate() {
-            if let Ok(None) = sender.get_peer().await {
-                let Some(peer_to_pair) = peers_unpaired.pop() else {
-                    continue;
-                };
-                kit.utils
-                    .log(format!("Pairing NIC {i} with peer {:?}", peer_to_pair).as_str())
-                    .await;
-                sender.pair(peer_to_pair).await.unwrap();
+            match sender.get_peer().await {
+                Ok(None) => {
+                    let Some(peer_to_pair) = peers_unpaired.pop() else {
+                        continue;
+                    };
+                    kit.utils
+                        .log(format!("Pairing NIC {i} with peer {:?}", peer_to_pair).as_str())
+                        .await;
+                    sender.pair(peer_to_pair).await.unwrap();
+                }
+                Ok(Some(peer)) => {
+                    kit.utils
+                        .log(format!("NIC {i} is already paired, pinging").as_str())
+                        .await;
+                    sender.send(MsgType::ping()).await.unwrap();
+                }
+                Err(e) => {
+                    kit.utils
+                        .log(format!("Failed to get peer for NIC {i}: {e:?}").as_str())
+                        .await;
+                }
             }
         }
     }

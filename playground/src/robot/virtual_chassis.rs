@@ -1,4 +1,4 @@
-use async_channel::{Receiver, Sender};
+use async_channel::Sender;
 use high_level_cmds::{chassis::Chassis, AsyncUtils, MotionCommand};
 
 pub(crate) enum VirtualChassisCommand {
@@ -67,13 +67,13 @@ impl Chassis for VirtualChassis {
         rx.await.unwrap();
     }
 
-    async fn turn_left(&mut self, quarter_turns: std::num::NonZeroU8) {
+    async fn turn_left_quarters(&mut self, quarter_turns: std::num::NonZeroU8) {
         let (cmd, rx) = MotionCommand::TurnLeft(quarter_turns).into_cmd();
         self.tx.send(cmd).await.unwrap();
         rx.await.unwrap();
     }
 
-    async fn turn_right(&mut self, quarter_turns: std::num::NonZeroU8) {
+    async fn turn_right_quarters(&mut self, quarter_turns: std::num::NonZeroU8) {
         let (cmd, rx) = MotionCommand::TurnRight(quarter_turns).into_cmd();
         self.tx.send(cmd).await.unwrap();
         rx.await.unwrap();

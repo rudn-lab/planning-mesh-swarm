@@ -16,6 +16,9 @@ use bevy::{
 /// It is paused and unpaused when the spacebar is pressed.
 pub(crate) struct Simulation {
     pub(crate) paused: bool,
+
+    /// Rate at which the simulation is running.
+    /// If 1, the simulation runs at the same speed as the Virtual clock.
     pub(crate) speed: f32,
 }
 

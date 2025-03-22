@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use egui::{text::LayoutJob, Color32, RichText};
+use egui::{Color32, RichText};
 
 use crate::{
     radio::{

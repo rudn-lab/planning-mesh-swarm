@@ -2,6 +2,7 @@
 #![allow(async_fn_in_trait)]
 
 pub mod chassis;
+pub mod message;
 pub mod network_kit;
 
 use core::{future::Future, num::NonZeroU8};
