@@ -1,7 +1,7 @@
 use crate::{
     action::{Action, ActionParameter},
-    calculus::evaluation::Evaluable,
     calculus::{
+        evaluation::{Evaluable, EvaluationContext},
         predicate::{Predicate, ResolvedPredicate},
         propositional::{DnfMembers, Expression, NormalForm, Not, Primitives},
     },
@@ -100,7 +100,7 @@ impl State {
     /// have all of the parameters in it, so it's only a partial resolution.
     fn resolve_negated_predicate<'a>(
         &'a self,
-        predicate: &'a Not<Predicate>,
+        predicate: &'a Not<Predicate, Predicate>,
     ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
         let predicate = predicate.predicates()[0];
         self.resolve_predicate(predicate)
@@ -127,7 +127,7 @@ impl State {
     )]
     fn handle_primitives<'a>(
         &'a self,
-        p: &'a Primitives,
+        p: &'a Primitives<Predicate>,
     ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
         match p {
             Primitives::Not(np) => self.resolve_negated_predicate(np),
@@ -204,6 +204,12 @@ impl State {
             ModifyState::Add(predicate) => self.predicates.remove(&predicate),
             ModifyState::Del(predicate) => self.predicates.insert(predicate),
         });
+    }
+}
+
+impl EvaluationContext<ResolvedPredicate> for State {
+    fn eval(&self, predicate: &ResolvedPredicate) -> bool {
+        self.predicates.iter().any(|v| v == predicate)
     }
 }
 

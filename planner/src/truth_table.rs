@@ -4,7 +4,7 @@ use crate::calculus::{
 };
 use alloc::vec::Vec;
 
-impl<E: Evaluable> EvaluationContext for TruthTable<'_, E> {
+impl<E: Evaluable<Predicate>> EvaluationContext<Predicate> for TruthTable<'_, E> {
     fn eval(&self, predicate: &Predicate) -> bool {
         self.columns()
             .iter()
@@ -20,14 +20,14 @@ impl<E: Evaluable> EvaluationContext for TruthTable<'_, E> {
 }
 
 #[derive(Debug, Clone)]
-pub struct TruthTable<'a, T: Evaluable> {
+pub struct TruthTable<'a, T: Evaluable<Predicate>> {
     curr_row: usize,
     formula: &'a T,
     predicates: Vec<&'a Predicate>,
     size: usize,
 }
 
-impl<'a, T: Evaluable> TruthTable<'a, T> {
+impl<'a, T: Evaluable<Predicate>> TruthTable<'a, T> {
     pub fn new(formula: &'a T) -> Self {
         // We are only concerned with predicates
         // that have arguments, because only they can change
@@ -65,7 +65,7 @@ impl<'a, T: Evaluable> TruthTable<'a, T> {
     }
 }
 
-impl<T: Evaluable> Iterator for TruthTable<'_, T> {
+impl<T: Evaluable<Predicate>> Iterator for TruthTable<'_, T> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -80,11 +80,11 @@ impl<T: Evaluable> Iterator for TruthTable<'_, T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct FilteredTruthTable<'a, T: Evaluable, const F: bool> {
+pub struct FilteredTruthTable<'a, T: Evaluable<Predicate>, const F: bool> {
     inner_iter: TruthTable<'a, T>,
 }
 
-impl<T: Evaluable, const F: bool> Iterator for FilteredTruthTable<'_, T, F> {
+impl<T: Evaluable<Predicate>, const F: bool> Iterator for FilteredTruthTable<'_, T, F> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {

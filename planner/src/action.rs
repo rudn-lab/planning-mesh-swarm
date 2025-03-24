@@ -1,6 +1,7 @@
 use crate::{
     calculus::{
         evaluation::Evaluable,
+        predicate::Predicate,
         propositional::{And, Dnf, Expression, Primitives},
     },
     entity::TypeHandle,
@@ -26,9 +27,9 @@ pub struct Action {
     #[getset(get = "pub")]
     parameters: Vec<ActionParameter>,
     #[getset(get = "pub")]
-    precondition: Dnf,
+    precondition: Dnf<Predicate>,
     #[getset(get = "pub")]
-    effect: And<Primitives>,
+    effect: And<Primitives<Predicate>, Predicate>,
 }
 
 impl Action {
@@ -85,15 +86,15 @@ impl Sealed for HasParameters {}
 impl Sealed for HasPrecondition {}
 impl Sealed for HasEffect {}
 
-pub struct ActionBuilder<S: ActionBuilderState, const N: usize, D: Into<Dnf>> {
+pub struct ActionBuilder<S: ActionBuilderState, const N: usize, D: Into<Dnf<Predicate>>> {
     name: InternerSymbol,
     parameters: Option<[ActionParameter; N]>,
     precondition: Option<D>,
-    effect: Option<And<Primitives>>,
+    effect: Option<And<Primitives<Predicate>, Predicate>>,
     state: PhantomData<S>,
 }
 
-impl<const N: usize, D: Into<Dnf>> ActionBuilder<New, N, D> {
+impl<const N: usize, D: Into<Dnf<Predicate>>> ActionBuilder<New, N, D> {
     pub fn new(name: &str) -> ActionBuilder<HasName, N, D> {
         ActionBuilder {
             name: INTERNER.lock().get_or_intern(name),
@@ -105,7 +106,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<New, N, D> {
     }
 }
 
-impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasName, N, D> {
+impl<const N: usize, D: Into<Dnf<Predicate>>> ActionBuilder<HasName, N, D> {
     pub fn parameters(self, parameters: [&TypeHandle; N]) -> ActionBuilder<HasParameters, N, D> {
         let parameters = parameters
             .iter()
@@ -128,7 +129,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasName, N, D> {
     }
 }
 
-impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasParameters, N, D> {
+impl<const N: usize, D: Into<Dnf<Predicate>>> ActionBuilder<HasParameters, N, D> {
     pub fn precondition<F>(self, precondition: F) -> ActionBuilder<HasPrecondition, N, D>
     where
         F: Fn(&[ActionParameter; N]) -> D,
@@ -143,10 +144,10 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasParameters, N, D> {
     }
 }
 
-impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasPrecondition, N, D> {
+impl<const N: usize, D: Into<Dnf<Predicate>>> ActionBuilder<HasPrecondition, N, D> {
     pub fn effect<F>(self, effect: F) -> ActionBuilder<HasEffect, N, D>
     where
-        F: Fn(&[ActionParameter; N]) -> And<Primitives>,
+        F: Fn(&[ActionParameter; N]) -> And<Primitives<Predicate>, Predicate>,
     {
         ActionBuilder {
             name: self.name,
@@ -158,7 +159,7 @@ impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasPrecondition, N, D> {
     }
 }
 
-impl<const N: usize, D: Into<Dnf>> ActionBuilder<HasEffect, N, D> {
+impl<const N: usize, D: Into<Dnf<Predicate>>> ActionBuilder<HasEffect, N, D> {
     pub fn build(self) -> Action {
         Action {
             name: self.name,

@@ -11,6 +11,26 @@ use gazebo::dupe::Dupe;
 use getset::Getters;
 use rand::Rng;
 
+#[allow(private_bounds)]
+pub trait IsPredicate<P: IsPredicate<P>>: Eq + Ord + Clone + Evaluable<P> + Sealed {
+    fn unique_marker(&self) -> u32;
+}
+
+impl Sealed for Predicate {}
+impl Sealed for ResolvedPredicate {}
+
+impl IsPredicate<Predicate> for Predicate {
+    fn unique_marker(&self) -> u32 {
+        self.unique_marker
+    }
+}
+
+impl IsPredicate<ResolvedPredicate> for ResolvedPredicate {
+    fn unique_marker(&self) -> u32 {
+        self.unique_marker
+    }
+}
+
 /// A predicate how it is used in actions.
 #[derive(Debug, Clone, Getters)]
 pub struct Predicate {
@@ -88,8 +108,8 @@ impl Predicate {
     }
 }
 
-impl Evaluable for Predicate {
-    fn eval(&self, context: &impl EvaluationContext) -> bool {
+impl Evaluable<Predicate> for Predicate {
+    fn eval(&self, context: &impl EvaluationContext<Predicate>) -> bool {
         context.eval(self)
     }
 
@@ -151,6 +171,16 @@ impl ResolvedPredicate {
                 Value::Object(o) => o == v,
                 Value::ActionParameter(ap) => v.r#type().inherits_or_eq(&ap.r#type),
             })
+    }
+}
+
+impl Evaluable<ResolvedPredicate> for ResolvedPredicate {
+    fn eval(&self, context: &impl EvaluationContext<ResolvedPredicate>) -> bool {
+        context.eval(self)
+    }
+
+    fn predicates(&self) -> Vec<&ResolvedPredicate> {
+        vec![self]
     }
 }
 

@@ -1,40 +1,42 @@
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::ops::Deref;
 
-use crate::calculus::predicate::Predicate;
+use crate::calculus::predicate::IsPredicate as PredicateLike;
 
-pub trait Evaluable: Clone {
-    fn eval(&self, context: &impl EvaluationContext) -> bool;
-    fn predicates(&self) -> Vec<&Predicate>;
+pub trait Evaluable<P: PredicateLike<P>>: Clone {
+    fn eval(&self, context: &impl EvaluationContext<P>) -> bool;
+    fn predicates(&self) -> Vec<&P>;
 }
 
 /// Skill issue implementing it like this
 /// ```ignore
-/// impl<T, D> Evaluable for D
+/// impl<T, P, D> Evaluable<P> for D
 /// where
 ///     T: Evaluable,
+///     P: IsPredicate<P>,
 ///     D: Deref<Target = T> + Clone,
 /// {
-///     fn eval(&self, context: &impl EvaluationContext) -> bool {
+///     fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
 ///         self.deref().eval(context)
 ///     }
 ///
-///     fn predicates(&self) -> Vec<&Predicate> {
+///     fn predicates(&self) -> Vec<&P> {
 ///         self.deref().predicates()
 ///     }
 /// }
 /// ```
 macro_rules! impl_evaluable_for_ref {
     ($type:ty) => {
-        impl<T> Evaluable for $type
+        impl<T, P> Evaluable<P> for $type
         where
-            T: Evaluable,
+            T: Evaluable<P>,
+            P: PredicateLike<P>,
         {
-            fn eval(&self, context: &impl EvaluationContext) -> bool {
+            fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
                 self.deref().eval(context)
             }
 
-            fn predicates(&self) -> Vec<&Predicate> {
+            fn predicates(&self) -> Vec<&P> {
                 self.deref().predicates()
             }
         }
@@ -45,6 +47,6 @@ impl_evaluable_for_ref!(Rc<T>);
 impl_evaluable_for_ref!(Box<T>);
 impl_evaluable_for_ref!(&T);
 
-pub trait EvaluationContext {
-    fn eval(&self, predicate: &Predicate) -> bool;
+pub trait EvaluationContext<P: PredicateLike<P>> {
+    fn eval(&self, predicate: &P) -> bool;
 }
