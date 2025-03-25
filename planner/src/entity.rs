@@ -7,7 +7,10 @@ use alloc::{
 use core::cell::{Ref, RefCell};
 
 use crate::{
-    util::smart_handle::{Handleable, Idx, SmartHandle, Storage},
+    util::{
+        deep_clone::DeepClone,
+        smart_handle::{Handleable, Idx, SmartHandle, Storage},
+    },
     InternerSymbol, INTERNER,
 };
 
@@ -80,7 +83,7 @@ pub type ObjectHandle = SmartHandle<Object, EntityStorage>;
 
 impl ObjectHandle {
     pub fn r#type(&self) -> TypeHandle {
-        self.container().get_type(self)
+        self.container().get_type_for(self)
     }
 }
 
@@ -90,7 +93,7 @@ pub enum TypeError {
     CreatesCircularInheritance,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EntityStorage {
     types: Rc<RefCell<Vec<Type>>>,
     objects: Rc<RefCell<Vec<(Object, TypeIdx)>>>,
@@ -98,28 +101,51 @@ pub struct EntityStorage {
     subtypes: Rc<RefCell<BTreeMap<SuperTypeIdx, Vec<SubTypeIdx>>>>,
 }
 
-impl EntityStorage {
-    pub fn get_or_create_type(&mut self, type_name: &str) -> TypeHandle {
-        self.get_or_insert_type(Type::new(type_name))
+/// Trait that exposes methods related to types of [EntityStorage]
+pub trait TypeStorage {
+    fn get_or_create_type(&mut self, type_name: &str) -> TypeHandle;
+    fn get_type(&self, type_name: &str) -> Option<TypeHandle>;
+    fn create_inheritance(
+        &mut self,
+        sub_type: &SubTypeHandle,
+        super_type: &SuperTypeHandle,
+    ) -> Result<(), TypeError>;
+    fn get_direct_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle>;
+    fn get_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle>;
+    fn inherits(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool;
+    fn inherits_or_eq(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool;
+    fn get_objects_by_type_strict(&self, r#type: &TypeHandle) -> Vec<ObjectHandle>;
+    fn get_objects_by_type(&self, r#type: &TypeHandle) -> Vec<ObjectHandle>;
+}
+
+/// Trait that exposes methods related to objects of [EntityStorage]
+pub trait ObjectStorage {
+    fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle;
+    fn get_object(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle>;
+    fn get_type_for(&self, object: &ObjectHandle) -> TypeHandle;
+}
+
+impl TypeStorage for EntityStorage {
+    fn get_or_create_type(&mut self, type_name: &str) -> TypeHandle {
+        self.get_type(type_name).unwrap_or_else(|| {
+            let idx = self.types.borrow().len();
+            self.types.borrow_mut().push(Type::new(type_name));
+            TypeHandle::from_raw(idx, self.clone())
+        })
     }
 
-    fn get_or_insert_type(&mut self, r#type: Type) -> TypeHandle {
-        if let Some(idx) = self.types.borrow().iter().enumerate().find_map(|(i, t)| {
-            if *t == r#type {
-                Some(i)
+    fn get_type(&self, type_name: &str) -> Option<TypeHandle> {
+        let type_name = INTERNER.lock().get_or_intern(type_name);
+        self.types.borrow().iter().enumerate().find_map(|(i, t)| {
+            if t.name == type_name {
+                Some(TypeHandle::from_raw(i, self.clone()))
             } else {
                 None
             }
-        }) {
-            return TypeHandle::from_raw(idx, self.clone());
-        }
-
-        let idx = self.types.borrow().len();
-        self.types.borrow_mut().push(r#type);
-        TypeHandle::from_raw(idx, self.clone())
+        })
     }
 
-    pub fn create_inheritance(
+    fn create_inheritance(
         &mut self,
         sub_type: &SubTypeHandle,
         super_type: &SuperTypeHandle,
@@ -147,7 +173,7 @@ impl EntityStorage {
         Ok(())
     }
 
-    pub fn get_direct_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle> {
+    fn get_direct_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle> {
         Ref::filter_map(self.subtypes.borrow(), |s| s.get(&r#type.idx))
             .map(|subtypes| {
                 subtypes
@@ -158,7 +184,7 @@ impl EntityStorage {
             .unwrap_or_default()
     }
 
-    pub fn get_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle> {
+    fn get_subtypes(&self, r#type: &TypeHandle) -> Vec<TypeHandle> {
         let mut ts: VecDeque<_> = self.get_direct_subtypes(r#type).into();
         let mut subtypes = VecDeque::new();
         while let Some(t) = ts.pop_front() {
@@ -169,41 +195,15 @@ impl EntityStorage {
         subtypes.into()
     }
 
-    pub fn inherits(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool {
+    fn inherits(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool {
         self.get_subtypes(super_type).contains(sub_type)
     }
 
-    pub fn inherits_or_eq(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool {
+    fn inherits_or_eq(&self, sub_type: &SubTypeHandle, super_type: &SuperTypeHandle) -> bool {
         sub_type == super_type || self.inherits(sub_type, super_type)
     }
 
-    pub fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle {
-        self.get_or_insert_object(Object::new(object_name), r#type.idx)
-    }
-
-    fn get_or_insert_object(&mut self, object: Object, r#type: TypeIdx) -> ObjectHandle {
-        if let Some(idx) = self
-            .objects
-            .borrow()
-            .iter()
-            .enumerate()
-            .find_map(|(i, &(o, ti))| {
-                if o == object && ti == r#type {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-        {
-            return ObjectHandle::from_raw(idx, self.clone());
-        }
-
-        let idx = self.objects.borrow().len();
-        self.objects.borrow_mut().push((object, r#type));
-        ObjectHandle::from_raw(idx, self.clone())
-    }
-
-    pub fn get_objects_by_type_strict(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
+    fn get_objects_by_type_strict(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
         self.objects
             .borrow()
             .iter()
@@ -218,7 +218,7 @@ impl EntityStorage {
             .collect()
     }
 
-    pub fn get_objects_by_type(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
+    fn get_objects_by_type(&self, r#type: &TypeHandle) -> Vec<ObjectHandle> {
         let mut res = self.get_objects_by_type_strict(r#type);
 
         let types = r#type.container();
@@ -229,8 +229,35 @@ impl EntityStorage {
 
         res
     }
+}
 
-    pub fn get_type(&self, object: &ObjectHandle) -> TypeHandle {
+impl ObjectStorage for EntityStorage {
+    fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle {
+        self.get_object(object_name, r#type).unwrap_or_else(|| {
+            let idx = self.objects.borrow().len();
+            self.objects
+                .borrow_mut()
+                .push((Object::new(object_name), r#type.idx));
+            ObjectHandle::from_raw(idx, self.clone())
+        })
+    }
+
+    fn get_object(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle> {
+        let object_name = INTERNER.lock().get_or_intern(object_name);
+        self.objects
+            .borrow()
+            .iter()
+            .enumerate()
+            .find_map(|(i, &(o, ti))| {
+                if o.name == object_name && ti == r#type.idx {
+                    Some(ObjectHandle::from_raw(i, self.clone()))
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn get_type_for(&self, object: &ObjectHandle) -> TypeHandle {
         TypeHandle::new(self.objects.borrow()[object.idx.0].1, self.clone())
     }
 }
@@ -248,6 +275,17 @@ impl Storage<Object> for EntityStorage {
         // Cannot panic, because the only way to create a handle is
         // through the ObjectStorage, so they are all accounted for
         self.objects.borrow()[handle.idx.0].0
+    }
+}
+
+impl DeepClone for EntityStorage {
+    fn deep_clone(&self) -> Self {
+        Self {
+            types: self.types.deep_clone(),
+            objects: self.objects.deep_clone(),
+            supertypes: self.supertypes.deep_clone(),
+            subtypes: self.subtypes.deep_clone(),
+        }
     }
 }
 

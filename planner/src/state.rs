@@ -246,9 +246,9 @@ mod tests {
         let b = entities.get_or_create_object("b", &t);
         let c = entities.get_or_create_object("c", &t);
 
-        let p = PredicateBuilder::new("foo").arguments([&t, &t]);
+        let p = PredicateBuilder::new("foo").arguments(&[&t, &t]);
         let ps = p
-            .values([Value::object(&x), Value::object(&y)])
+            .values(&[&Value::object(&x), &Value::object(&y)])
             .build()
             .unwrap();
         let rp = ps.into_resolved(&BTreeMap::new()).unwrap();
@@ -260,14 +260,14 @@ mod tests {
         // which then get resolved and added to the state over the
         // course of the program.
         let p1 = PredicateBuilder::new("foo")
-            .arguments([&t, &t])
-            .values([Value::object(&x), Value::object(&b)])
+            .arguments(&[&t, &t])
+            .values(&[&Value::object(&x), &Value::object(&b)])
             .build()
             .unwrap();
         let rp1 = p1.into_resolved(&BTreeMap::new()).unwrap();
 
-        let p2 = PredicateBuilder::new("bar").arguments([&t]);
-        let ps2 = p2.values([Value::object(&c)]).build().unwrap();
+        let p2 = PredicateBuilder::new("bar").arguments(&[&t]);
+        let ps2 = p2.values(&[&Value::object(&c)]).build().unwrap();
         let rp2 = ps2.into_resolved(&BTreeMap::new()).unwrap();
 
         let state = State::default().with_predicates(&[rp.clone(), rp1.clone(), rp2.clone()]);
@@ -282,7 +282,7 @@ mod tests {
         let mut ap1 = ap0.dupe();
         ap1.parameter_handle = 1;
         let pp = p
-            .values([Value::param(&ap0), Value::param(&ap1)])
+            .values(&[&Value::param(&ap0), &Value::param(&ap1)])
             .build()
             .unwrap();
         // Resolutions from `rp` and `rp1`, because they are both `foo` and have the same type of arguments
@@ -294,7 +294,7 @@ mod tests {
             ])
         );
 
-        let pp2 = p2.values([Value::param(&ap0)]).build().unwrap();
+        let pp2 = p2.values(&[&Value::param(&ap0)]).build().unwrap();
         // Resolutions from negated `bar`
         assert_eq!(
             state.resolve_negated_predicate(&Not::new(&pp2)),
@@ -302,13 +302,17 @@ mod tests {
         );
 
         // Predicate with no parameters doesn't get resolved
-        let p3 = PredicateBuilder::new("baz").arguments([]).build();
+        let p3 = PredicateBuilder::new("baz")
+            .arguments(&[])
+            .values(&[])
+            .build()
+            .unwrap();
         assert_eq!(state.resolve_predicate(&p3), BTreeMap::default());
 
         // Negated predicate that isn't in a state should get all permutations of values
         let p4 = PredicateBuilder::new("qux")
-            .arguments([&t])
-            .values([Value::param(&ap0)])
+            .arguments(&[&t])
+            .values(&[&Value::param(&ap0)])
             .build()
             .unwrap();
         assert_eq!(
@@ -326,31 +330,31 @@ mod tests {
         let x = entities.get_or_create_object("x", &t1);
         let y = entities.get_or_create_object("y", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2]);
-        let p3 = PredicateBuilder::new("p3").arguments([&t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2]);
+        let p3 = PredicateBuilder::new("p3").arguments(&[&t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
-                    FM::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
+                    FM::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
                     FM::not(&FM::pred(
-                        p2.values([Value::param(&params[1])]).build().unwrap(),
+                        p2.values(&[&Value::param(&params[1])]).build().unwrap(),
                     )),
-                    FM::pred(p3.values([Value::param(&params[1])]).build().unwrap()),
+                    FM::pred(p3.values(&[&Value::param(&params[1])]).build().unwrap()),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p1.values([Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values([Value::param(&params[1])]).build().unwrap()),
+                    Pr::not(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(p2.values(&[&Value::param(&params[1])]).build().unwrap()),
                 ])
             })
             .build();
 
-        let rp1 = p1.resolved_values([&x]).build().unwrap();
-        let rp3 = p3.resolved_values([&y]).build().unwrap();
+        let rp1 = p1.resolved_values(&[&x]).build().unwrap();
+        let rp3 = p3.resolved_values(&[&y]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp3]);
 
         let action_params = action.parameters();
@@ -366,8 +370,8 @@ mod tests {
 
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values([&x]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values([&y]).build().unwrap()),
+            ModifyState::Del(p1.resolved_values(&[&x]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(&[&y]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -396,28 +400,28 @@ mod tests {
         let x = entities.get_or_create_object("x", &t1);
         let y = entities.get_or_create_object("y", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
-                    FM::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
+                    FM::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
                     FM::not(&FM::pred(
-                        p2.values([Value::param(&params[1])]).build().unwrap(),
+                        p2.values(&[&Value::param(&params[1])]).build().unwrap(),
                     )),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p1.values([Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values([Value::param(&params[1])]).build().unwrap()),
+                    Pr::not(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(p2.values(&[&Value::param(&params[1])]).build().unwrap()),
                 ])
             })
             .build();
 
-        let rp1 = p1.resolved_values([&x]).build().unwrap();
+        let rp1 = p1.resolved_values(&[&x]).build().unwrap();
         let state = State::default().with_predicates(&[rp1]);
 
         let action_params = action.parameters();
@@ -433,8 +437,8 @@ mod tests {
 
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values([&x]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values([&y]).build().unwrap()),
+            ModifyState::Del(p1.resolved_values(&[&x]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(&[&y]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -465,31 +469,31 @@ mod tests {
         let y1 = entities.get_or_create_object("y1", &t2);
         let y2 = entities.get_or_create_object("y2", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
                     FM::not(&FM::pred(
-                        p1.values([Value::param(&params[0])]).build().unwrap(),
+                        p1.values(&[&Value::param(&params[0])]).build().unwrap(),
                     )),
                     FM::not(&FM::pred(
-                        p2.values([Value::param(&params[1])]).build().unwrap(),
+                        p2.values(&[&Value::param(&params[1])]).build().unwrap(),
                     )),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values([Value::param(&params[1])]).build().unwrap()),
+                    Pr::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(p2.values(&[&Value::param(&params[1])]).build().unwrap()),
                 ])
             })
             .build();
 
-        let rp1 = p1.resolved_values([&x1]).build().unwrap();
-        let rp2 = p2.resolved_values([&y1]).build().unwrap();
+        let rp1 = p1.resolved_values(&[&x1]).build().unwrap();
+        let rp2 = p2.resolved_values(&[&y1]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp2]);
 
         let action_params = action.parameters();
@@ -505,8 +509,8 @@ mod tests {
 
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Add(p1.resolved_values([&x2]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+            ModifyState::Add(p1.resolved_values(&[&x2]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(&[&y2]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -536,32 +540,32 @@ mod tests {
         let x2 = entities.get_or_create_object("x2", &t1);
         let y1 = entities.get_or_create_object("y1", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
                     FM::not(&FM::pred(
-                        p1.values([Value::param(&params[0])]).build().unwrap(),
+                        p1.values(&[&Value::param(&params[0])]).build().unwrap(),
                     )),
                     FM::not(&FM::pred(
-                        p2.values([Value::param(&params[1])]).build().unwrap(),
+                        p2.values(&[&Value::param(&params[1])]).build().unwrap(),
                     )),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values([Value::param(&params[1])]).build().unwrap()),
+                    Pr::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(p2.values(&[&Value::param(&params[1])]).build().unwrap()),
                 ])
             })
             .build();
 
-        let rp11 = p1.resolved_values([&x1]).build().unwrap();
-        let rp12 = p1.resolved_values([&x2]).build().unwrap();
-        let rp21 = p2.resolved_values([&y1]).build().unwrap();
+        let rp11 = p1.resolved_values(&[&x1]).build().unwrap();
+        let rp12 = p1.resolved_values(&[&x2]).build().unwrap();
+        let rp21 = p2.resolved_values(&[&y1]).build().unwrap();
         let state = State::default().with_predicates(&[rp11, rp12, rp21]);
 
         let res = state.resolve_action(&action);
@@ -607,20 +611,20 @@ mod tests {
         let y2 = entities.get_or_create_object("y2", &t2);
         let y3 = entities.get_or_create_object("y3", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1, &t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2, &t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1, &t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2, &t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
                     FM::pred(
-                        p1.values([Value::param(&params[0]), Value::object(&x2)])
+                        p1.values(&[&Value::param(&params[0]), &Value::object(&x2)])
                             .build()
                             .unwrap(),
                     ),
                     FM::not(&FM::pred(
-                        p2.values([Value::object(&y1), Value::param(&params[1])])
+                        p2.values(&[&Value::object(&y1), &Value::param(&params[1])])
                             .build()
                             .unwrap(),
                     )),
@@ -629,12 +633,12 @@ mod tests {
             .effect(|params| {
                 And::new(&[
                     Pr::not(
-                        p1.values([Value::object(&x2), Value::param(&params[0])])
+                        p1.values(&[&Value::object(&x2), &Value::param(&params[0])])
                             .build()
                             .unwrap(),
                     ),
                     Pr::pred(
-                        p2.values([Value::param(&params[1]), Value::object(&y1)])
+                        p2.values(&[&Value::param(&params[1]), &Value::object(&y1)])
                             .build()
                             .unwrap(),
                     ),
@@ -642,8 +646,8 @@ mod tests {
             })
             .build();
 
-        let rp1 = p1.resolved_values([&x1, &x2]).build().unwrap();
-        let rp2 = p2.resolved_values([&y1, &y2]).build().unwrap();
+        let rp1 = p1.resolved_values(&[&x1, &x2]).build().unwrap();
+        let rp2 = p2.resolved_values(&[&y1, &y2]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp2]);
 
         let action_params = action.parameters();
@@ -660,12 +664,12 @@ mod tests {
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1, &y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y3, &y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y3, &y1]).build().unwrap()),
             ]),
         ]);
 
@@ -698,8 +702,8 @@ mod tests {
         let y2 = entities.get_or_create_object("y2", &t2);
         let y3 = entities.get_or_create_object("y3", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1, &t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2, &t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1, &t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2, &t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
@@ -707,24 +711,24 @@ mod tests {
                 Dnf::new(&[
                     DnfMembers::and(&[
                         Pr::pred(
-                            p1.values([Value::param(&params[0]), Value::object(&x2)])
+                            p1.values(&[&Value::param(&params[0]), &Value::object(&x2)])
                                 .build()
                                 .unwrap(),
                         ),
                         Pr::not(
-                            p2.values([Value::object(&y1), Value::param(&params[1])])
+                            p2.values(&[&Value::object(&y1), &Value::param(&params[1])])
                                 .build()
                                 .unwrap(),
                         ),
                     ]),
                     DnfMembers::and(&[
                         Pr::not(
-                            p1.values([Value::object(&x2), Value::param(&params[0])])
+                            p1.values(&[&Value::object(&x2), &Value::param(&params[0])])
                                 .build()
                                 .unwrap(),
                         ),
                         Pr::pred(
-                            p2.values([Value::param(&params[1]), Value::object(&y2)])
+                            p2.values(&[&Value::param(&params[1]), &Value::object(&y2)])
                                 .build()
                                 .unwrap(),
                         ),
@@ -735,12 +739,12 @@ mod tests {
             .effect(|params| {
                 And::new(&[
                     Pr::not(
-                        p1.values([Value::object(&x2), Value::param(&params[0])])
+                        p1.values(&[&Value::object(&x2), &Value::param(&params[0])])
                             .build()
                             .unwrap(),
                     ),
                     Pr::pred(
-                        p2.values([Value::param(&params[1]), Value::object(&y1)])
+                        p2.values(&[&Value::param(&params[1]), &Value::object(&y1)])
                             .build()
                             .unwrap(),
                     ),
@@ -748,8 +752,8 @@ mod tests {
             })
             .build();
 
-        let rp1 = p1.resolved_values([&x1, &x2]).build().unwrap();
-        let rp2 = p2.resolved_values([&y1, &y2]).build().unwrap();
+        let rp1 = p1.resolved_values(&[&x1, &x2]).build().unwrap();
+        let rp2 = p2.resolved_values(&[&y1, &y2]).build().unwrap();
         let state = State::default().with_predicates(&[rp1, rp2]);
 
         let action_params = action.parameters();
@@ -774,21 +778,21 @@ mod tests {
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1, &y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y3, &y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y3, &y1]).build().unwrap()),
             ]),
-            // The same as the first one, will be removed by the set
+            // The same as the first one, will be re&moved by the set
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2, &x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2, &x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1, &y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2, &x2]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1, &y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2, &x2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1, &y1]).build().unwrap()),
             ]),
         ]);
 
@@ -824,51 +828,51 @@ mod tests {
         let y1 = entities.get_or_create_object("y1", &t2);
         let y2 = entities.get_or_create_object("y2", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
-        let pp1 = PredicateBuilder::new("pp1").arguments([&tt1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1]);
+        let pp1 = PredicateBuilder::new("pp1").arguments(&[&tt1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &tt1, &t2])
             .precondition(|params| {
                 Dnf::new(&[
                     DnfMembers::and(&[
-                        Pr::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
-                        Pr::pred(pp1.values([Value::param(&params[1])]).build().unwrap()),
-                        Pr::pred(p2.values([Value::param(&params[2])]).build().unwrap()),
+                        Pr::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                        Pr::pred(pp1.values(&[&Value::param(&params[1])]).build().unwrap()),
+                        Pr::pred(p2.values(&[&Value::param(&params[2])]).build().unwrap()),
                     ]),
                     DnfMembers::and(&[
-                        Pr::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
-                        Pr::pred(p1.values([Value::param(&params[1])]).build().unwrap()),
-                        Pr::pred(p2.values([Value::param(&params[2])]).build().unwrap()),
+                        Pr::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                        Pr::pred(p1.values(&[&Value::param(&params[1])]).build().unwrap()),
+                        Pr::pred(p2.values(&[&Value::param(&params[2])]).build().unwrap()),
                     ]),
                     // These won't get resolved as they are missing the other params
                     DnfMembers::prim(&Pr::pred(
-                        pp1.values([Value::param(&params[1])]).build().unwrap(),
+                        pp1.values(&[&Value::param(&params[1])]).build().unwrap(),
                     )),
                     DnfMembers::prim(&Pr::pred(
-                        p2.values([Value::param(&params[2])]).build().unwrap(),
+                        p2.values(&[&Value::param(&params[2])]).build().unwrap(),
                     )),
                 ])
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p1.values([Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values([Value::param(&params[2])]).build().unwrap()),
+                    Pr::not(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(p2.values(&[&Value::param(&params[2])]).build().unwrap()),
                 ])
             })
             .build();
 
-        let rp1_t1_1 = p1.resolved_values([&x1]).build().unwrap();
-        let rp1_t1_2 = p1.resolved_values([&x2]).build().unwrap();
-        let rp1_tt1_1 = p1.resolved_values([&xx1]).build().unwrap();
-        let rp1_tt1_2 = p1.resolved_values([&xx2]).build().unwrap();
+        let rp1_t1_1 = p1.resolved_values(&[&x1]).build().unwrap();
+        let rp1_t1_2 = p1.resolved_values(&[&x2]).build().unwrap();
+        let rp1_tt1_1 = p1.resolved_values(&[&xx1]).build().unwrap();
+        let rp1_tt1_2 = p1.resolved_values(&[&xx2]).build().unwrap();
 
-        let rpp1_tt1_1 = pp1.resolved_values([&xx1]).build().unwrap();
-        let rpp1_tt1_2 = pp1.resolved_values([&xx2]).build().unwrap();
+        let rpp1_tt1_1 = pp1.resolved_values(&[&xx1]).build().unwrap();
+        let rpp1_tt1_2 = pp1.resolved_values(&[&xx2]).build().unwrap();
 
-        let rp2_t2_1 = p2.resolved_values([&y1]).build().unwrap();
-        let rp2_t2_2 = p2.resolved_values([&y2]).build().unwrap();
+        let rp2_t2_1 = p2.resolved_values(&[&y1]).build().unwrap();
+        let rp2_t2_2 = p2.resolved_values(&[&y2]).build().unwrap();
         let state = State::default().with_predicates(&[
             rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
         ]);
@@ -914,36 +918,36 @@ mod tests {
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y2]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&x2]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&x2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y2]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&xx1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&xx1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&xx1]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&xx1]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y2]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&xx2]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y1]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&xx2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y1]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values([&xx2]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values([&y2]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(&[&xx2]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(&[&y2]).build().unwrap()),
             ]),
         ]);
 
@@ -975,16 +979,16 @@ mod tests {
 
         let a = entities.get_or_create_object("a", &t1);
 
-        let p1 = PredicateBuilder::new("p1").arguments([&t1]);
-        let p2 = PredicateBuilder::new("p2").arguments([&t1, &t2]);
+        let p1 = PredicateBuilder::new("p1").arguments(&[&t1]);
+        let p2 = PredicateBuilder::new("p2").arguments(&[&t1, &t2]);
 
         let action = ActionBuilder::new("action")
             .parameters([&t1, &t2])
             .precondition(|params| {
                 Formula::new(FM::and(&[
-                    FM::pred(p1.values([Value::param(&params[0])]).build().unwrap()),
+                    FM::pred(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
                     FM::pred(
-                        p2.values([Value::param(&params[0]), Value::param(&params[1])])
+                        p2.values(&[&Value::param(&params[0]), &Value::param(&params[1])])
                             .build()
                             .unwrap(),
                     ),
@@ -992,9 +996,9 @@ mod tests {
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p1.values([Value::param(&params[0])]).build().unwrap()),
+                    Pr::not(p1.values(&[&Value::param(&params[0])]).build().unwrap()),
                     Pr::pred(
-                        p2.values([Value::param(&params[0]), Value::param(&params[1])])
+                        p2.values(&[&Value::param(&params[0]), &Value::param(&params[1])])
                             .build()
                             .unwrap(),
                     ),
@@ -1002,9 +1006,9 @@ mod tests {
             })
             .build();
 
-        let rp11 = p1.resolved_values([&x]).build().unwrap();
-        let rp12 = p1.resolved_values([&a]).build().unwrap();
-        let rp21 = p2.resolved_values([&a, &y]).build().unwrap();
+        let rp11 = p1.resolved_values(&[&x]).build().unwrap();
+        let rp12 = p1.resolved_values(&[&a]).build().unwrap();
+        let rp21 = p2.resolved_values(&[&a, &y]).build().unwrap();
         let state = State::default().with_predicates(&[rp11, rp12, rp21]);
 
         let action_params = action.parameters();
@@ -1020,8 +1024,8 @@ mod tests {
 
         let effects = action.resolved_effects(&res);
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values([&a]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values([&a, &y]).build().unwrap()),
+            ModifyState::Del(p1.resolved_values(&[&a]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(&[&a, &y]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);

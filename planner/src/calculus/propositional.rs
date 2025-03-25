@@ -18,7 +18,7 @@ pub trait Expression<T: Evaluable<P>, P: IsPredicate<P>> {
     fn members(&self) -> &[T];
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct And<T: Evaluable<P>, P: IsPredicate<P>> {
     o: Vec<T>,
     p: PhantomData<P>,
@@ -54,7 +54,7 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Evaluable<P> for And<T, P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Or<T: Evaluable<P>, P: IsPredicate<P>> {
     o: Vec<T>,
     p: PhantomData<P>,
@@ -90,7 +90,7 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Evaluable<P> for Or<T, P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Not<T: Evaluable<P>, P: IsPredicate<P>> {
     o: Box<T>,
     p: PhantomData<P>,
@@ -121,7 +121,7 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Evaluable<P> for Not<T, P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormulaMembers<P: IsPredicate<P>> {
     And(And<FormulaMembers<P>, P>),
     Or(Or<FormulaMembers<P>, P>),
@@ -179,7 +179,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for FormulaMembers<P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Formula<P: IsPredicate<P>> {
     e: FormulaMembers<P>,
 }
@@ -202,7 +202,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for Formula<P> {
 
 /// Common normal form members that appear in both
 /// CNF and DNF at the lowest level
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Primitives<P: IsPredicate<P>> {
     Not(Not<P, P>),
     Pred(P),
@@ -234,7 +234,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for Primitives<P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnfMembers<P: IsPredicate<P>> {
     And(And<Primitives<P>, P>),
     Prim(Primitives<P>),
@@ -276,7 +276,7 @@ pub trait NormalForm<T: Evaluable<P>, P: IsPredicate<P>> {
     fn expression(&self) -> &impl Expression<T, P>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dnf<P: IsPredicate<P>> {
     f: Or<DnfMembers<P>, P>,
 }
@@ -500,7 +500,7 @@ impl_with_map!(<> => DnfMembers<Predicate> => Dnf<Predicate>);
 impl_with_map!(<> => CnfMembers<Predicate> => Dnf<Predicate>);
 impl_with_map!(<> => Cnf<Predicate> => Dnf<Predicate>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CnfMembers<P: IsPredicate<P>> {
     Or(Or<Primitives<P>, P>),
     Prim(Primitives<P>),
@@ -538,7 +538,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for CnfMembers<P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cnf<P: IsPredicate<P>> {
     f: And<CnfMembers<P>, P>,
 }
@@ -589,16 +589,22 @@ impl_with_map!(<> => CnfMembers<Predicate> => Cnf<Predicate>);
 mod tests {
     use super::*;
     use crate::calculus::predicate::{PredicateBuilder, Value};
-    use crate::entity::EntityStorage;
+    use crate::entity::{EntityStorage, ObjectStorage, TypeStorage};
     use crate::state::State;
     use alloc::vec::Vec;
 
     #[test]
     fn test_basic_and() {
-        let t = PredicateBuilder::new("true").arguments([]).build_resolved();
+        let t = PredicateBuilder::new("true")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let f = PredicateBuilder::new("false")
-            .arguments([])
-            .build_resolved();
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
         let and = And::new(&[t.clone(), t.clone(), t.clone()]);
@@ -610,10 +616,16 @@ mod tests {
 
     #[test]
     fn test_basic_or() {
-        let t = PredicateBuilder::new("true").arguments([]).build_resolved();
+        let t = PredicateBuilder::new("true")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let f = PredicateBuilder::new("false")
-            .arguments([])
-            .build_resolved();
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
         let or = Or::new(&[t.clone(), t.clone(), t.clone()]);
@@ -628,10 +640,16 @@ mod tests {
 
     #[test]
     fn test_basic_not() {
-        let t = PredicateBuilder::new("true").arguments([]).build_resolved();
+        let t = PredicateBuilder::new("true")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let f = PredicateBuilder::new("false")
-            .arguments([])
-            .build_resolved();
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
         let not = Not::new(&f.clone());
@@ -645,7 +663,11 @@ mod tests {
 
     #[test]
     fn test_formula() {
-        let t = PredicateBuilder::new("true").arguments([]).build_resolved();
+        let t = PredicateBuilder::new("true")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
         let formula = Formula::new(FM::and(&[
@@ -666,10 +688,16 @@ mod tests {
 
     #[test]
     fn test_basic_dnf() {
-        let t = PredicateBuilder::new("true").arguments([]).build_resolved();
+        let t = PredicateBuilder::new("true")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let f = PredicateBuilder::new("false")
-            .arguments([])
-            .build_resolved();
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
         let dnf = Dnf::new(&[
@@ -683,10 +711,16 @@ mod tests {
 
     #[test]
     fn test_basic_cnf() {
-        let t = PredicateBuilder::new("true").arguments([]).build_resolved();
+        let t = PredicateBuilder::new("true")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let f = PredicateBuilder::new("false")
-            .arguments([])
-            .build_resolved();
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
         let cnf = Cnf::new(&[
@@ -700,7 +734,11 @@ mod tests {
 
     #[test]
     fn test_expression_get_predicates() {
-        let p = PredicateBuilder::new("foo").arguments([]).build();
+        let p = PredicateBuilder::new("foo")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
 
         // All predicates are the smame
         let expression = FM::and(&[
@@ -715,11 +753,31 @@ mod tests {
         assert_eq!(1, expression.predicates().len());
 
         // All predicates are unique
-        let p = PredicateBuilder::new("foo").arguments([]).build();
-        let p1 = PredicateBuilder::new("bar").arguments([]).build();
-        let p2 = PredicateBuilder::new("baz").arguments([]).build();
-        let p3 = PredicateBuilder::new("qux").arguments([]).build();
-        let p4 = PredicateBuilder::new("corge").arguments([]).build();
+        let p = PredicateBuilder::new("foo")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
+        let p1 = PredicateBuilder::new("bar")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
+        let p2 = PredicateBuilder::new("baz")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
+        let p3 = PredicateBuilder::new("qux")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
+        let p4 = PredicateBuilder::new("corge")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
 
         let expression = FM::and(&[
             FM::or(&[FM::pred(p), FM::not(&FM::pred(p1))]),
@@ -731,9 +789,21 @@ mod tests {
 
         // Predicates are "reused" after "transformation".
         // Look at Predicate.unique_marker.
-        let p = PredicateBuilder::new("foo").arguments([]).build();
-        let p1 = PredicateBuilder::new("bar").arguments([]).build();
-        let p2 = PredicateBuilder::new("baz").arguments([]).build();
+        let p = PredicateBuilder::new("foo")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
+        let p1 = PredicateBuilder::new("bar")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
+        let p2 = PredicateBuilder::new("baz")
+            .arguments(&[])
+            .resolved_values(&[])
+            .build()
+            .unwrap();
 
         let expression = FM::and(&[
             FM::or(&[FM::pred(p), FM::not(&FM::pred(p1.clone()))]),
@@ -756,28 +826,28 @@ mod tests {
         let e = entities.get_or_create_object("e", &t);
 
         let p = PredicateBuilder::new("foo")
-            .arguments([&t])
-            .values([Value::object(&a)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&a)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
-            .arguments([&t])
-            .values([Value::object(&b)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&b)])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("baz")
-            .arguments([&t])
-            .values([Value::object(&c)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&c)])
             .build()
             .unwrap();
         let p3 = PredicateBuilder::new("qux")
-            .arguments([&t])
-            .values([Value::object(&d)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&d)])
             .build()
             .unwrap();
         let p4 = PredicateBuilder::new("corge")
-            .arguments([&t])
-            .values([Value::object(&e)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&e)])
             .build()
             .unwrap();
 
@@ -810,28 +880,28 @@ mod tests {
         let e = entities.get_or_create_object("e", &t);
 
         let p = PredicateBuilder::new("foo")
-            .arguments([&t])
-            .values([Value::object(&a)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&a)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
-            .arguments([&t])
-            .values([Value::object(&b)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&b)])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("baz")
-            .arguments([&t])
-            .values([Value::object(&c)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&c)])
             .build()
             .unwrap();
         let p3 = PredicateBuilder::new("qux")
-            .arguments([&t])
-            .values([Value::object(&d)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&d)])
             .build()
             .unwrap();
         let p4 = PredicateBuilder::new("corge")
-            .arguments([&t])
-            .values([Value::object(&e)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&e)])
             .build()
             .unwrap();
 

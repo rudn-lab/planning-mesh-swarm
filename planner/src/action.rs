@@ -7,6 +7,7 @@ use crate::{
     entity::TypeHandle,
     sealed::Sealed,
     state::{ModifyState, ParameterResolution},
+    util::named::Named,
     InternerSymbol, INTERNER,
 };
 use alloc::{collections::BTreeSet, vec::Vec};
@@ -20,7 +21,7 @@ pub struct ActionParameter {
     pub(crate) r#type: TypeHandle,
 }
 
-#[derive(Debug, Clone, Getters)]
+#[derive(Debug, Clone, PartialEq, Eq, Getters)]
 pub struct Action {
     #[getset(get = "pub")]
     name: InternerSymbol,
@@ -62,6 +63,12 @@ impl Action {
                 })
             })
             .collect::<BTreeSet<_>>()
+    }
+}
+
+impl Named for Action {
+    fn name(&self) -> InternerSymbol {
+        self.name
     }
 }
 
@@ -178,7 +185,7 @@ mod tests {
             predicate::{PredicateBuilder, Value},
             propositional::{Formula, FormulaMembers as FM, Primitives as Pr},
         },
-        entity::EntityStorage,
+        entity::{EntityStorage, TypeStorage},
     };
 
     use super::*;
@@ -189,23 +196,23 @@ mod tests {
         let t = types.get_or_create_type("foo");
         let t1 = types.get_or_create_type("bar");
 
-        let p = PredicateBuilder::new("foo").arguments([&t]);
-        let p1 = PredicateBuilder::new("bar").arguments([&t1]);
+        let p = PredicateBuilder::new("foo").arguments(&[&t]);
+        let p1 = PredicateBuilder::new("bar").arguments(&[&t1]);
 
-        let _action = ActionBuilder::new("flip")
+        ActionBuilder::new("flip")
             .parameters([&t, &t1])
             .precondition(|params| {
                 Formula::new(FM::and(&[
-                    FM::pred(p.values([Value::param(&params[0])]).build().unwrap()),
+                    FM::pred(p.values(&[&Value::param(&params[0])]).build().unwrap()),
                     FM::not(&FM::pred(
-                        p1.values([Value::param(&params[1])]).build().unwrap(),
+                        p1.values(&[&Value::param(&params[1])]).build().unwrap(),
                     )),
                 ]))
             })
             .effect(|params| {
                 And::new(&[
-                    Pr::not(p.values([Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p1.values([Value::param(&params[1])]).build().unwrap()),
+                    Pr::not(p.values(&[&Value::param(&params[0])]).build().unwrap()),
+                    Pr::pred(p1.values(&[&Value::param(&params[1])]).build().unwrap()),
                 ])
             })
             .build();

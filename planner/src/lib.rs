@@ -3,12 +3,17 @@
 #![feature(abort_unwind)]
 #![feature(coverage_attribute)]
 #![feature(debug_closure_helpers)]
+#![feature(specialization)]
 #![cfg_attr(not(test), no_std)]
+
+// #![feature(trace_macros)]
+// trace_macros!(true);
 
 extern crate alloc;
 pub mod action;
 pub mod calculus;
 pub mod entity;
+pub mod problem;
 pub mod state;
 pub mod truth_table;
 mod util;

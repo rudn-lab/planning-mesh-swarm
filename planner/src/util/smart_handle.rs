@@ -19,6 +19,12 @@ pub struct SmartHandle<T: Handleable, S: Storage<T>> {
     _type: PhantomData<T>,
 }
 
+impl<T: Handleable, S: Storage<T>> SmartHandle<T, S> {
+    pub fn value(&self) -> T {
+        self.container.borrow().get(self)
+    }
+}
+
 impl<T: Handleable, S: Storage<T>> Clone for SmartHandle<T, S> {
     fn clone(&self) -> Self {
         Self {
@@ -39,6 +45,7 @@ impl<T: Handleable, S: Storage<T>> Dupe for SmartHandle<T, S> {
 /// Deriving causes stack overflow errors in tests
 /// when it needs to write assertion failure to console.
 /// I'm not kidding.
+#[coverage(off)]
 impl<T: Handleable, S: Storage<T>> Debug for SmartHandle<T, S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let handle_to = core::any::type_name::<T>().split("::").last().unwrap();
@@ -74,7 +81,7 @@ impl<T: Handleable, S: Storage<T>> SmartHandle<T, S> {
 
 impl<T: Handleable, S: Storage<T>> PartialEq for SmartHandle<T, S> {
     fn eq(&self, other: &Self) -> bool {
-        self.idx == other.idx
+        self.value() == other.value() && self.idx == other.idx
     }
 }
 

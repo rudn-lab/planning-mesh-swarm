@@ -20,15 +20,15 @@ impl<E: Evaluable<Predicate>> EvaluationContext<Predicate> for TruthTable<'_, E>
 }
 
 #[derive(Debug, Clone)]
-pub struct TruthTable<'a, T: Evaluable<Predicate>> {
+pub struct TruthTable<'a, E: Evaluable<Predicate>> {
     curr_row: usize,
-    formula: &'a T,
+    formula: &'a E,
     predicates: Vec<&'a Predicate>,
     size: usize,
 }
 
-impl<'a, T: Evaluable<Predicate>> TruthTable<'a, T> {
-    pub fn new(formula: &'a T) -> Self {
+impl<'a, E: Evaluable<Predicate>> TruthTable<'a, E> {
+    pub fn new(formula: &'a E) -> Self {
         // We are only concerned with predicates
         // that have arguments, because only they can change
         // how the expression is evaluated
@@ -48,11 +48,11 @@ impl<'a, T: Evaluable<Predicate>> TruthTable<'a, T> {
         }
     }
 
-    pub fn only_true_rows(self) -> FilteredTruthTable<'a, T, true> {
+    pub fn only_true_rows(self) -> FilteredTruthTable<'a, E, true> {
         FilteredTruthTable { inner_iter: self }
     }
 
-    pub fn only_false_rows(self) -> FilteredTruthTable<'a, T, false> {
+    pub fn only_false_rows(self) -> FilteredTruthTable<'a, E, false> {
         FilteredTruthTable { inner_iter: self }
     }
 
@@ -80,11 +80,11 @@ impl<T: Evaluable<Predicate>> Iterator for TruthTable<'_, T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct FilteredTruthTable<'a, T: Evaluable<Predicate>, const F: bool> {
-    inner_iter: TruthTable<'a, T>,
+pub struct FilteredTruthTable<'a, E: Evaluable<Predicate>, const F: bool> {
+    inner_iter: TruthTable<'a, E>,
 }
 
-impl<T: Evaluable<Predicate>, const F: bool> Iterator for FilteredTruthTable<'_, T, F> {
+impl<E: Evaluable<Predicate>, const F: bool> Iterator for FilteredTruthTable<'_, E, F> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -106,9 +106,11 @@ impl<T: Evaluable<Predicate>, const F: bool> Iterator for FilteredTruthTable<'_,
 mod tests {
     use super::*;
     use crate::{
-        calculus::predicate::{PredicateBuilder, Value},
-        calculus::propositional::{FormulaMembers as FM, *},
-        entity::EntityStorage,
+        calculus::{
+            predicate::{PredicateBuilder, Value},
+            propositional::{FormulaMembers as FM, *},
+        },
+        entity::{EntityStorage, ObjectStorage, TypeStorage},
     };
 
     #[test]
@@ -121,7 +123,11 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         // Degenerative case, predicates have no arguments
-        let p = PredicateBuilder::new("bar").arguments([]).build();
+        let p = PredicateBuilder::new("bar")
+            .arguments(&[])
+            .values(&[])
+            .build()
+            .unwrap();
         let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p)]));
         let tt = TruthTable::new(&f);
 
@@ -130,13 +136,13 @@ mod tests {
 
         // Two predicats with arguments
         let p = PredicateBuilder::new("bar")
-            .arguments([&t])
-            .values([Value::object(&x)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("baz")
-            .arguments([&t])
-            .values([Value::object(&y)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&y)])
             .build()
             .unwrap();
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
@@ -147,13 +153,13 @@ mod tests {
 
         // Same as above, but more variables, which doesn't matter
         let p = PredicateBuilder::new("bar")
-            .arguments([&t, &t])
-            .values([Value::object(&x), Value::object(&xx)])
+            .arguments(&[&t, &t])
+            .values(&[&Value::object(&x), &Value::object(&xx)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("baz")
-            .arguments([&t])
-            .values([Value::object(&y)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&y)])
             .build()
             .unwrap();
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
@@ -164,16 +170,20 @@ mod tests {
 
         // One predicate with 2 variables, another with 1, another without
         let p = PredicateBuilder::new("quix")
-            .arguments([&t, &t])
-            .values([Value::object(&x), Value::object(&xx)])
+            .arguments(&[&t, &t])
+            .values(&[&Value::object(&x), &Value::object(&xx)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("corge")
-            .arguments([&t])
-            .values([Value::object(&y)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&y)])
             .build()
             .unwrap();
-        let p2 = PredicateBuilder::new("grault").arguments([]).build();
+        let p2 = PredicateBuilder::new("grault")
+            .arguments(&[])
+            .values(&[])
+            .build()
+            .unwrap();
         let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1), FM::pred(p2)]));
         let tt = TruthTable::new(&f);
 
@@ -190,13 +200,13 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateBuilder::new("a")
-            .arguments([&t])
-            .values([Value::object(&x)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("b")
-            .arguments([&t])
-            .values([Value::object(&y)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&y)])
             .build()
             .unwrap();
 
@@ -236,13 +246,13 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateBuilder::new("a")
-            .arguments([&t])
-            .values([Value::object(&x)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("b")
-            .arguments([&t])
-            .values([Value::object(&y)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&y)])
             .build()
             .unwrap();
 
@@ -261,13 +271,13 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateBuilder::new("a")
-            .arguments([&t])
-            .values([Value::object(&x)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("a")
-            .arguments([&t])
-            .values([Value::object(&y)])
+            .arguments(&[&t])
+            .values(&[&Value::object(&y)])
             .build()
             .unwrap();
 
