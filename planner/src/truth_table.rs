@@ -104,6 +104,8 @@ impl<E: Evaluable<Predicate>, const F: bool> Iterator for FilteredTruthTable<'_,
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
+    use gazebo::dupe::Dupe;
+
     use super::*;
     use crate::{
         calculus::{
@@ -128,7 +130,7 @@ mod tests {
             .values(&[])
             .build()
             .unwrap();
-        let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p)]));
+        let f = Formula::new(FM::and(vec![FM::pred(p.clone()), FM::pred(p)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(0, tt.predicates.len());
@@ -136,16 +138,16 @@ mod tests {
 
         // Two predicats with arguments
         let p = PredicateBuilder::new("bar")
-            .arguments(&[&t])
-            .values(&[&Value::object(&x)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("baz")
-            .arguments(&[&t])
-            .values(&[&Value::object(&y)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&y)])
             .build()
             .unwrap();
-        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
+        let f = Formula::new(FM::and(vec![FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(2, tt.predicates.len());
@@ -153,16 +155,16 @@ mod tests {
 
         // Same as above, but more variables, which doesn't matter
         let p = PredicateBuilder::new("bar")
-            .arguments(&[&t, &t])
-            .values(&[&Value::object(&x), &Value::object(&xx)])
+            .arguments(&[t.dupe(), t.dupe()])
+            .values(&[Value::object(&x), Value::object(&xx)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("baz")
-            .arguments(&[&t])
-            .values(&[&Value::object(&y)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&y)])
             .build()
             .unwrap();
-        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
+        let f = Formula::new(FM::and(vec![FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(2, tt.predicates.len());
@@ -170,13 +172,13 @@ mod tests {
 
         // One predicate with 2 variables, another with 1, another without
         let p = PredicateBuilder::new("quix")
-            .arguments(&[&t, &t])
-            .values(&[&Value::object(&x), &Value::object(&xx)])
+            .arguments(&[t.dupe(), t.dupe()])
+            .values(&[Value::object(&x), Value::object(&xx)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("corge")
-            .arguments(&[&t])
-            .values(&[&Value::object(&y)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&y)])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("grault")
@@ -184,7 +186,7 @@ mod tests {
             .values(&[])
             .build()
             .unwrap();
-        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1), FM::pred(p2)]));
+        let f = Formula::new(FM::and(vec![FM::pred(p), FM::pred(p1), FM::pred(p2)]));
         let tt = TruthTable::new(&f);
 
         assert_eq!(2, tt.predicates.len());
@@ -200,38 +202,38 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateBuilder::new("a")
-            .arguments(&[&t])
-            .values(&[&Value::object(&x)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("b")
-            .arguments(&[&t])
-            .values(&[&Value::object(&y)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&y)])
             .build()
             .unwrap();
 
-        let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p1.clone())]));
+        let f = Formula::new(FM::and(vec![FM::pred(p.clone()), FM::pred(p1.clone())]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, false, false, true], tt);
 
-        let f = Formula::new(FM::and(&[
+        let f = Formula::new(FM::and(vec![
             FM::pred(p.clone()),
-            FM::not(&FM::pred(p1.clone())),
+            FM::not(FM::pred(p1.clone())),
         ]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, true, false, false], tt);
 
-        let f = Formula::new(FM::and(&[
-            FM::not(&FM::pred(p.clone())),
+        let f = Formula::new(FM::and(vec![
+            FM::not(FM::pred(p.clone())),
             FM::pred(p1.clone()),
         ]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, false, true, false], tt);
 
-        let f = Formula::new(FM::or(&[FM::pred(p), FM::pred(p1)]));
+        let f = Formula::new(FM::or(vec![FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, true, true, true], tt);
@@ -246,17 +248,17 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateBuilder::new("a")
-            .arguments(&[&t])
-            .values(&[&Value::object(&x)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("b")
-            .arguments(&[&t])
-            .values(&[&Value::object(&y)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&y)])
             .build()
             .unwrap();
 
-        let f = Formula::new(FM::and(&[FM::pred(p), FM::pred(p1)]));
+        let f = Formula::new(FM::and(vec![FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).only_true_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![3], tt);
@@ -271,30 +273,30 @@ mod tests {
         let y = entities.get_or_create_object("y", &t);
 
         let p = PredicateBuilder::new("a")
-            .arguments(&[&t])
-            .values(&[&Value::object(&x)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&x)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("a")
-            .arguments(&[&t])
-            .values(&[&Value::object(&y)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&y)])
             .build()
             .unwrap();
 
-        let f = Formula::new(FM::and(&[FM::pred(p.clone()), FM::pred(p1.clone())]));
+        let f = Formula::new(FM::and(vec![FM::pred(p.clone()), FM::pred(p1.clone())]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0, 1, 2], tt);
 
-        let f = Formula::new(FM::and(&[
+        let f = Formula::new(FM::and(vec![
             FM::pred(p.clone()),
-            FM::not(&FM::pred(p1.clone())),
+            FM::not(FM::pred(p1.clone())),
         ]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0, 2, 3], tt);
 
-        let f = Formula::new(FM::or(&[FM::pred(p), FM::pred(p1)]));
+        let f = Formula::new(FM::or(vec![FM::pred(p), FM::pred(p1)]));
         let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0], tt);

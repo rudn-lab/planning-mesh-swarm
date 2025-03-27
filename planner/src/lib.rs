@@ -8,10 +8,12 @@ extern crate alloc;
 pub mod action;
 pub mod calculus;
 pub mod entity;
+pub mod parser;
 pub mod problem;
 pub mod state;
 pub mod truth_table;
 mod util;
+pub use gazebo::dupe::Dupe;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

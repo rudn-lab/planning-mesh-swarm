@@ -4,7 +4,11 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::cell::{Ref, RefCell};
+use core::{
+    cell::{Ref, RefCell},
+    fmt::Debug,
+};
+use gazebo::dupe::Dupe;
 
 use crate::{
     util::{
@@ -29,7 +33,6 @@ impl Type {
 
 impl Handleable for Type {}
 
-type TypeIdx = Idx;
 type SuperTypeIdx = Idx;
 type SubTypeIdx = Idx;
 
@@ -96,13 +99,13 @@ pub enum TypeError {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EntityStorage {
     types: Rc<RefCell<Vec<Type>>>,
-    objects: Rc<RefCell<Vec<(Object, TypeIdx)>>>,
+    objects: Rc<RefCell<Vec<(Object, TypeHandle)>>>,
     supertypes: Rc<RefCell<BTreeMap<SubTypeIdx, SuperTypeIdx>>>,
     subtypes: Rc<RefCell<BTreeMap<SuperTypeIdx, Vec<SubTypeIdx>>>>,
 }
 
 /// Trait that exposes methods related to types of [EntityStorage]
-pub trait TypeStorage {
+pub trait TypeStorage: Debug {
     fn get_or_create_type(&mut self, type_name: &str) -> TypeHandle;
     fn get_type(&self, type_name: &str) -> Option<TypeHandle>;
     fn create_inheritance(
@@ -119,8 +122,11 @@ pub trait TypeStorage {
 }
 
 /// Trait that exposes methods related to objects of [EntityStorage]
-pub trait ObjectStorage {
+pub trait ObjectStorage: Debug {
     fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle;
+    /// Returns the object with this name and this type
+    fn get_object_strict(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle>;
+    /// Returns the object with this name for which the given type is a supertype
     fn get_object(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle>;
     fn get_type_for(&self, object: &ObjectHandle) -> TypeHandle;
 }
@@ -208,8 +214,8 @@ impl TypeStorage for EntityStorage {
             .borrow()
             .iter()
             .enumerate()
-            .filter_map(|(i, &(_, ti))| {
-                if ti == r#type.idx {
+            .filter_map(|(i, (_, t))| {
+                if t == r#type {
                     Some(ObjectHandle::from_raw(i, self.clone()))
                 } else {
                     None
@@ -233,13 +239,14 @@ impl TypeStorage for EntityStorage {
 
 impl ObjectStorage for EntityStorage {
     fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle {
-        self.get_object(object_name, r#type).unwrap_or_else(|| {
-            let idx = self.objects.borrow().len();
-            self.objects
-                .borrow_mut()
-                .push((Object::new(object_name), r#type.idx));
-            ObjectHandle::from_raw(idx, self.clone())
-        })
+        self.get_object_strict(object_name, r#type)
+            .unwrap_or_else(|| {
+                let idx = self.objects.borrow().len();
+                self.objects
+                    .borrow_mut()
+                    .push((Object::new(object_name), r#type.dupe()));
+                ObjectHandle::from_raw(idx, self.clone())
+            })
     }
 
     fn get_object(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle> {
@@ -248,8 +255,28 @@ impl ObjectStorage for EntityStorage {
             .borrow()
             .iter()
             .enumerate()
-            .find_map(|(i, &(o, ti))| {
-                if o.name == object_name && ti == r#type.idx {
+            .find_map(|(i, (o, t))| {
+                if o.name == object_name && t.inherits_or_eq(r#type) {
+                    #[cfg(test)]
+                    {
+                        println!("Hello");
+                    }
+
+                    Some(ObjectHandle::from_raw(i, self.clone()))
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn get_object_strict(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle> {
+        let object_name = INTERNER.lock().get_or_intern(object_name);
+        self.objects
+            .borrow()
+            .iter()
+            .enumerate()
+            .find_map(|(i, (o, t))| {
+                if o.name == object_name && t == r#type {
                     Some(ObjectHandle::from_raw(i, self.clone()))
                 } else {
                     None
@@ -258,7 +285,7 @@ impl ObjectStorage for EntityStorage {
     }
 
     fn get_type_for(&self, object: &ObjectHandle) -> TypeHandle {
-        TypeHandle::new(self.objects.borrow()[object.idx.0].1, self.clone())
+        self.objects.borrow()[object.idx.0].1.dupe()
     }
 }
 

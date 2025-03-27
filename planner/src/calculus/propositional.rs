@@ -25,9 +25,9 @@ pub struct And<T: Evaluable<P>, P: IsPredicate<P>> {
 }
 
 impl<T: Evaluable<P>, P: IsPredicate<P>> And<T, P> {
-    pub fn new(operands: &[T]) -> Self {
+    pub fn new(operands: Vec<T>) -> Self {
         Self {
-            o: operands.to_vec(),
+            o: operands,
             p: PhantomData,
         }
     }
@@ -61,9 +61,9 @@ pub struct Or<T: Evaluable<P>, P: IsPredicate<P>> {
 }
 
 impl<T: Evaluable<P>, P: IsPredicate<P>> Or<T, P> {
-    pub fn new(operands: &[T]) -> Self {
+    pub fn new(operands: Vec<T>) -> Self {
         Self {
-            o: operands.to_vec(),
+            o: operands,
             p: PhantomData,
         }
     }
@@ -97,9 +97,9 @@ pub struct Not<T: Evaluable<P>, P: IsPredicate<P>> {
 }
 
 impl<T: Evaluable<P>, P: IsPredicate<P>> Not<T, P> {
-    pub fn new(operand: &T) -> Self {
+    pub fn new(operand: T) -> Self {
         Self {
-            o: Box::new(operand.clone()),
+            o: Box::new(operand),
             p: PhantomData,
         }
     }
@@ -130,15 +130,16 @@ pub enum FormulaMembers<P: IsPredicate<P>> {
 }
 
 impl<P: IsPredicate<P>> FormulaMembers<P> {
-    pub fn and(operands: &[Self]) -> Self {
+    pub fn and(operands: Vec<Self>) -> Self {
         Self::And(And::new(operands))
     }
 
-    pub fn or(operands: &[Self]) -> Self {
+    pub fn or(operands: Vec<Self>) -> Self {
         Self::Or(Or::new(operands))
     }
 
-    pub fn not(operand: &Self) -> Self {
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(operand: Self) -> Self {
         Self::Not(Not::new(operand))
     }
 
@@ -210,7 +211,7 @@ pub enum Primitives<P: IsPredicate<P>> {
 
 impl<P: IsPredicate<P>> Primitives<P> {
     pub fn not(operand: P) -> Self {
-        Self::Not(Not::new(&Box::new(operand)))
+        Self::Not(Not::new(operand))
     }
 
     pub fn pred(operand: P) -> Self {
@@ -241,12 +242,12 @@ pub enum DnfMembers<P: IsPredicate<P>> {
 }
 
 impl<P: IsPredicate<P>> DnfMembers<P> {
-    pub fn and(operands: &[Primitives<P>]) -> Self {
+    pub fn and(operands: Vec<Primitives<P>>) -> Self {
         Self::And(And::new(operands))
     }
 
-    pub fn prim(operand: &Primitives<P>) -> Self {
-        Self::Prim(operand.clone())
+    pub fn prim(operand: Primitives<P>) -> Self {
+        Self::Prim(operand)
     }
 }
 
@@ -282,7 +283,7 @@ pub struct Dnf<P: IsPredicate<P>> {
 }
 
 impl<P: IsPredicate<P>> Dnf<P> {
-    pub fn new(members: &[DnfMembers<P>]) -> Self {
+    pub fn new(members: Vec<DnfMembers<P>>) -> Self {
         Self {
             f: Or::new(members),
         }
@@ -332,7 +333,7 @@ macro_rules! map_to {
                 let expr = cond_rows!($form)
                     .map(|i| {
                         cond_method!($form)(
-                            &predicates
+                            predicates
                                 .iter()
                                 .enumerate()
                                 .map(|(n, p)| {
@@ -347,7 +348,7 @@ macro_rules! map_to {
                     })
                     .collect::<Vec<_>>();
 
-                $form::new(&expr)
+                $form::new(expr)
             }
         }
     };
@@ -507,12 +508,12 @@ pub enum CnfMembers<P: IsPredicate<P>> {
 }
 
 impl<P: IsPredicate<P>> CnfMembers<P> {
-    pub fn or(operands: &[Primitives<P>]) -> Self {
+    pub fn or(operands: Vec<Primitives<P>>) -> Self {
         Self::Or(Or::new(operands))
     }
 
-    pub fn prim(operand: &Primitives<P>) -> Self {
-        Self::Prim(operand.clone())
+    pub fn prim(operand: Primitives<P>) -> Self {
+        Self::Prim(operand)
     }
 }
 
@@ -544,7 +545,7 @@ pub struct Cnf<P: IsPredicate<P>> {
 }
 
 impl<P: IsPredicate<P>> Cnf<P> {
-    pub fn new(members: &[CnfMembers<P>]) -> Self {
+    pub fn new(members: Vec<CnfMembers<P>>) -> Self {
         Self {
             f: And::new(members),
         }
@@ -607,10 +608,10 @@ mod tests {
             .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
-        let and = And::new(&[t.clone(), t.clone(), t.clone()]);
+        let and = And::new(vec![t.clone(), t.clone(), t.clone()]);
         assert!(and.eval(&state));
 
-        let and = And::new(&[t.clone(), f.clone(), t.clone()]);
+        let and = And::new(vec![t.clone(), f.clone(), t.clone()]);
         assert!(!and.eval(&state));
     }
 
@@ -628,13 +629,13 @@ mod tests {
             .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
-        let or = Or::new(&[t.clone(), t.clone(), t.clone()]);
+        let or = Or::new(vec![t.clone(), t.clone(), t.clone()]);
         assert!(or.eval(&state));
 
-        let or = Or::new(&[t.clone(), f.clone(), f.clone()]);
+        let or = Or::new(vec![t.clone(), f.clone(), f.clone()]);
         assert!(or.eval(&state));
 
-        let or = Or::new(&[f.clone(), f.clone(), f.clone()]);
+        let or = Or::new(vec![f.clone(), f.clone(), f.clone()]);
         assert!(!or.eval(&state));
     }
 
@@ -652,13 +653,14 @@ mod tests {
             .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
-        let not = Not::new(&f.clone());
+        let not = Not::new(f.clone());
         assert!(not.eval(&state));
 
-        let not = Not::new(&t.clone());
+        let not = Not::new(t.clone());
         assert!(!not.eval(&state));
     }
 
+    use gazebo::dupe::Dupe;
     use FormulaMembers as FM;
 
     #[test]
@@ -670,12 +672,12 @@ mod tests {
             .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
-        let formula = Formula::new(FM::and(&[
-            FM::or(&[FM::pred(t.clone()), FM::not(&FM::pred(t.clone()))]),
+        let formula = Formula::new(FM::and(vec![
+            FM::or(vec![FM::pred(t.clone()), FM::not(FM::pred(t.clone()))]),
             FM::pred(t.clone()),
-            FM::not(&FM::and(&[
+            FM::not(FM::and(vec![
                 FM::pred(t.clone()),
-                FM::not(&FM::pred(t.clone())),
+                FM::not(FM::pred(t.clone())),
             ])),
         ]));
 
@@ -700,10 +702,10 @@ mod tests {
             .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
-        let dnf = Dnf::new(&[
-            D::and(&[NF::pred(t.clone()), NF::pred(f.clone())]),
-            D::and(&[NF::not(f.clone()), NF::pred(t.clone())]),
-            D::prim(&NF::pred(f.clone())),
+        let dnf = Dnf::new(vec![
+            D::and(vec![NF::pred(t.clone()), NF::pred(f.clone())]),
+            D::and(vec![NF::not(f.clone()), NF::pred(t.clone())]),
+            D::prim(NF::pred(f.clone())),
         ]);
 
         assert!(dnf.eval(&state));
@@ -723,10 +725,10 @@ mod tests {
             .unwrap();
         let state = State::default().with_predicates(&[t.clone()]);
 
-        let cnf = Cnf::new(&[
-            C::or(&[NF::pred(t.clone()), NF::pred(f.clone())]),
-            C::or(&[NF::not(f.clone()), NF::pred(t.clone())]),
-            C::prim(&NF::pred(f.clone())),
+        let cnf = Cnf::new(vec![
+            C::or(vec![NF::pred(t.clone()), NF::pred(f.clone())]),
+            C::or(vec![NF::not(f.clone()), NF::pred(t.clone())]),
+            C::prim(NF::pred(f.clone())),
         ]);
 
         assert!(!cnf.eval(&state));
@@ -741,12 +743,12 @@ mod tests {
             .unwrap();
 
         // All predicates are the smame
-        let expression = FM::and(&[
-            FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p.clone()))]),
+        let expression = FM::and(vec![
+            FM::or(vec![FM::pred(p.clone()), FM::not(FM::pred(p.clone()))]),
             FM::pred(p.clone()),
-            FM::not(&FM::and(&[
+            FM::not(FM::and(vec![
                 FM::pred(p.clone()),
-                FM::not(&FM::pred(p.clone())),
+                FM::not(FM::pred(p.clone())),
             ])),
         ]);
 
@@ -779,10 +781,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let expression = FM::and(&[
-            FM::or(&[FM::pred(p), FM::not(&FM::pred(p1))]),
+        let expression = FM::and(vec![
+            FM::or(vec![FM::pred(p), FM::not(FM::pred(p1))]),
             FM::pred(p2),
-            FM::not(&FM::and(&[FM::pred(p3), FM::not(&FM::pred(p4))])),
+            FM::not(FM::and(vec![FM::pred(p3), FM::not(FM::pred(p4))])),
         ]);
 
         assert_eq!(5, expression.predicates().len());
@@ -805,10 +807,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let expression = FM::and(&[
-            FM::or(&[FM::pred(p), FM::not(&FM::pred(p1.clone()))]),
+        let expression = FM::and(vec![
+            FM::or(vec![FM::pred(p), FM::not(FM::pred(p1.clone()))]),
             FM::pred(p2.clone()),
-            FM::not(&FM::and(&[FM::pred(p1), FM::not(&FM::pred(p2))])),
+            FM::not(FM::and(vec![FM::pred(p1), FM::not(FM::pred(p2))])),
         ]);
 
         assert_eq!(3, expression.predicates().len());
@@ -826,37 +828,37 @@ mod tests {
         let e = entities.get_or_create_object("e", &t);
 
         let p = PredicateBuilder::new("foo")
-            .arguments(&[&t])
-            .values(&[&Value::object(&a)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&a)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
-            .arguments(&[&t])
-            .values(&[&Value::object(&b)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&b)])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("baz")
-            .arguments(&[&t])
-            .values(&[&Value::object(&c)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&c)])
             .build()
             .unwrap();
         let p3 = PredicateBuilder::new("qux")
-            .arguments(&[&t])
-            .values(&[&Value::object(&d)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&d)])
             .build()
             .unwrap();
         let p4 = PredicateBuilder::new("corge")
-            .arguments(&[&t])
-            .values(&[&Value::object(&e)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&e)])
             .build()
             .unwrap();
 
-        let formula = Formula::new(FM::and(&[
-            FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),
+        let formula = Formula::new(FM::and(vec![
+            FM::or(vec![FM::pred(p.clone()), FM::not(FM::pred(p1.clone()))]),
             FM::pred(p2.clone()),
-            FM::not(&FM::and(&[
+            FM::not(FM::and(vec![
                 FM::pred(p3.clone()),
-                FM::not(&FM::pred(p4.clone())),
+                FM::not(FM::pred(p4.clone())),
             ])),
         ]));
 
@@ -880,37 +882,37 @@ mod tests {
         let e = entities.get_or_create_object("e", &t);
 
         let p = PredicateBuilder::new("foo")
-            .arguments(&[&t])
-            .values(&[&Value::object(&a)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&a)])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
-            .arguments(&[&t])
-            .values(&[&Value::object(&b)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&b)])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("baz")
-            .arguments(&[&t])
-            .values(&[&Value::object(&c)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&c)])
             .build()
             .unwrap();
         let p3 = PredicateBuilder::new("qux")
-            .arguments(&[&t])
-            .values(&[&Value::object(&d)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&d)])
             .build()
             .unwrap();
         let p4 = PredicateBuilder::new("corge")
-            .arguments(&[&t])
-            .values(&[&Value::object(&e)])
+            .arguments(&[t.dupe()])
+            .values(&[Value::object(&e)])
             .build()
             .unwrap();
 
-        let formula = Formula::new(FM::and(&[
-            FM::or(&[FM::pred(p.clone()), FM::not(&FM::pred(p1.clone()))]),
+        let formula = Formula::new(FM::and(vec![
+            FM::or(vec![FM::pred(p.clone()), FM::not(FM::pred(p1.clone()))]),
             FM::pred(p2.clone()),
-            FM::not(&FM::and(&[
+            FM::not(FM::and(vec![
                 FM::pred(p3.clone()),
-                FM::not(&FM::pred(p4.clone())),
+                FM::not(FM::pred(p4.clone())),
             ])),
         ]));
 
