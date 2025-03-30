@@ -561,7 +561,7 @@ where
         self.add_objects.unwrap()(&entities.clone(), &mut entities).and_then(|_| {
             self.add_init.unwrap()(&entities, &entities, &predicate_definitions, &mut init)
                 .and_then(|_| {
-                    let init = State::default().with_predicates(&init.as_vec());
+                    let init = State::default().with_predicates(init.as_vec());
                     self.add_goal.unwrap()(&entities, &entities, &predicate_definitions).map(
                         |goal| Problem {
                             name: self.problem_name,

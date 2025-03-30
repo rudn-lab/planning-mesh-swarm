@@ -606,7 +606,7 @@ mod tests {
             .resolved_values(&[])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(&[t.clone()]);
+        let state = State::default().with_predicates(vec![t.clone()]);
 
         let and = And::new(vec![t.clone(), t.clone(), t.clone()]);
         assert!(and.eval(&state));
@@ -627,7 +627,7 @@ mod tests {
             .resolved_values(&[])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(&[t.clone()]);
+        let state = State::default().with_predicates(vec![t.clone()]);
 
         let or = Or::new(vec![t.clone(), t.clone(), t.clone()]);
         assert!(or.eval(&state));
@@ -651,7 +651,7 @@ mod tests {
             .resolved_values(&[])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(&[t.clone()]);
+        let state = State::default().with_predicates(vec![t.clone()]);
 
         let not = Not::new(f.clone());
         assert!(not.eval(&state));
@@ -670,7 +670,7 @@ mod tests {
             .resolved_values(&[])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(&[t.clone()]);
+        let state = State::default().with_predicates(vec![t.clone()]);
 
         let formula = Formula::new(FM::and(vec![
             FM::or(vec![FM::pred(t.clone()), FM::not(FM::pred(t.clone()))]),
@@ -700,7 +700,7 @@ mod tests {
             .resolved_values(&[])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(&[t.clone()]);
+        let state = State::default().with_predicates(vec![t.clone()]);
 
         let dnf = Dnf::new(vec![
             D::and(vec![NF::pred(t.clone()), NF::pred(f.clone())]),
@@ -723,7 +723,7 @@ mod tests {
             .resolved_values(&[])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(&[t.clone()]);
+        let state = State::default().with_predicates(vec![t.clone()]);
 
         let cnf = Cnf::new(vec![
             C::or(vec![NF::pred(t.clone()), NF::pred(f.clone())]),

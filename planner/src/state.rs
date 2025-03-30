@@ -1,24 +1,52 @@
 use crate::{
     action::{Action, ActionParameter},
     calculus::{
-        evaluation::EvaluationContext,
+        evaluation::{Evaluable, EvaluationContext},
         predicate::{Predicate, ResolvedPredicate},
-        propositional::{DnfMembers, Expression, NormalForm, Not, Primitives},
+        propositional::{And, DnfMembers, Expression, NormalForm, Not, Primitives},
     },
     entity::ObjectHandle,
+    InternerSymbol,
 };
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::{
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
+    vec::Vec,
+};
 use gazebo::dupe::Dupe;
 use itertools::Itertools;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct PredicateKey(InternerSymbol, usize);
+
+impl From<&Predicate> for PredicateKey {
+    fn from(value: &Predicate) -> Self {
+        Self(*value.name(), value.arguments().len())
+    }
+}
+
+impl From<&ResolvedPredicate> for PredicateKey {
+    fn from(value: &ResolvedPredicate) -> Self {
+        Self(*value.name(), value.arguments().len())
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct State {
-    predicates: BTreeSet<ResolvedPredicate>,
+    predicates: BTreeMap<PredicateKey, BTreeSet<ResolvedPredicate>>,
 }
 
 impl State {
-    pub fn with_predicates(mut self, predicates: &[ResolvedPredicate]) -> Self {
-        self.predicates.extend(predicates.iter().cloned());
+    pub fn with_predicates(mut self, predicates: Vec<ResolvedPredicate>) -> Self {
+        for p in predicates {
+            match self.predicates.entry((&p).into()) {
+                Entry::Vacant(e) => {
+                    let _ = e.insert(BTreeSet::from([p]));
+                }
+                Entry::Occupied(mut e) => {
+                    let _ = e.get_mut().insert(p);
+                }
+            }
+        }
         self
     }
 }
@@ -60,36 +88,41 @@ impl State {
     ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
         let keys = predicate.action_parameters();
 
+        // Populating accumulator with all of the keys,
+        // because even if there's no resolution for a predicate
+        // we still need somehting that holds the value's type
+        // (like ap in this case) to use later.
+        // Because this method is being called for positive predicates
+        // __and__ for negated ones too.
+        let acc = || {
+            keys.iter()
+                .map(|&(_, k)| (k, BTreeSet::new()))
+                .collect::<BTreeMap<_, _>>()
+        };
         self.predicates
-            .iter()
-            .filter(|rp| rp.is_resolution_of(predicate))
-            // Get only those values that correspond to an action parameter
-            .flat_map(|rp| {
-                keys.iter()
-                    .zip(keys.iter().map(|(i, _)| rp.values()[*i].dupe()))
-                    .map(|((_, ap), v)| (ap, v))
-                    .collect_vec()
+            .get(&predicate.into())
+            .map(|preds| {
+                preds
+                    .iter()
+                    .filter(|rp| rp.is_resolution_of(predicate))
+                    // Get only those values that correspond to an action parameter
+                    .flat_map(|rp| {
+                        keys.iter()
+                            .zip(keys.iter().map(|(i, _)| rp.values()[*i].dupe()))
+                            .map(|((_, ap), v)| (ap, v))
+                            .collect_vec()
+                    })
+                    // This just transforms a list of ResolvedPredicates to the output type
+                    .fold(acc(), |mut acc, (ap, v)| {
+                        acc.entry(ap)
+                            .and_modify(|s: &mut BTreeSet<_>| {
+                                let _ = s.insert(v.dupe());
+                            })
+                            .or_insert_with(|| BTreeSet::from([v]));
+                        acc
+                    })
             })
-            // This just transforms a list of ResolvedPredicates to the output type
-            .fold(
-                // Populating accumulator with all of the keys,
-                // because even if there's no resolution for a predicate
-                // we still need somehting that holds the value's type
-                // (like ap in this case) to use later.
-                // Because this method is being called for positive predicates
-                // __and__ for negated ones too.
-                keys.iter()
-                    .map(|&(_, k)| (k, BTreeSet::new()))
-                    .collect::<BTreeMap<_, _>>(),
-                |mut acc, (ap, v)| {
-                    acc.entry(ap)
-                        .and_modify(|s: &mut BTreeSet<_>| {
-                            let _ = s.insert(v.dupe());
-                        })
-                        .or_insert_with(|| BTreeSet::from([v]));
-                    acc
-                },
-            )
+            .unwrap_or_else(acc)
     }
 
     #[allow(
@@ -139,41 +172,66 @@ impl State {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
+    fn handle_and<'a>(
+        &'a self,
+        and: &'a And<Primitives<Predicate>, Predicate>,
+    ) -> Option<BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>> {
+        let o = and
+            .members()
+            .iter()
+            .fold(BTreeMap::default(), |mut acc: BTreeMap<_, _>, p| {
+                self.handle_primitives(p).iter().for_each(|(k, v)| {
+                    acc.entry(*k)
+                        .and_modify(|s: &mut BTreeSet<_>| {
+                            // Because we're doing intersection here
+                            // the resulting resolution set should apply
+                            // to all predicates with this parameter
+                            *s = s.intersection(v).cloned().collect()
+                        })
+                        .or_insert_with(|| v.clone());
+                });
+                acc
+            });
+
+        if o.is_empty() {
+            None
+        } else {
+            Some(o)
+        }
+    }
+
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
     pub fn resolve_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterResolution<'a>> {
+        let num_params = action.parameters().len();
         action
             .precondition()
             .expression()
             .members()
             .iter()
-            .filter_map(|m| match m {
-                // Because DNF used "or" only as a top most operation
-                // it means that we only need one operand to evaluate to true
-                // in order to evaluate the whole DNF to true.
-                // This allows us to treat all operands in isolation
+            // Filter out clauses that cannot give resolutions
+            // for all action parameters
+            .filter(|clause| match clause {
                 DnfMembers::And(and) => {
-                    let o = and.members().iter().fold(
-                        BTreeMap::default(),
-                        |mut acc: BTreeMap<_, _>, p| {
-                            self.handle_primitives(p).iter().for_each(|(k, v)| {
-                                acc.entry(*k)
-                                    .and_modify(|s: &mut BTreeSet<_>| {
-                                        // Because we're doing intersection here
-                                        // the resulting resolution set should apply
-                                        // to all predicates with this parameter
-                                        *s = s.intersection(v).cloned().collect()
-                                    })
-                                    .or_insert_with(|| v.clone());
-                            });
-                            acc
-                        },
-                    );
-
-                    if o.is_empty() {
-                        None
-                    } else {
-                        Some(o)
-                    }
+                    and.predicates()
+                        .map(|p| p.action_parameters())
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        == num_params
                 }
+                DnfMembers::Prim(prim) => match prim {
+                    Primitives::Not(not) => not.inner().action_parameters().len() == num_params,
+                    Primitives::Pred(p) => p.action_parameters().len() == num_params,
+                },
+            })
+            .filter_map(|clause| match clause {
+                // Because DNF used "or" only as a top most operation
+                // it means that we only need one clause to evaluate to true
+                // in order to evaluate the whole DNF to true.
+                // This allows us to treat all clauses in isolation
+                DnfMembers::And(and) => self.handle_and(and),
                 DnfMembers::Prim(p) => Some(self.handle_primitives(p)),
             })
             // Filter out those resolutions that don't cover all parameters
@@ -189,27 +247,33 @@ impl State {
     pub fn apply_modification(&mut self, modifications: BTreeSet<ModifyState>) {
         modifications.into_iter().for_each(|m| {
             match m {
-                ModifyState::Add(p) => self.predicates.insert(p),
-                ModifyState::Del(p) => self.predicates.remove(&p),
+                ModifyState::Add(p) => match self.predicates.entry((&p).into()) {
+                    Entry::Vacant(e) => {
+                        let _ = e.insert(BTreeSet::from([p]));
+                    }
+                    Entry::Occupied(mut e) => {
+                        let _ = e.get_mut().insert(p);
+                    }
+                },
+                ModifyState::Del(p) => match self.predicates.entry((&p).into()) {
+                    Entry::Vacant(_) => {
+                        // No-op, TODO: add logging
+                    }
+                    Entry::Occupied(mut e) => {
+                        let _ = e.get_mut().remove(&p);
+                    }
+                },
             };
-        });
-    }
-
-    #[allow(
-        clippy::mutable_key_type,
-        reason = "See SmartHandle Hash and Ord impls."
-    )]
-    pub fn unapply_modification(&mut self, modifications: BTreeSet<ModifyState>) {
-        let _ = modifications.into_iter().map(|m| match m {
-            ModifyState::Add(predicate) => self.predicates.remove(&predicate),
-            ModifyState::Del(predicate) => self.predicates.insert(predicate),
         });
     }
 }
 
 impl EvaluationContext<ResolvedPredicate> for State {
     fn eval(&self, predicate: &ResolvedPredicate) -> bool {
-        self.predicates.iter().any(|v| v == predicate)
+        self.predicates
+            .get(&predicate.into())
+            .map(|preds| preds.iter().any(|v| v == predicate))
+            .unwrap_or(false)
     }
 }
 
@@ -270,7 +334,7 @@ mod tests {
         let ps2 = p2.values(&[Value::object(&c)]).build().unwrap();
         let rp2 = ps2.into_resolved(&BTreeMap::new()).unwrap();
 
-        let state = State::default().with_predicates(&[rp.clone(), rp1.clone(), rp2.clone()]);
+        let state = State::default().with_predicates(vec![rp.clone(), rp1.clone(), rp2.clone()]);
 
         // No values, because no ActionParameters
         assert_eq!(state.resolve_predicate(&ps), BTreeMap::default());
@@ -356,7 +420,7 @@ mod tests {
 
         let rp1 = p1.resolved_values(&[x.dupe()]).build().unwrap();
         let rp3 = p3.resolved_values(&[y.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp1, rp3]);
+        let state = State::default().with_predicates(vec![rp1, rp3]);
 
         let action_params = action.parameters();
         let res = state.resolve_action(&action);
@@ -386,8 +450,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -424,7 +488,7 @@ mod tests {
             .unwrap();
 
         let rp1 = p1.resolved_values(&[x.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp1]);
+        let state = State::default().with_predicates(vec![rp1]);
 
         let action_params = action.parameters();
         let res = state.resolve_action(&action);
@@ -454,8 +518,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -497,7 +561,7 @@ mod tests {
 
         let rp1 = p1.resolved_values(&[x1.dupe()]).build().unwrap();
         let rp2 = p2.resolved_values(&[y1.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp1, rp2]);
+        let state = State::default().with_predicates(vec![rp1, rp2]);
 
         let action_params = action.parameters();
         let res = state.resolve_action(&action);
@@ -527,8 +591,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -570,7 +634,7 @@ mod tests {
         let rp11 = p1.resolved_values(&[x1.dupe()]).build().unwrap();
         let rp12 = p1.resolved_values(&[x2.dupe()]).build().unwrap();
         let rp21 = p2.resolved_values(&[y1.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp11, rp12, rp21]);
+        let state = State::default().with_predicates(vec![rp11, rp12, rp21]);
 
         let res = state.resolve_action(&action);
         // This one is empty because not all params are resolved
@@ -597,8 +661,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -653,7 +717,7 @@ mod tests {
 
         let rp1 = p1.resolved_values(&[x1.dupe(), x2.dupe()]).build().unwrap();
         let rp2 = p2.resolved_values(&[y1.dupe(), y2.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp1, rp2]);
+        let state = State::default().with_predicates(vec![rp1, rp2]);
 
         let action_params = action.parameters();
         let res = state.resolve_action(&action);
@@ -689,8 +753,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -760,7 +824,7 @@ mod tests {
 
         let rp1 = p1.resolved_values(&[x1.dupe(), x2.dupe()]).build().unwrap();
         let rp2 = p2.resolved_values(&[y1.dupe(), y2.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp1, rp2]);
+        let state = State::default().with_predicates(vec![rp1, rp2]);
 
         let action_params = action.parameters();
         let res = state.resolve_action(&action);
@@ -813,8 +877,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -880,7 +944,7 @@ mod tests {
 
         let rp2_t2_1 = p2.resolved_values(&[y1.dupe()]).build().unwrap();
         let rp2_t2_2 = p2.resolved_values(&[y2.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[
+        let state = State::default().with_predicates(vec![
             rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
         ]);
 
@@ -969,8 +1033,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
@@ -1017,7 +1081,7 @@ mod tests {
         let rp11 = p1.resolved_values(&[x.dupe()]).build().unwrap();
         let rp12 = p1.resolved_values(&[a.dupe()]).build().unwrap();
         let rp21 = p2.resolved_values(&[a.dupe(), y.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(&[rp11, rp12, rp21]);
+        let state = State::default().with_predicates(vec![rp11, rp12, rp21]);
 
         let action_params = action.parameters();
         let res = state.resolve_action(&action);
@@ -1047,8 +1111,8 @@ mod tests {
             })
             .all(|(st, modifications)| {
                 modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.contains(rp),
+                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
+                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
     }
