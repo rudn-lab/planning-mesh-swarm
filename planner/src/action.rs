@@ -1,6 +1,5 @@
 use crate::{
     calculus::{
-        evaluation::Evaluable,
         predicate::Predicate,
         propositional::{And, Dnf, Expression, Primitives},
     },
@@ -55,7 +54,7 @@ impl Action {
                         .map(|v| match v {
                             // TODO: handle the errors properly
                             Primitives::Not(not) => {
-                                ModifyState::Del(not.predicates()[0].into_resolved(&s).unwrap())
+                                ModifyState::Del(not.inner().into_resolved(&s).unwrap())
                             }
                             Primitives::Pred(predicate) => {
                                 ModifyState::Add(predicate.into_resolved(&s).unwrap())

@@ -1,7 +1,6 @@
 use core::{array::from_ref, marker::PhantomData, ops::Deref};
 
 use alloc::boxed::Box;
-use alloc::vec;
 use alloc::vec::*;
 use itertools::Itertools;
 use paste::paste;
@@ -44,13 +43,14 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Evaluable<P> for And<T, P> {
         self.o.iter().all(|e| e.eval(context))
     }
 
-    fn predicates(&self) -> Vec<&P> {
-        self.o
-            .iter()
-            .flat_map(Evaluable::predicates)
-            .sorted()
-            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
-            .collect()
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
+        Box::new(
+            self.o
+                .iter()
+                .flat_map(Evaluable::predicates)
+                .sorted()
+                .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
+        )
     }
 }
 
@@ -80,13 +80,14 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Evaluable<P> for Or<T, P> {
         self.o.iter().any(|e| e.eval(context))
     }
 
-    fn predicates(&self) -> Vec<&P> {
-        self.o
-            .iter()
-            .flat_map(Evaluable::predicates)
-            .sorted()
-            .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
-            .collect()
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
+        Box::new(
+            self.o
+                .iter()
+                .flat_map(Evaluable::predicates)
+                .sorted()
+                .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
+        )
     }
 }
 
@@ -105,6 +106,12 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Not<T, P> {
     }
 }
 
+impl<P: IsPredicate<P>> Not<P, P> {
+    pub fn inner(&self) -> &P {
+        &self.o
+    }
+}
+
 impl<T: Evaluable<P>, P: IsPredicate<P>> Expression<T, P> for Not<T, P> {
     fn members(&self) -> &[T] {
         from_ref(self.o.deref())
@@ -116,7 +123,7 @@ impl<T: Evaluable<P>, P: IsPredicate<P>> Evaluable<P> for Not<T, P> {
         !self.o.eval(context)
     }
 
-    fn predicates(&self) -> Vec<&P> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         self.o.predicates()
     }
 }
@@ -158,25 +165,21 @@ impl<P: IsPredicate<P>> Evaluable<P> for FormulaMembers<P> {
         }
     }
 
-    fn predicates(&self) -> Vec<&P> {
-        match self {
-            Self::And(and) => and
-                .o
-                .iter()
-                .flat_map(Self::predicates)
-                .sorted()
-                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
-                .collect(),
-            Self::Or(or) => {
-                or.o.iter()
-                    .flat_map(Self::predicates)
-                    .sorted()
-                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
-                    .collect()
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
+        Box::new(
+            match self {
+                Self::And(and) => {
+                    Box::new(and.o.iter().flat_map(Self::predicates)) as Box<dyn Iterator<Item = _>>
+                }
+                Self::Or(or) => {
+                    Box::new(or.o.iter().flat_map(Self::predicates)) as Box<dyn Iterator<Item = _>>
+                }
+                Self::Not(not) => not.predicates(),
+                Self::Pred(p) => Box::new(core::iter::once(p)) as Box<dyn Iterator<Item = _>>,
             }
-            Self::Not(not) => not.predicates(),
-            Self::Pred(p) => vec![p],
-        }
+            .sorted()
+            .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
+        )
     }
 }
 
@@ -196,7 +199,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for Formula<P> {
         self.e.eval(context)
     }
 
-    fn predicates(&self) -> Vec<&P> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         self.e.predicates()
     }
 }
@@ -227,10 +230,10 @@ impl<P: IsPredicate<P>> Evaluable<P> for Primitives<P> {
         }
     }
 
-    fn predicates(&self) -> Vec<&P> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         match self {
             Self::Not(not) => not.predicates(),
-            Self::Pred(p) => vec![p],
+            Self::Pred(p) => Box::new(core::iter::once(p)) as Box<dyn Iterator<Item = _>>,
         }
     }
 }
@@ -259,17 +262,15 @@ impl<P: IsPredicate<P>> Evaluable<P> for DnfMembers<P> {
         }
     }
 
-    fn predicates(&self) -> Vec<&P> {
-        match self {
-            Self::And(and) => and
-                .o
-                .iter()
-                .flat_map(Primitives::predicates)
-                .sorted()
-                .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
-                .collect(),
-            Self::Prim(p) => p.predicates(),
-        }
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
+        Box::new(
+            match self {
+                Self::And(and) => Box::new(and.o.iter().flat_map(Primitives::predicates).sorted())
+                    as Box<dyn Iterator<Item = _>>,
+                Self::Prim(p) => p.predicates(),
+            }
+            .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
+        )
     }
 }
 
@@ -304,7 +305,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for Dnf<P> {
         self.f.eval(context)
     }
 
-    fn predicates(&self) -> Vec<&P> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         self.f.predicates()
     }
 }
@@ -525,15 +526,14 @@ impl<P: IsPredicate<P>> Evaluable<P> for CnfMembers<P> {
         }
     }
 
-    fn predicates(&self) -> Vec<&P> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         match self {
-            Self::Or(or) => {
+            Self::Or(or) => Box::new(
                 or.o.iter()
                     .flat_map(Primitives::predicates)
                     .sorted()
-                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker())
-                    .collect()
-            }
+                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
+            ) as Box<dyn Iterator<Item = _>>,
             Self::Prim(p) => p.predicates(),
         }
     }
@@ -570,7 +570,7 @@ impl<P: IsPredicate<P>> Evaluable<P> for Cnf<P> {
         self.f.eval(context)
     }
 
-    fn predicates(&self) -> Vec<&P> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         self.f.predicates()
     }
 }
@@ -752,7 +752,7 @@ mod tests {
             ])),
         ]);
 
-        assert_eq!(1, expression.predicates().len());
+        assert_eq!(1, expression.predicates().count());
 
         // All predicates are unique
         let p = PredicateBuilder::new("foo")
@@ -787,7 +787,7 @@ mod tests {
             FM::not(FM::and(vec![FM::pred(p3), FM::not(FM::pred(p4))])),
         ]);
 
-        assert_eq!(5, expression.predicates().len());
+        assert_eq!(5, expression.predicates().count());
 
         // Predicates are "reused" after "transformation".
         // Look at Predicate.unique_marker.
@@ -813,7 +813,7 @@ mod tests {
             FM::not(FM::and(vec![FM::pred(p1), FM::not(FM::pred(p2))])),
         ]);
 
-        assert_eq!(3, expression.predicates().len());
+        assert_eq!(3, expression.predicates().count());
     }
 
     #[test]

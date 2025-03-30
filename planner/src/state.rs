@@ -1,7 +1,7 @@
 use crate::{
     action::{Action, ActionParameter},
     calculus::{
-        evaluation::{Evaluable, EvaluationContext},
+        evaluation::EvaluationContext,
         predicate::{Predicate, ResolvedPredicate},
         propositional::{DnfMembers, Expression, NormalForm, Not, Primitives},
     },
@@ -102,7 +102,7 @@ impl State {
         &'a self,
         predicate: &'a Not<Predicate, Predicate>,
     ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
-        let predicate = predicate.predicates()[0];
+        let predicate = predicate.inner();
         self.resolve_predicate(predicate)
             .into_iter()
             // Because it's a negated predicate,

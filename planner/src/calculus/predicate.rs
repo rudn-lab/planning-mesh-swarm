@@ -6,7 +6,7 @@ use crate::{
     util::named::Named,
     InternerSymbol, INTERNER, RANDOM,
 };
-use alloc::{collections::BTreeMap, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use gazebo::dupe::Dupe;
 use getset::{CopyGetters, Getters};
@@ -114,8 +114,8 @@ impl Evaluable<Predicate> for Predicate {
         context.eval(self)
     }
 
-    fn predicates(&self) -> Vec<&Predicate> {
-        vec![self]
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Predicate> + 'a> {
+        Box::new(core::iter::once(self))
     }
 }
 
@@ -186,8 +186,8 @@ impl Evaluable<ResolvedPredicate> for ResolvedPredicate {
         context.eval(self)
     }
 
-    fn predicates(&self) -> Vec<&ResolvedPredicate> {
-        vec![self]
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ResolvedPredicate> + 'a> {
+        Box::new(core::iter::once(self))
     }
 }
 
@@ -349,10 +349,15 @@ impl PredicateBuilder<HasValues> {
             return Err(PredicateError::WrongNumberOfValues);
         }
 
-        if !values.iter().zip(&arguments).all(|(v, a)| match v {
-            Value::Object(o) => o.r#type().inherits_or_eq(a),
-            Value::ActionParameter(ap) => ap.r#type.inherits_or_eq(a),
-        }) {
+        if !values
+            .iter()
+            .map(|v| match v {
+                Value::Object(o) => o.r#type(),
+                Value::ActionParameter(ap) => ap.r#type.dupe(),
+            })
+            .zip(&arguments)
+            .all(|(t, a)| t.inherits_or_eq(a))
+        {
             return Err(PredicateError::TypeMismatch);
         }
 

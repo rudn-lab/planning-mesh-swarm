@@ -1,11 +1,11 @@
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use alloc::{boxed::Box, rc::Rc};
 use core::ops::Deref;
 
 use crate::calculus::predicate::IsPredicate as PredicateLike;
 
 pub trait Evaluable<P: PredicateLike<P>>: Clone {
     fn eval(&self, context: &impl EvaluationContext<P>) -> bool;
-    fn predicates(&self) -> Vec<&P>;
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a>;
 }
 
 /// Skill issue implementing it like this
@@ -20,7 +20,7 @@ pub trait Evaluable<P: PredicateLike<P>>: Clone {
 ///         self.deref().eval(context)
 ///     }
 ///
-///     fn predicates(&self) -> Vec<&P> {
+///     fn predicates(&self) -> Box<dyn Iterator<Item = P>> {
 ///         self.deref().predicates()
 ///     }
 /// }
@@ -36,7 +36,7 @@ macro_rules! impl_evaluable_for_ref {
                 self.deref().eval(context)
             }
 
-            fn predicates(&self) -> Vec<&P> {
+            fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
                 self.deref().predicates()
             }
         }

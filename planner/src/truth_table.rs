@@ -34,7 +34,6 @@ impl<'a, E: Evaluable<Predicate>> TruthTable<'a, E> {
         // how the expression is evaluated
         let predicates = formula
             .predicates()
-            .into_iter()
             .filter(|p| !p.arguments().is_empty())
             .collect::<Vec<_>>();
 
