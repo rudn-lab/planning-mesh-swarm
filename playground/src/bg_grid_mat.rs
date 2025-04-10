@@ -7,15 +7,15 @@ pub(crate) struct GridMaterial {
     #[uniform(1)]
     pub(crate) bg_color: Vec4,
     #[uniform(2)]
-    pub(crate) num_cells: Vec2,
+    pub(crate) num_cells: Vec4,
     #[uniform(3)]
-    pub(crate) line_thickness_min: f32,
+    pub(crate) line_thickness_minmax: Vec4,
+    // #[uniform(4)]
+    // pub(crate) line_thickness_max: f32,
     #[uniform(4)]
-    pub(crate) line_thickness_max: f32,
+    pub(crate) cursor_position: Vec4,
     #[uniform(5)]
-    pub(crate) cursor_position: Vec2,
-    #[uniform(6)]
-    pub(crate) spotlight_radius: f32,
+    pub(crate) spotlight_radius: Vec4,
 }
 
 impl Default for GridMaterial {
@@ -23,11 +23,10 @@ impl Default for GridMaterial {
         Self {
             line_color: Color::BLACK.to_linear().to_vec4(),
             bg_color: Color::NONE.to_linear().to_vec4(),
-            num_cells: Vec2::default(),
-            line_thickness_min: f32::default(),
-            line_thickness_max: f32::default(),
-            cursor_position: Vec2::default(),
-            spotlight_radius: f32::default(),
+            num_cells: Default::default(),
+            line_thickness_minmax: Vec4::new(1.0, 1.0, 0.0, 0.0),
+            cursor_position: Vec4::default(),
+            spotlight_radius: Default::default(),
         }
     }
 }

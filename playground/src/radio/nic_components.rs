@@ -149,18 +149,18 @@ fn update_antenna_reach_vis_material(
             };
 
             if should_hide_this {
-                material.is_selected = 0.0;
+                material.is_selected = Vec4::ZERO;
                 material.shade_color = Vec4::ZERO;
                 continue;
             }
 
             match nic.reach {
                 AntennaReach::Circular { max_reach } => {
-                    material.radius = max_reach;
+                    material.radius = Vec4::new(max_reach, 0.0, 0.0, 0.0);
                 }
             }
 
-            material.center = transform.translation().xy();
+            material.center = transform.translation().xy().extend(0.0).extend(0.0);
             material.shade_color = [
                 nic.color.red,
                 nic.color.green,
@@ -169,7 +169,7 @@ fn update_antenna_reach_vis_material(
             ]
             .into();
 
-            material.camera_scale = camera.scale;
+            material.camera_scale = Vec4::ONE * camera.scale;
             material.is_selected = match mode.mode {
                 AuraVisualizationMode::None => 0.0,
                 AuraVisualizationMode::Selected => this_robot_is_selected.into(),
@@ -177,8 +177,8 @@ fn update_antenna_reach_vis_material(
                     (this_robot_is_hovered || this_robot_is_selected).into()
                 }
                 AuraVisualizationMode::All => this_robot_is_selected.into(),
-            };
-            material.time = time.elapsed_secs_wrapped();
+            } * Vec4::ONE;
+            material.time = time.elapsed_secs_wrapped() * Vec4::ONE;
         }
     }
 }

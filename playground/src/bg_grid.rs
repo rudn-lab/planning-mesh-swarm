@@ -59,11 +59,17 @@ fn prepare_grid(
     let mat = materials.add(GridMaterial {
         line_color: grid_config.line_color.to_linear().to_vec4(),
         bg_color: grid_config.bg_color.to_linear().to_vec4(),
-        num_cells: grid_config.num_cells,
-        line_thickness_min: grid_config.line_thickness_min,
-        line_thickness_max: grid_config.line_thickness_max,
-        spotlight_radius: grid_config.spotlight_radius,
-        cursor_position: Vec2::default(),
+        num_cells: grid_config.num_cells.extend(0.0).extend(0.0),
+        line_thickness_minmax: Vec2::new(
+            grid_config.line_thickness_min,
+            grid_config.line_thickness_max,
+        )
+        .extend(0.0)
+        .extend(0.0),
+        spotlight_radius: Vec2::new(grid_config.spotlight_radius, 0.0)
+            .extend(0.0)
+            .extend(0.0),
+        cursor_position: Vec2::default().extend(0.0).extend(0.0),
     });
 
     commands
@@ -94,7 +100,7 @@ pub(crate) fn update_grid_material(
     if let Some(cursor_pos) = cursor_pos {
         for mut material_component in query.iter_mut() {
             let material = assets.get_mut(&mut material_component.0).unwrap();
-            material.cursor_position = cursor_pos;
+            material.cursor_position = cursor_pos.extend(0.0).extend(0.0);
         }
     }
 }

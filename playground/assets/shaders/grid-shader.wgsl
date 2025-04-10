@@ -18,15 +18,15 @@ var<uniform> line_color: vec4<f32>;
 @group(2) @binding(1)
 var<uniform> bg_color: vec4<f32>;
 @group(2) @binding(2)
-var<uniform> num_cells: vec2<f32>;
+var<uniform> num_cells: vec4<f32>; // vec2<f32> with padding
 @group(2) @binding(3)
-var<uniform> line_thickness_min: f32;
+var<uniform> line_thickness_minmax: vec4<f32>; // vec2<f32> with padding
+// @group(2) @binding(4)
+// var<uniform> line_thickness_max: f32;
 @group(2) @binding(4)
-var<uniform> line_thickness_max: f32;
+var<uniform> cursor_position: vec4<f32>; // vec2<f32> with padding
 @group(2) @binding(5)
-var<uniform> cursor_position: vec2<f32>;
-@group(2) @binding(6)
-var<uniform> spotlight_radius: f32;
+var<uniform> spotlight_radius: vec4<f32>; // f32 with padding
 
 const pi = 3.14159265359;
 
@@ -37,16 +37,16 @@ fn falloff(x: f32) -> f32 {
 }
 
 fn get_thickness_at(uv: vec2<f32>) -> f32 {
-  let distance = length(cursor_position - uv);
-  let relative_distance = distance / spotlight_radius;
+  let distance = length(cursor_position.xy - uv);
+  let relative_distance = distance / spotlight_radius.x;
   let factor = falloff(relative_distance);
 
-  return mix(line_thickness_min, line_thickness_max, factor);
+  return mix(line_thickness_minmax.x, line_thickness_minmax.y, factor);
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let coord = in.world_position.xy / num_cells;
+    let coord = in.world_position.xy / num_cells.xy;
 
     // Compute anti-aliased world-space grid lines
     let grid_regular = abs(fract(coord - 0.5) - 0.5);
