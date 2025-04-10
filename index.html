@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Playground</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            height: 100%;
+        }
+    </style>
+    
+<script type="module" nonce="XTtJLIaSnXyeY250bFLgdA==">
+import init, * as bindings from '/playground-f6b63dd27daa25ec.js';
+const wasm = await init({ module_or_path: '/playground-f6b63dd27daa25ec_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    
+<link rel="modulepreload" href="/playground-f6b63dd27daa25ec.js" crossorigin=anonymous integrity="sha384-2BQYArSmBy2rs8Zb492I3EzEGLNAZrJxAeDTzjGwhJysTUmEld6Ne2cCpnCcwASh"><link rel="preload" href="/playground-f6b63dd27daa25ec_bg.wasm" crossorigin=anonymous integrity="sha384-FqwpP1lLrzCqhXKNHmUv2iHVQPGeqHnfwBlwOjyNh8KWwOUkCKHPF8oOKO8xH3Vu" as="fetch" type="application/wasm"></head>
+
+<body>
+</body>
+
+</html>
