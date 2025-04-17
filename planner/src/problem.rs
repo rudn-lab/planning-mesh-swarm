@@ -4,9 +4,10 @@
 //!     problem::DomainBuilder,
 //!     calculus::{
 //!         predicate::{PredicateBuilder, Value},
-//!         propositional::{Formula, FormulaMembers as FM, Primitives as Pr, And},
+//!         propositional::{Primitives as Pr, And},
+//!         first_order::QuantifiedFormula as F,
 //!     },
-//!     action::ActionBuilder,
+//!     action::{ActionBuilder, ActionEffect as E},
 //!     Dupe,
 //! };
 //!
@@ -27,8 +28,8 @@
 //!     .predicate_definitions(|types, predicates| {
 //!         let t1 = types.get_type("t1").unwrap();
 //!         let t2 = types.get_type("t2").unwrap();
-//!         predicates.insert(PredicateBuilder::new("foo").arguments(&[t1.dupe()]));
-//!         predicates.insert(PredicateBuilder::new("bar").arguments(&[t1.dupe(), t2.dupe()]));
+//!         predicates.insert(PredicateBuilder::new("foo").arguments(vec![t1.dupe()]));
+//!         predicates.insert(PredicateBuilder::new("bar").arguments(vec![t1.dupe(), t2.dupe()]));
 //!
 //!         Ok(())
 //!     })
@@ -37,24 +38,24 @@
 //!         let t2 = types.get_type("t2").unwrap();
 //!         let p1 = predicates.get("foo").unwrap();
 //!         let p2 = predicates.get("bar").unwrap();
-//!         let c1 = objects.get_object("A", &t1).unwrap();
+//!         let c1 = objects.get_object("A").unwrap();
 //!         ActionBuilder::new("baz")
-//!             .parameters(&[t1.dupe(), t2.dupe()])
+//!             .parameters(vec![t1.dupe(), t2.dupe()])
 //!             .precondition(|params| {
-//!                 Ok(Formula::new(FM::and(vec![
-//!                     FM::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-//!                     FM::not(FM::pred(
-//!                         p2.values(&[Value::object(&c1), Value::param(&params[1])])
+//!                 Ok(F::and(vec![
+//!                     F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+//!                     F::not(F::pred(
+//!                         p2.values(vec![Value::object(&c1), Value::param(&params[1])])
 //!                             .build()
 //!                             .unwrap(),
 //!                     )),
-//!                 ])))
+//!                 ]))
 //!             })
 //!             .effect(|params| {
-//!                 Ok(And::new(vec![
-//!                     Pr::not(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-//!                     Pr::pred(
-//!                         p2.values(&[Value::object(&c1), Value::param(&params[1])])
+//!                 Ok(E::and(vec![
+//!                     E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+//!                     E::pred(
+//!                         p2.values(vec![Value::object(&c1), Value::param(&params[1])])
 //!                             .build()
 //!                             .unwrap(),
 //!                     ),
@@ -74,29 +75,26 @@
 //!
 //!         Ok(())
 //!     })
-//!     .init(|types, objects, predicates, init| {
-//!         let t1 = types.get_type("t1").unwrap();
-//!         let o1 = objects.get_object("a", &t1).unwrap();
+//!     .init(|objects, predicates, init| {
+//!         let o1 = objects.get_object("a").unwrap();
 //!         init.insert(
 //!             predicates
 //!                 .get("foo")
 //!                 .unwrap()
-//!                 .resolved_values(&[o1])
+//!                 .resolved_values(vec![o1])
 //!                 .build()
 //!                 .unwrap(),
 //!         );
 //!
 //!         Ok(())
 //!     })
-//!     .goal(|types, objects, predicates| {
-//!         let t1 = types.get_type("t1").unwrap();
-//!         let t2 = types.get_type("t2").unwrap();
-//!         let c1 = objects.get_object("A", &t1).unwrap();
-//!         let o2 = objects.get_object("b", &t2).unwrap();
+//!     .goal(|_types, objects, predicates| {
+//!         let c1 = objects.get_object("A").unwrap();
+//!         let o2 = objects.get_object("b").unwrap();
 //!         let p2 = predicates.get("bar").unwrap();
-//!         Ok(Formula::new(FM::pred(
-//!             p2.resolved_values(&[c1.dupe(), o2.dupe()]).build().unwrap(),
-//!         )))
+//!         Ok(F::pred(
+//!             p2.values(vec![Value::object(&c1), Value::object(&o2)]).build().unwrap(),
+//!         ))
 //!     })
 //!     .build()
 //!     .unwrap();
@@ -108,8 +106,8 @@ use core::marker::PhantomData;
 use crate::{
     action::Action,
     calculus::{
-        predicate::{PredicateDefinition, PredicateError, ResolvedPredicate},
-        propositional::Formula,
+        first_order::QuantifiedFormula,
+        predicate::{Predicate, PredicateDefinition, PredicateError, ResolvedPredicate},
     },
     entity::{EntityStorage, ObjectStorage, TypeStorage},
     sealed::Sealed,
@@ -119,6 +117,71 @@ use crate::{
 };
 
 pub use pddl::Requirement;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Domain {
+    pub name: InternerSymbol,
+    pub entities: EntityStorage,
+    pub predicate_definitions: NamedStorage<PredicateDefinition>,
+    pub actions: NamedStorage<Action>,
+}
+
+impl Domain {
+    pub fn new_problem<O, I, G>(&self, name: &str) -> ProblemBuilder<O, I, G, New>
+    where
+        O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+        I: FnMut(
+            &dyn ObjectStorage,
+            &NamedStorage<PredicateDefinition>,
+            &mut NamedStorage<ResolvedPredicate>,
+        ) -> Result<(), BuildError>,
+        G: Fn(
+            &dyn TypeStorage,
+            &dyn ObjectStorage,
+            &NamedStorage<PredicateDefinition>,
+        ) -> Result<QuantifiedFormula<Predicate>, BuildError>,
+    {
+        ProblemBuilder {
+            problem_name: INTERNER.lock().get_or_intern(name),
+            domain: self.deep_clone(),
+            add_objects: None,
+            add_init: None,
+            add_goal: None,
+            state: PhantomData,
+        }
+    }
+}
+
+impl DeepClone for Domain {
+    fn deep_clone(&self) -> Self {
+        Self {
+            name: self.name,
+            entities: self.entities.deep_clone(),
+            predicate_definitions: self.predicate_definitions.clone(),
+            actions: self.actions.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Problem {
+    pub name: InternerSymbol,
+    pub domain_name: InternerSymbol,
+    pub entities: EntityStorage,
+    pub actions: NamedStorage<Action>,
+    pub init: State,
+    pub goal: QuantifiedFormula<Predicate>,
+}
+
+pub const SUPPORTED_REQUIREMENTS: [Requirement; 7] = [
+    Requirement::Strips,
+    Requirement::Typing,
+    Requirement::NegativePreconditions,
+    Requirement::DisjunctivePreconditions,
+    Requirement::ExistentialPreconditions,
+    Requirement::UniversalPreconditions,
+    Requirement::QuantifiedPreconditions,
+];
 
 #[derive(Debug)]
 pub enum BuildError {
@@ -143,7 +206,7 @@ pub enum UnsupportedFeature {
     Equality,
     Function,
     Preference,
-    Quantifier,
+    Conditional,
     NumericFluent,
     ObjectFluent,
     DurativeAction,
@@ -153,6 +216,7 @@ pub enum UnsupportedFeature {
     MetricSpec,
     LengthSpec,
     ProblemRequirements,
+    NegationInInit,
 }
 
 #[derive(Debug)]
@@ -162,6 +226,10 @@ pub enum BadDefinition {
     UnknownPredicate(String),
     UnknownParameter(String),
     WrongDomain(String),
+    /// [Literal](pddl::TermLiteral) contains [AtomicFormula](pddl::AtomicFormula) inside.
+    /// Docs say that this is requires Negative Precondition,
+    /// but tests show that this is not needed.
+    LiteralInGoalDefinition,
 }
 
 #[allow(private_bounds)]
@@ -371,52 +439,6 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Domain {
-    pub name: InternerSymbol,
-    pub entities: EntityStorage,
-    pub predicate_definitions: NamedStorage<PredicateDefinition>,
-    pub actions: NamedStorage<Action>,
-}
-
-impl Domain {
-    pub fn new_problem<O, I, G>(&self, name: &str) -> ProblemBuilder<O, I, G, New>
-    where
-        O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-        I: FnMut(
-            &dyn TypeStorage,
-            &dyn ObjectStorage,
-            &NamedStorage<PredicateDefinition>,
-            &mut NamedStorage<ResolvedPredicate>,
-        ) -> Result<(), BuildError>,
-        G: Fn(
-            &dyn TypeStorage,
-            &dyn ObjectStorage,
-            &NamedStorage<PredicateDefinition>,
-        ) -> Result<Formula<ResolvedPredicate>, BuildError>,
-    {
-        ProblemBuilder {
-            problem_name: INTERNER.lock().get_or_intern(name),
-            domain: self.deep_clone(),
-            add_objects: None,
-            add_init: None,
-            add_goal: None,
-            state: PhantomData,
-        }
-    }
-}
-
-impl DeepClone for Domain {
-    fn deep_clone(&self) -> Self {
-        Self {
-            name: self.name,
-            entities: self.entities.deep_clone(),
-            predicate_definitions: self.predicate_definitions.clone(),
-            actions: self.actions.clone(),
-        }
-    }
-}
-
 #[allow(private_bounds)]
 pub trait ProblemBuilderState: Sealed {}
 
@@ -437,7 +459,6 @@ pub struct ProblemBuilder<O, I, G, S>
 where
     O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
     I: FnMut(
-        &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<ResolvedPredicate>,
@@ -446,7 +467,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<Formula<ResolvedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<Predicate>, BuildError>,
     S: ProblemBuilderState,
 {
     problem_name: InternerSymbol,
@@ -461,7 +482,6 @@ impl<O, I, G> ProblemBuilder<O, I, G, New>
 where
     O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
     I: FnMut(
-        &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<ResolvedPredicate>,
@@ -470,7 +490,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<Formula<ResolvedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<Predicate>, BuildError>,
 {
     pub fn objects(self, add_objects: O) -> ProblemBuilder<O, I, G, HasObjects> {
         ProblemBuilder {
@@ -488,7 +508,6 @@ impl<O, I, G> ProblemBuilder<O, I, G, HasObjects>
 where
     O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
     I: FnMut(
-        &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<ResolvedPredicate>,
@@ -497,7 +516,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<Formula<ResolvedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<Predicate>, BuildError>,
 {
     pub fn init(self, add_init: I) -> ProblemBuilder<O, I, G, HasInit> {
         ProblemBuilder {
@@ -515,7 +534,6 @@ impl<O, I, G> ProblemBuilder<O, I, G, HasInit>
 where
     O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
     I: FnMut(
-        &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<ResolvedPredicate>,
@@ -524,7 +542,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<Formula<ResolvedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<Predicate>, BuildError>,
 {
     pub fn goal(self, add_goal: G) -> ProblemBuilder<O, I, G, HasGoal> {
         ProblemBuilder {
@@ -542,7 +560,6 @@ impl<O, I, G> ProblemBuilder<O, I, G, HasGoal>
 where
     O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
     I: FnMut(
-        &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<ResolvedPredicate>,
@@ -551,7 +568,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<Formula<ResolvedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<Predicate>, BuildError>,
 {
     pub fn build(self) -> Result<Problem, BuildError> {
         let mut entities = self.domain.entities;
@@ -559,32 +576,21 @@ where
         let predicate_definitions = self.domain.predicate_definitions;
 
         self.add_objects.unwrap()(&entities.clone(), &mut entities).and_then(|_| {
-            self.add_init.unwrap()(&entities, &entities, &predicate_definitions, &mut init)
-                .and_then(|_| {
-                    let init = State::default().with_predicates(init.as_vec());
-                    self.add_goal.unwrap()(&entities, &entities, &predicate_definitions).map(
-                        |goal| Problem {
-                            name: self.problem_name,
-                            domain_name: self.domain.name,
-                            entities,
-                            actions: self.domain.actions,
-                            init,
-                            goal,
-                        },
-                    )
+            self.add_init.unwrap()(&entities, &predicate_definitions, &mut init).and_then(|_| {
+                let init = State::default().with_predicates(init.as_vec());
+                self.add_goal.unwrap()(&entities, &entities, &predicate_definitions).map(|goal| {
+                    Problem {
+                        name: self.problem_name,
+                        domain_name: self.domain.name,
+                        entities,
+                        actions: self.domain.actions,
+                        init,
+                        goal,
+                    }
                 })
+            })
         })
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Problem {
-    pub name: InternerSymbol,
-    pub domain_name: InternerSymbol,
-    pub entities: EntityStorage,
-    pub actions: NamedStorage<Action>,
-    pub init: State,
-    pub goal: Formula<ResolvedPredicate>,
 }
 
 #[cfg(test)]
@@ -594,10 +600,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        action::ActionBuilder,
+        action::{ActionBuilder, ActionEffect as E},
         calculus::{
+            first_order::QuantifiedFormula as F,
             predicate::{PredicateBuilder, Value},
-            propositional::{And, Formula, FormulaMembers as FM, Primitives as Pr},
         },
     };
 
@@ -620,8 +626,9 @@ mod tests {
             .predicate_definitions(|types, predicates| {
                 let t1 = types.get_type("t1").unwrap();
                 let t2 = types.get_type("t2").unwrap();
-                predicates.insert(PredicateBuilder::new("foo").arguments(&[t1.dupe()]));
-                predicates.insert(PredicateBuilder::new("bar").arguments(&[t1.dupe(), t2.dupe()]));
+                predicates.insert(PredicateBuilder::new("foo").arguments(vec![t1.dupe()]));
+                predicates
+                    .insert(PredicateBuilder::new("bar").arguments(vec![t1.dupe(), t2.dupe()]));
 
                 Ok(())
             })
@@ -630,24 +637,24 @@ mod tests {
                 let t2 = types.get_type("t2").unwrap();
                 let p1 = predicates.get("foo").unwrap();
                 let p2 = predicates.get("bar").unwrap();
-                let c1 = objects.get_object("A", &t1).unwrap();
+                let c1 = objects.get_object("A").unwrap();
                 ActionBuilder::new("baz")
-                    .parameters(&[t1.dupe(), t2.dupe()])
+                    .parameters(vec![t1.dupe(), t2.dupe()])
                     .precondition(|params| {
-                        Ok(Formula::new(FM::and(vec![
-                            FM::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                            FM::not(FM::pred(
-                                p2.values(&[Value::object(&c1), Value::param(&params[1])])
+                        Ok(F::and(vec![
+                            F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                            F::not(F::pred(
+                                p2.values(vec![Value::object(&c1), Value::param(&params[1])])
                                     .build()
                                     .unwrap(),
                             )),
-                        ])))
+                        ]))
                     })
                     .effect(|params| {
-                        Ok(And::new(vec![
-                            Pr::not(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                            Pr::pred(
-                                p2.values(&[Value::object(&c1), Value::param(&params[1])])
+                        Ok(E::and(vec![
+                            E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                            E::pred(
+                                p2.values(vec![Value::object(&c1), Value::param(&params[1])])
                                     .build()
                                     .unwrap(),
                             ),
@@ -667,29 +674,28 @@ mod tests {
 
                 Ok(())
             })
-            .init(|types, objects, predicates, init| {
-                let t1 = types.get_type("t1").unwrap();
-                let o1 = objects.get_object("a", &t1).unwrap();
+            .init(|objects, predicates, init| {
+                let o1 = objects.get_object("a").unwrap();
                 init.insert(
                     predicates
                         .get("foo")
                         .unwrap()
-                        .resolved_values(&[o1])
+                        .resolved_values(vec![o1])
                         .build()
                         .unwrap(),
                 );
 
                 Ok(())
             })
-            .goal(|types, objects, predicates| {
-                let t1 = types.get_type("t1").unwrap();
-                let t2 = types.get_type("t2").unwrap();
-                let c1 = objects.get_object("A", &t1).unwrap();
-                let o2 = objects.get_object("b", &t2).unwrap();
+            .goal(|_types, objects, predicates| {
+                let c1 = objects.get_object("A").unwrap();
+                let o2 = objects.get_object("b").unwrap();
                 let p2 = predicates.get("bar").unwrap();
-                Ok(Formula::new(FM::pred(
-                    p2.resolved_values(&[c1.dupe(), o2.dupe()]).build().unwrap(),
-                )))
+                Ok(F::pred(
+                    p2.values(vec![Value::object(&c1), Value::object(&o2)])
+                        .build()
+                        .unwrap(),
+                ))
             })
             .build()
             .unwrap();
@@ -702,29 +708,28 @@ mod tests {
 
                 Ok(())
             })
-            .init(|types, objects, predicates, init| {
-                let t1 = types.get_type("t1").unwrap();
-                let o3 = objects.get_object("c", &t1).unwrap();
+            .init(|objects, predicates, init| {
+                let o3 = objects.get_object("c").unwrap();
                 init.insert(
                     predicates
                         .get("foo")
                         .unwrap()
-                        .resolved_values(&[o3.dupe()])
+                        .resolved_values(vec![o3.dupe()])
                         .build()
                         .unwrap(),
                 );
 
                 Ok(())
             })
-            .goal(|types, objects, predicates| {
-                let t1 = types.get_type("t1").unwrap();
-                let t2 = types.get_type("t2").unwrap();
-                let c1 = objects.get_object("A", &t1).unwrap();
-                let o4 = objects.get_object("d", &t2).unwrap();
+            .goal(|_types, objects, predicates| {
+                let c1 = objects.get_object("A").unwrap();
+                let o4 = objects.get_object("d").unwrap();
                 let p2 = predicates.get("bar").unwrap();
-                Ok(Formula::new(FM::pred(
-                    p2.resolved_values(&[c1.dupe(), o4.dupe()]).build().unwrap(),
-                )))
+                Ok(F::pred(
+                    p2.values(vec![Value::object(&c1), Value::object(&o4)])
+                        .build()
+                        .unwrap(),
+                ))
             })
             .build()
             .unwrap();

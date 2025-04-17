@@ -1,10 +1,10 @@
 use alloc::{boxed::Box, rc::Rc};
-use core::ops::Deref;
+use core::{fmt::Debug, ops::Deref};
 
-use crate::calculus::predicate::IsPredicate as PredicateLike;
+use crate::calculus::predicate::IsPredicate;
 
-pub trait Evaluable<P: PredicateLike<P>>: Clone {
-    fn eval(&self, context: &impl EvaluationContext<P>) -> bool;
+pub trait Evaluable<P: IsPredicate<P>, RP: IsPredicate<RP>>: Clone + Debug {
+    fn eval(&self, context: &impl EvaluationContext<RP>) -> bool;
     fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a>;
 }
 
@@ -27,10 +27,10 @@ pub trait Evaluable<P: PredicateLike<P>>: Clone {
 /// ```
 macro_rules! impl_evaluable_for_ref {
     ($type:ty) => {
-        impl<T, P> Evaluable<P> for $type
+        impl<T, P> Evaluable<P, P> for $type
         where
-            T: Evaluable<P>,
-            P: PredicateLike<P>,
+            T: Evaluable<P, P>,
+            P: IsPredicate<P>,
         {
             fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
                 self.deref().eval(context)
@@ -47,6 +47,6 @@ impl_evaluable_for_ref!(Rc<T>);
 impl_evaluable_for_ref!(Box<T>);
 impl_evaluable_for_ref!(&T);
 
-pub trait EvaluationContext<P: PredicateLike<P>> {
+pub trait EvaluationContext<P: IsPredicate<P>> {
     fn eval(&self, predicate: &P) -> bool;
 }

@@ -2,7 +2,8 @@ use crate::{
     action::{Action, ActionParameter},
     calculus::{
         evaluation::{Evaluable, EvaluationContext},
-        predicate::{Predicate, ResolvedPredicate},
+        first_order::{BoundVariable, QuantifierSymbol},
+        predicate::{LiftedValue, Predicate, ResolvedPredicate},
         propositional::{And, DnfMembers, Expression, NormalForm, Not, Primitives},
     },
     entity::ObjectHandle,
@@ -75,6 +76,68 @@ impl<'a> ParameterResolution<'a> {
     }
 }
 
+pub fn eval_dnf_clause_with_quantifier_prefix(
+    prefix: &[QuantifierSymbol],
+    clause_map: &BTreeMap<LiftedValue<'_>, BTreeSet<ObjectHandle>>,
+) -> bool {
+    fn eval(
+        prefix: &[QuantifierSymbol],
+        clause_map: &BTreeMap<LiftedValue<'_>, BTreeSet<ObjectHandle>>,
+        var_assignment: &mut BTreeMap<BoundVariable, ObjectHandle>,
+    ) -> bool {
+        let Some((head, tail)) = prefix.split_first() else {
+            // All of the prefix is applied.
+            // Now we need to check whether the current application in `var_assignment`
+            // can evaluate the clause to true.
+            return clause_map.iter().all(|(k, v)| match k {
+                LiftedValue::ActionParameter(_, _) => true,
+                LiftedValue::BoundVariable(_, bv) => v.contains(
+                    var_assignment
+                        .get(bv)
+                        .expect("BoundVariable is being used without a quantifier."),
+                ),
+            });
+        };
+
+        fn with_var_assignment<F>(
+            var_assignment: &mut BTreeMap<BoundVariable, ObjectHandle>,
+            bindings: Vec<(BoundVariable, ObjectHandle)>,
+            mut f: F,
+        ) -> bool
+        where
+            F: FnMut(&mut BTreeMap<BoundVariable, ObjectHandle>) -> bool,
+        {
+            let past_keys = var_assignment.keys().cloned().collect_vec();
+            // Update the variables that we check in this branch
+            var_assignment.extend(bindings);
+
+            let res = f(var_assignment);
+
+            var_assignment.retain(|k, _| past_keys.contains(k));
+            res
+        }
+
+        match head {
+            QuantifierSymbol::ForAll(variables) => variables
+                .iter()
+                .map(|v| v.r#type.get_objects().into_iter().map(|e| (v.dupe(), e)))
+                .multi_cartesian_product()
+                // Ensure that for all permutations of this quantifier's
+                // bound variables the rest of the expression satisfies.
+                .all(|v| with_var_assignment(var_assignment, v, |x| eval(tail, clause_map, x))),
+            QuantifierSymbol::Exists(variables) => variables
+                .iter()
+                .map(|v| v.r#type.get_objects().into_iter().map(|e| (v.dupe(), e)))
+                .multi_cartesian_product()
+                // The rest of the expression should evaluate to true
+                // for at least one of the bound variables
+                .any(|v| with_var_assignment(var_assignment, v, |x| eval(tail, clause_map, x))),
+        }
+    }
+
+    eval(prefix, clause_map, &mut BTreeMap::new())
+}
+
 impl State {
     #[allow(
         clippy::mutable_key_type,
@@ -85,8 +148,8 @@ impl State {
     fn resolve_predicate<'a>(
         &'a self,
         predicate: &'a Predicate,
-    ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
-        let keys = predicate.action_parameters();
+    ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
+        let keys = predicate.lifted_values();
 
         // Populating accumulator with all of the keys,
         // because even if there's no resolution for a predicate
@@ -96,7 +159,7 @@ impl State {
         // __and__ for negated ones too.
         let acc = || {
             keys.iter()
-                .map(|&(_, k)| (k, BTreeSet::new()))
+                .map(|&k| (k, BTreeSet::new()))
                 .collect::<BTreeMap<_, _>>()
         };
         self.predicates
@@ -108,13 +171,12 @@ impl State {
                     // Get only those values that correspond to an action parameter
                     .flat_map(|rp| {
                         keys.iter()
-                            .zip(keys.iter().map(|(i, _)| rp.values()[*i].dupe()))
-                            .map(|((_, ap), v)| (ap, v))
+                            .zip(keys.iter().map(|k| rp.values()[k.idx()].dupe()))
                             .collect_vec()
                     })
                     // This just transforms a list of ResolvedPredicates to the output type
-                    .fold(acc(), |mut acc, (ap, v)| {
-                        acc.entry(ap)
+                    .fold(acc(), |mut acc, (lv, v)| {
+                        acc.entry(*lv)
                             .and_modify(|s: &mut BTreeSet<_>| {
                                 let _ = s.insert(v.dupe());
                             })
@@ -134,7 +196,7 @@ impl State {
     fn resolve_negated_predicate<'a>(
         &'a self,
         predicate: &'a Not<Predicate, Predicate>,
-    ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
+    ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
         let predicate = predicate.inner();
         self.resolve_predicate(predicate)
             .into_iter()
@@ -142,12 +204,14 @@ impl State {
             // possible resolutions should be all objects
             // except for those found for a positive predicate
             .map(|(r, obj_for_param)| {
-                let objects = r
-                    .r#type
-                    .get_objects()
-                    .into_iter()
-                    .filter(|o| !obj_for_param.contains(o))
-                    .collect::<BTreeSet<_>>();
+                let objects = match r {
+                    LiftedValue::ActionParameter(_, ap) => &ap.r#type,
+                    LiftedValue::BoundVariable(_, bv) => &bv.r#type,
+                }
+                .get_objects()
+                .into_iter()
+                .filter(|o| !obj_for_param.contains(o))
+                .collect::<BTreeSet<_>>();
 
                 (r, objects)
             })
@@ -161,7 +225,7 @@ impl State {
     fn handle_primitives<'a>(
         &'a self,
         p: &'a Primitives<Predicate>,
-    ) -> BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>> {
+    ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
         match p {
             Primitives::Not(np) => self.resolve_negated_predicate(np),
             Primitives::Pred(p) => self.resolve_predicate(p),
@@ -175,18 +239,18 @@ impl State {
     fn handle_and<'a>(
         &'a self,
         and: &'a And<Primitives<Predicate>, Predicate>,
-    ) -> Option<BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>> {
+    ) -> Option<BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>>> {
         let o = and
             .members()
             .iter()
             .fold(BTreeMap::default(), |mut acc: BTreeMap<_, _>, p| {
-                self.handle_primitives(p).iter().for_each(|(k, v)| {
-                    acc.entry(*k)
+                self.handle_primitives(p).into_iter().for_each(|(k, v)| {
+                    acc.entry(k)
                         .and_modify(|s: &mut BTreeSet<_>| {
                             // Because we're doing intersection here
                             // the resulting resolution set should apply
                             // to all predicates with this parameter
-                            *s = s.intersection(v).cloned().collect()
+                            *s = s.intersection(&v).cloned().collect()
                         })
                         .or_insert_with(|| v.clone());
                 });
@@ -206,13 +270,14 @@ impl State {
     )]
     pub fn resolve_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterResolution<'a>> {
         let num_params = action.parameters().len();
+        let prefix = action.precondition().prefix();
         action
             .precondition()
+            .matrix()
             .expression()
             .members()
             .iter()
-            // Filter out clauses that cannot give resolutions
-            // for all action parameters
+            // Filter out clauses that don't contain all of the action parameters
             .filter(|clause| match clause {
                 DnfMembers::And(and) => {
                     and.predicates()
@@ -234,8 +299,28 @@ impl State {
                 DnfMembers::And(and) => self.handle_and(and),
                 DnfMembers::Prim(p) => Some(self.handle_primitives(p)),
             })
-            // Filter out those resolutions that don't cover all parameters
-            .filter(|r| r.values().filter(|v| !v.is_empty()).count() == action.parameters().len())
+            // Filter out those resolutions that didn't resolve all of the action parameters
+            .filter(|r| {
+                r.iter()
+                    .filter(|(k, v)| {
+                        matches!(k, LiftedValue::ActionParameter(_, _)) && !v.is_empty()
+                    })
+                    .count()
+                    == num_params
+            })
+            // For each clause check if it is satisfactory under the prefix.
+            // We can do this for each clause because our [DNF] is full,
+            // that is, each of its clauses contains each predicate of the original expression
+            // either as is or in its negated form.
+            .filter(|clause_map| eval_dnf_clause_with_quantifier_prefix(prefix, clause_map))
+            .map(|map| {
+                map.into_iter()
+                    .filter_map(|(k, v)| match k {
+                        LiftedValue::ActionParameter(_, ap) => Some((ap, v)),
+                        LiftedValue::BoundVariable(_, _) => None,
+                    })
+                    .collect::<BTreeMap<_, _>>()
+            })
             .map(ParameterResolution)
             .collect::<BTreeSet<_>>()
     }
@@ -292,10 +377,11 @@ pub enum ModifyState {
 mod tests {
     use super::*;
     use crate::{
-        action::ActionBuilder,
-        calculus::predicate::*,
-        calculus::propositional::{
-            And, Dnf, DnfMembers, Formula, FormulaMembers as FM, Primitives as Pr,
+        action::{ActionBuilder, ActionEffect as E},
+        calculus::{
+            first_order::{QuantifiedFormula as F, QuantifierBuilder},
+            predicate::*,
+            propositional::{Dnf, DnfMembers, Primitives as Pr},
         },
         entity::*,
     };
@@ -310,9 +396,9 @@ mod tests {
         let b = entities.get_or_create_object("b", &t);
         let c = entities.get_or_create_object("c", &t);
 
-        let p = PredicateBuilder::new("foo").arguments(&[t.dupe(), t.dupe()]);
+        let p = PredicateBuilder::new("foo").arguments(vec![t.dupe(), t.dupe()]);
         let ps = p
-            .values(&[Value::object(&x), Value::object(&y)])
+            .values(vec![Value::object(&x), Value::object(&y)])
             .build()
             .unwrap();
         let rp = ps.into_resolved(&BTreeMap::new()).unwrap();
@@ -324,17 +410,23 @@ mod tests {
         // which then get resolved and added to the state over the
         // course of the program.
         let p1 = PredicateBuilder::new("foo")
-            .arguments(&[t.dupe(), t.dupe()])
-            .values(&[Value::object(&x), Value::object(&b)])
+            .arguments(vec![t.dupe(), t.dupe()])
+            .values(vec![Value::object(&x), Value::object(&b)])
             .build()
             .unwrap();
         let rp1 = p1.into_resolved(&BTreeMap::new()).unwrap();
 
-        let p2 = PredicateBuilder::new("bar").arguments(&[t.dupe()]);
-        let ps2 = p2.values(&[Value::object(&c)]).build().unwrap();
+        let p2 = PredicateBuilder::new("bar").arguments(vec![t.dupe()]);
+        let ps2 = p2.values(vec![Value::object(&c)]).build().unwrap();
         let rp2 = ps2.into_resolved(&BTreeMap::new()).unwrap();
 
-        let state = State::default().with_predicates(vec![rp.clone(), rp1.clone(), rp2.clone()]);
+        let state = State::default().with_predicates(
+            rp.iter()
+                .chain(rp1.iter())
+                .chain(rp2.iter())
+                .cloned()
+                .collect_vec(),
+        );
 
         // No values, because no ActionParameters
         assert_eq!(state.resolve_predicate(&ps), BTreeMap::default());
@@ -346,42 +438,54 @@ mod tests {
         let mut ap1 = ap0.dupe();
         ap1.parameter_idx = 1;
         let pp = p
-            .values(&[Value::param(&ap0), Value::param(&ap1)])
+            .values(vec![Value::param(&ap0), Value::param(&ap1)])
             .build()
             .unwrap();
         // Resolutions from `rp` and `rp1`, because they are both `foo` and have the same type of arguments
         assert_eq!(
             state.resolve_predicate(&pp),
             BTreeMap::from([
-                (&ap0, BTreeSet::from([x.dupe()])),
-                (&ap1, BTreeSet::from([y.dupe(), b.dupe()]))
+                (
+                    LiftedValue::ActionParameter(0, &ap0),
+                    BTreeSet::from([x.dupe()])
+                ),
+                (
+                    LiftedValue::ActionParameter(1, &ap1),
+                    BTreeSet::from([y.dupe(), b.dupe()])
+                )
             ])
         );
 
-        let pp2 = p2.values(&[Value::param(&ap0)]).build().unwrap();
+        let pp2 = p2.values(vec![Value::param(&ap0)]).build().unwrap();
         // Resolutions from negated `bar`
         assert_eq!(
             state.resolve_negated_predicate(&Not::new(pp2)),
-            BTreeMap::from([(&ap0, BTreeSet::from([x.dupe(), y.dupe(), b.dupe()]))])
+            BTreeMap::from([(
+                LiftedValue::ActionParameter(0, &ap0),
+                BTreeSet::from([x.dupe(), y.dupe(), b.dupe()])
+            )])
         );
 
         // Predicate with no parameters doesn't get resolved
         let p3 = PredicateBuilder::new("baz")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         assert_eq!(state.resolve_predicate(&p3), BTreeMap::default());
 
         // Negated predicate that isn't in a state should get all permutations of values
         let p4 = PredicateBuilder::new("qux")
-            .arguments(&[t.dupe()])
-            .values(&[Value::param(&ap0)])
+            .arguments(vec![t.dupe()])
+            .values(vec![Value::param(&ap0)])
             .build()
             .unwrap();
         assert_eq!(
             state.resolve_negated_predicate(&Not::new(p4)),
-            BTreeMap::from([(&ap0, BTreeSet::from([x, y, b, c]))])
+            BTreeMap::from([(
+                LiftedValue::ActionParameter(0, &ap0),
+                BTreeSet::from([x, y, b, c])
+            )])
         );
     }
 
@@ -394,32 +498,32 @@ mod tests {
         let x = entities.get_or_create_object("x", &t1);
         let y = entities.get_or_create_object("y", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe()]);
-        let p3 = PredicateBuilder::new("p3").arguments(&[t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe()]);
+        let p3 = PredicateBuilder::new("p3").arguments(vec![t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Formula::new(FM::and(vec![
-                    FM::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    FM::not(FM::pred(
-                        p2.values(&[Value::param(&params[1])]).build().unwrap(),
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::not(F::pred(
+                        p2.values(vec![Value::param(&params[1])]).build().unwrap(),
                     )),
-                    FM::pred(p3.values(&[Value::param(&params[1])]).build().unwrap()),
-                ])))
+                    F::pred(p3.values(vec![Value::param(&params[1])]).build().unwrap()),
+                ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::not(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values(&[Value::param(&params[1])]).build().unwrap()),
+                Ok(E::and(vec![
+                    E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(p2.values(vec![Value::param(&params[1])]).build().unwrap()),
                 ]))
             })
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(&[x.dupe()]).build().unwrap();
-        let rp3 = p3.resolved_values(&[y.dupe()]).build().unwrap();
+        let rp1 = p1.resolved_values(vec![x.dupe()]).build().unwrap();
+        let rp3 = p3.resolved_values(vec![y.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![rp1, rp3]);
 
         let action_params = action.parameters();
@@ -433,10 +537,10 @@ mod tests {
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values(&[x.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(&[y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.resolved_values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(vec![y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -465,29 +569,29 @@ mod tests {
         let x = entities.get_or_create_object("x", &t1);
         let y = entities.get_or_create_object("y", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Formula::new(FM::and(vec![
-                    FM::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    FM::not(FM::pred(
-                        p2.values(&[Value::param(&params[1])]).build().unwrap(),
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::not(F::pred(
+                        p2.values(vec![Value::param(&params[1])]).build().unwrap(),
                     )),
-                ])))
+                ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::not(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values(&[Value::param(&params[1])]).build().unwrap()),
+                Ok(E::and(vec![
+                    E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(p2.values(vec![Value::param(&params[1])]).build().unwrap()),
                 ]))
             })
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(&[x.dupe()]).build().unwrap();
+        let rp1 = p1.resolved_values(vec![x.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![rp1]);
 
         let action_params = action.parameters();
@@ -501,10 +605,10 @@ mod tests {
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values(&[x.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(&[y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.resolved_values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(vec![y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -535,32 +639,32 @@ mod tests {
         let y1 = entities.get_or_create_object("y1", &t2);
         let y2 = entities.get_or_create_object("y2", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Formula::new(FM::and(vec![
-                    FM::not(FM::pred(
-                        p1.values(&[Value::param(&params[0])]).build().unwrap(),
+                Ok(F::and(vec![
+                    F::not(F::pred(
+                        p1.values(vec![Value::param(&params[0])]).build().unwrap(),
                     )),
-                    FM::not(FM::pred(
-                        p2.values(&[Value::param(&params[1])]).build().unwrap(),
+                    F::not(F::pred(
+                        p2.values(vec![Value::param(&params[1])]).build().unwrap(),
                     )),
-                ])))
+                ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values(&[Value::param(&params[1])]).build().unwrap()),
+                Ok(E::and(vec![
+                    E::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(p2.values(vec![Value::param(&params[1])]).build().unwrap()),
                 ]))
             })
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(&[x1.dupe()]).build().unwrap();
-        let rp2 = p2.resolved_values(&[y1.dupe()]).build().unwrap();
+        let rp1 = p1.resolved_values(vec![x1.dupe()]).build().unwrap();
+        let rp2 = p2.resolved_values(vec![y1.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![rp1, rp2]);
 
         let action_params = action.parameters();
@@ -574,10 +678,10 @@ mod tests {
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Add(p1.resolved_values(&[x2.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(&[y2.dupe()]).build().unwrap()),
+            ModifyState::Add(p1.resolved_values(vec![x2.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -606,35 +710,37 @@ mod tests {
         let x1 = entities.get_or_create_object("x1", &t1);
         let x2 = entities.get_or_create_object("x2", &t1);
         let y1 = entities.get_or_create_object("y1", &t2);
+        let y2 = entities.get_or_create_object("y2", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Formula::new(FM::and(vec![
-                    FM::not(FM::pred(
-                        p1.values(&[Value::param(&params[0])]).build().unwrap(),
+                Ok(F::and(vec![
+                    F::not(F::pred(
+                        p1.values(vec![Value::param(&params[0])]).build().unwrap(),
                     )),
-                    FM::not(FM::pred(
-                        p2.values(&[Value::param(&params[1])]).build().unwrap(),
+                    F::not(F::pred(
+                        p2.values(vec![Value::param(&params[1])]).build().unwrap(),
                     )),
-                ])))
+                ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values(&[Value::param(&params[1])]).build().unwrap()),
+                Ok(E::and(vec![
+                    E::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(p2.values(vec![Value::param(&params[1])]).build().unwrap()),
                 ]))
             })
             .build()
             .unwrap();
 
-        let rp11 = p1.resolved_values(&[x1.dupe()]).build().unwrap();
-        let rp12 = p1.resolved_values(&[x2.dupe()]).build().unwrap();
-        let rp21 = p2.resolved_values(&[y1.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rp11, rp12, rp21]);
+        let rp11 = p1.resolved_values(vec![x1.dupe()]).build().unwrap();
+        let rp12 = p1.resolved_values(vec![x2.dupe()]).build().unwrap();
+        let rp21 = p2.resolved_values(vec![y1.dupe()]).build().unwrap();
+        let rp22 = p2.resolved_values(vec![y2.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![rp11, rp12, rp21, rp22]);
 
         let res = state.resolve_action(&action);
         // This one is empty because not all params are resolved
@@ -645,9 +751,10 @@ mod tests {
         //     (&action_params[1], BTreeSet::from([y2])),
         // ]))]);
         // ```
+        println!("{:?}", res);
         assert!(res.is_empty());
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::new();
 
         assert_eq!(effects, correct_effects);
@@ -679,34 +786,34 @@ mod tests {
         let y2 = entities.get_or_create_object("y2", &t2);
         let y3 = entities.get_or_create_object("y3", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe(), t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe(), t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe(), t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe(), t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Formula::new(FM::and(vec![
-                    FM::pred(
-                        p1.values(&[Value::param(&params[0]), Value::object(&x2)])
+                Ok(F::and(vec![
+                    F::pred(
+                        p1.values(vec![Value::param(&params[0]), Value::object(&x2)])
                             .build()
                             .unwrap(),
                     ),
-                    FM::not(FM::pred(
-                        p2.values(&[Value::object(&y1), Value::param(&params[1])])
+                    F::not(F::pred(
+                        p2.values(vec![Value::object(&y1), Value::param(&params[1])])
                             .build()
                             .unwrap(),
                     )),
-                ])))
+                ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::not(
-                        p1.values(&[Value::object(&x2), Value::param(&params[0])])
+                Ok(E::and(vec![
+                    E::npred(
+                        p1.values(vec![Value::object(&x2), Value::param(&params[0])])
                             .build()
                             .unwrap(),
                     ),
-                    Pr::pred(
-                        p2.values(&[Value::param(&params[1]), Value::object(&y1)])
+                    E::pred(
+                        p2.values(vec![Value::param(&params[1]), Value::object(&y1)])
                             .build()
                             .unwrap(),
                     ),
@@ -715,8 +822,14 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(&[x1.dupe(), x2.dupe()]).build().unwrap();
-        let rp2 = p2.resolved_values(&[y1.dupe(), y2.dupe()]).build().unwrap();
+        let rp1 = p1
+            .resolved_values(vec![x1.dupe(), x2.dupe()])
+            .build()
+            .unwrap();
+        let rp2 = p2
+            .resolved_values(vec![y1.dupe(), y2.dupe()])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(vec![rp1, rp2]);
 
         let action_params = action.parameters();
@@ -730,15 +843,31 @@ mod tests {
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe(), y1.dupe()]).build().unwrap()),
+                ModifyState::Del(
+                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
+                ModifyState::Add(
+                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y3.dupe(), y1.dupe()]).build().unwrap()),
+                ModifyState::Del(
+                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
+                ModifyState::Add(
+                    p2.resolved_values(vec![y3.dupe(), y1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
             ]),
         ]);
 
@@ -771,33 +900,33 @@ mod tests {
         let y2 = entities.get_or_create_object("y2", &t2);
         let y3 = entities.get_or_create_object("y3", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe(), t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe(), t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe(), t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe(), t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
                 Ok(Dnf::new(vec![
                     DnfMembers::and(vec![
                         Pr::pred(
-                            p1.values(&[Value::param(&params[0]), Value::object(&x2)])
+                            p1.values(vec![Value::param(&params[0]), Value::object(&x2)])
                                 .build()
                                 .unwrap(),
                         ),
                         Pr::not(
-                            p2.values(&[Value::object(&y1), Value::param(&params[1])])
+                            p2.values(vec![Value::object(&y1), Value::param(&params[1])])
                                 .build()
                                 .unwrap(),
                         ),
                     ]),
                     DnfMembers::and(vec![
                         Pr::not(
-                            p1.values(&[Value::object(&x2), Value::param(&params[0])])
+                            p1.values(vec![Value::object(&x2), Value::param(&params[0])])
                                 .build()
                                 .unwrap(),
                         ),
                         Pr::pred(
-                            p2.values(&[Value::param(&params[1]), Value::object(&y2)])
+                            p2.values(vec![Value::param(&params[1]), Value::object(&y2)])
                                 .build()
                                 .unwrap(),
                         ),
@@ -806,14 +935,14 @@ mod tests {
                 ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::not(
-                        p1.values(&[Value::object(&x2), Value::param(&params[0])])
+                Ok(E::and(vec![
+                    E::npred(
+                        p1.values(vec![Value::object(&x2), Value::param(&params[0])])
                             .build()
                             .unwrap(),
                     ),
-                    Pr::pred(
-                        p2.values(&[Value::param(&params[1]), Value::object(&y1)])
+                    E::pred(
+                        p2.values(vec![Value::param(&params[1]), Value::object(&y1)])
                             .build()
                             .unwrap(),
                     ),
@@ -822,8 +951,14 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(&[x1.dupe(), x2.dupe()]).build().unwrap();
-        let rp2 = p2.resolved_values(&[y1.dupe(), y2.dupe()]).build().unwrap();
+        let rp1 = p1
+            .resolved_values(vec![x1.dupe(), x2.dupe()])
+            .build()
+            .unwrap();
+        let rp2 = p2
+            .resolved_values(vec![y1.dupe(), y2.dupe()])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(vec![rp1, rp2]);
 
         let action_params = action.parameters();
@@ -845,24 +980,56 @@ mod tests {
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe(), y1.dupe()]).build().unwrap()),
+                ModifyState::Del(
+                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
+                ModifyState::Add(
+                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y3.dupe(), y1.dupe()]).build().unwrap()),
+                ModifyState::Del(
+                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
+                ModifyState::Add(
+                    p2.resolved_values(vec![y3.dupe(), y1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
             ]),
             // The same as the first one, will be re&moved by the set
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe(), y1.dupe()]).build().unwrap()),
+                ModifyState::Del(
+                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
+                ModifyState::Add(
+                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe(), x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe(), y1.dupe()]).build().unwrap()),
+                ModifyState::Del(
+                    p1.resolved_values(vec![x2.dupe(), x2.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
+                ModifyState::Add(
+                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                        .build()
+                        .unwrap(),
+                ),
             ]),
         ]);
 
@@ -898,52 +1065,52 @@ mod tests {
         let y1 = entities.get_or_create_object("y1", &t2);
         let y2 = entities.get_or_create_object("y2", &t2);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe()]);
-        let pp1 = PredicateBuilder::new("pp1").arguments(&[tt1.clone()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let pp1 = PredicateBuilder::new("pp1").arguments(vec![tt1.clone()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), tt1.clone(), t2.dupe()])
+            .parameters(vec![t1.dupe(), tt1.clone(), t2.dupe()])
             .precondition(|params| {
                 Ok(Dnf::new(vec![
                     DnfMembers::and(vec![
-                        Pr::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                        Pr::pred(pp1.values(&[Value::param(&params[1])]).build().unwrap()),
-                        Pr::pred(p2.values(&[Value::param(&params[2])]).build().unwrap()),
+                        Pr::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                        Pr::pred(pp1.values(vec![Value::param(&params[1])]).build().unwrap()),
+                        Pr::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
                     ]),
                     DnfMembers::and(vec![
-                        Pr::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                        Pr::pred(p1.values(&[Value::param(&params[1])]).build().unwrap()),
-                        Pr::pred(p2.values(&[Value::param(&params[2])]).build().unwrap()),
+                        Pr::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                        Pr::pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
+                        Pr::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
                     ]),
                     // These won't get resolved as they are missing the other params
                     DnfMembers::prim(Pr::pred(
-                        pp1.values(&[Value::param(&params[1])]).build().unwrap(),
+                        pp1.values(vec![Value::param(&params[1])]).build().unwrap(),
                     )),
                     DnfMembers::prim(Pr::pred(
-                        p2.values(&[Value::param(&params[2])]).build().unwrap(),
+                        p2.values(vec![Value::param(&params[2])]).build().unwrap(),
                     )),
                 ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::not(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(p2.values(&[Value::param(&params[2])]).build().unwrap()),
+                Ok(E::and(vec![
+                    E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
                 ]))
             })
             .build()
             .unwrap();
 
-        let rp1_t1_1 = p1.resolved_values(&[x1.dupe()]).build().unwrap();
-        let rp1_t1_2 = p1.resolved_values(&[x2.dupe()]).build().unwrap();
-        let rp1_tt1_1 = p1.resolved_values(&[xx1.dupe()]).build().unwrap();
-        let rp1_tt1_2 = p1.resolved_values(&[xx2.dupe()]).build().unwrap();
+        let rp1_t1_1 = p1.resolved_values(vec![x1.dupe()]).build().unwrap();
+        let rp1_t1_2 = p1.resolved_values(vec![x2.dupe()]).build().unwrap();
+        let rp1_tt1_1 = p1.resolved_values(vec![xx1.dupe()]).build().unwrap();
+        let rp1_tt1_2 = p1.resolved_values(vec![xx2.dupe()]).build().unwrap();
 
-        let rpp1_tt1_1 = pp1.resolved_values(&[xx1.dupe()]).build().unwrap();
-        let rpp1_tt1_2 = pp1.resolved_values(&[xx2.dupe()]).build().unwrap();
+        let rpp1_tt1_1 = pp1.resolved_values(vec![xx1.dupe()]).build().unwrap();
+        let rpp1_tt1_2 = pp1.resolved_values(vec![xx2.dupe()]).build().unwrap();
 
-        let rp2_t2_1 = p2.resolved_values(&[y1.dupe()]).build().unwrap();
-        let rp2_t2_2 = p2.resolved_values(&[y2.dupe()]).build().unwrap();
+        let rp2_t2_1 = p2.resolved_values(vec![y1.dupe()]).build().unwrap();
+        let rp2_t2_2 = p2.resolved_values(vec![y2.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![
             rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
         ]);
@@ -986,39 +1153,39 @@ mod tests {
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[xx1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![xx1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[xx1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![xx1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[xx2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![xx2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(&[xx2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(&[y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.resolved_values(vec![xx2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
             ]),
         ]);
 
@@ -1050,26 +1217,26 @@ mod tests {
 
         let a = entities.get_or_create_object("a", &t1);
 
-        let p1 = PredicateBuilder::new("p1").arguments(&[t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(&[t1.dupe(), t2.dupe()]);
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t1.dupe(), t2.dupe()]);
 
         let action = ActionBuilder::new("action")
-            .parameters(&[t1.dupe(), t2.dupe()])
+            .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Formula::new(FM::and(vec![
-                    FM::pred(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    FM::pred(
-                        p2.values(&[Value::param(&params[0]), Value::param(&params[1])])
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::pred(
+                        p2.values(vec![Value::param(&params[0]), Value::param(&params[1])])
                             .build()
                             .unwrap(),
                     ),
-                ])))
+                ]))
             })
             .effect(|params| {
-                Ok(And::new(vec![
-                    Pr::not(p1.values(&[Value::param(&params[0])]).build().unwrap()),
-                    Pr::pred(
-                        p2.values(&[Value::param(&params[0]), Value::param(&params[1])])
+                Ok(E::and(vec![
+                    E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(
+                        p2.values(vec![Value::param(&params[0]), Value::param(&params[1])])
                             .build()
                             .unwrap(),
                     ),
@@ -1078,9 +1245,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp11 = p1.resolved_values(&[x.dupe()]).build().unwrap();
-        let rp12 = p1.resolved_values(&[a.dupe()]).build().unwrap();
-        let rp21 = p2.resolved_values(&[a.dupe(), y.dupe()]).build().unwrap();
+        let rp11 = p1.resolved_values(vec![x.dupe()]).build().unwrap();
+        let rp12 = p1.resolved_values(vec![a.dupe()]).build().unwrap();
+        let rp21 = p2
+            .resolved_values(vec![a.dupe(), y.dupe()])
+            .build()
+            .unwrap();
         let state = State::default().with_predicates(vec![rp11, rp12, rp21]);
 
         let action_params = action.parameters();
@@ -1088,16 +1258,20 @@ mod tests {
         assert!(!res.is_empty());
 
         let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([a.clone()])),
-            (&action_params[1], BTreeSet::from([y.clone()])),
+            (&action_params[0], BTreeSet::from([a.dupe()])),
+            (&action_params[1], BTreeSet::from([y.dupe()])),
         ]))]);
 
         assert_eq!(res, correct_resolution);
 
-        let effects = action.resolved_effects(&res);
+        let effects = action.resolved_effects(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values(&[a.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(&[a.dupe(), y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.resolved_values(vec![a.dupe()]).build().unwrap()),
+            ModifyState::Add(
+                p2.resolved_values(vec![a.dupe(), y.dupe()])
+                    .build()
+                    .unwrap(),
+            ),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -1115,5 +1289,183 @@ mod tests {
                     ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
+    }
+
+    #[test]
+    fn test_action_precondition_with_forall() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+
+        let x = entities.get_or_create_object("x", &t1);
+        let y = entities.get_or_create_object("y", &t1);
+        let a = entities.get_or_create_object("a", &t2);
+        let b = entities.get_or_create_object("b", &t2);
+
+        let p = PredicateBuilder::new("p").arguments(vec![t1.dupe(), t2.dupe()]);
+
+        let action = ActionBuilder::new("action_forall")
+            .parameters(vec![t1.dupe()])
+            .precondition(|params| {
+                Ok(F::forall(
+                    QuantifierBuilder::forall(vec![t2.dupe()])
+                        .expression(|q_params| {
+                            Ok(F::pred(
+                                p.values(vec![
+                                    Value::param(&params[0]),
+                                    Value::bound(&q_params[0]),
+                                ])
+                                .build()
+                                .unwrap(),
+                            ))
+                        })
+                        .build()
+                        .unwrap(),
+                ))
+            })
+            .effect(|_| Ok(E::And(Vec::new())))
+            .build()
+            .unwrap();
+
+        let pred_a = p.resolved_values(vec![x.dupe(), a.dupe()]).build().unwrap();
+        let pred_b = p.resolved_values(vec![y.dupe(), b.dupe()]).build().unwrap();
+
+        let state = State::default().with_predicates(vec![pred_a.clone(), pred_b.clone()]);
+
+        let res = state.resolve_action(&action);
+        let correct = BTreeSet::from([ParameterResolution(BTreeMap::from([(
+            &action.parameters()[0],
+            BTreeSet::from([x.dupe(), y.dupe()]),
+        )]))]);
+
+        assert_eq!(res, correct);
+    }
+
+    #[test]
+    fn test_action_precondition_with_exists() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+
+        let x = entities.get_or_create_object("x", &t1);
+        let y = entities.get_or_create_object("y", &t2);
+
+        let r = PredicateBuilder::new("r").arguments(vec![t1.dupe()]);
+        let s = PredicateBuilder::new("s").arguments(vec![t1.dupe(), t2.dupe()]);
+
+        let action = ActionBuilder::new("exists_or")
+            .parameters(vec![t1.dupe()])
+            .precondition(|params| {
+                Ok(F::or(vec![
+                    F::pred(r.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::exists(
+                        QuantifierBuilder::exists(vec![t2.dupe()])
+                            .expression(|q_params| {
+                                Ok(F::pred(
+                                    s.values(vec![
+                                        Value::param(&params[0]),
+                                        Value::bound(&q_params[0]),
+                                    ])
+                                    .build()
+                                    .unwrap(),
+                                ))
+                            })
+                            .build()
+                            .unwrap(),
+                    ),
+                ]))
+            })
+            .effect(|_| Ok(E::And(Vec::new())))
+            .build()
+            .unwrap();
+
+        let rs = s.resolved_values(vec![x.dupe(), y.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![rs]);
+
+        let res = state.resolve_action(&action);
+        let expected = BTreeSet::from([ParameterResolution(BTreeMap::from([(
+            &action.parameters()[0],
+            BTreeSet::from([x.dupe()]),
+        )]))]);
+
+        assert_eq!(res, expected);
+    }
+
+    #[test]
+    fn test_action_precondition_with_forall_and_exists() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+
+        let x = entities.get_or_create_object("x", &t1);
+        let y1 = entities.get_or_create_object("y1", &t2);
+        let y2 = entities.get_or_create_object("y2", &t2);
+
+        let p = PredicateBuilder::new("p").arguments(vec![t1.dupe(), t2.dupe()]);
+        let q = PredicateBuilder::new("q").arguments(vec![t1.dupe(), t2.dupe()]);
+
+        let action = ActionBuilder::new("forall_and_exists")
+            .parameters(vec![t1.dupe()])
+            .precondition(|params| {
+                let forall = F::forall(
+                    QuantifierBuilder::forall(vec![t2.dupe()])
+                        .expression(|q_params| {
+                            Ok(F::pred(
+                                p.values(vec![
+                                    Value::param(&params[0]),
+                                    Value::bound(&q_params[0]),
+                                ])
+                                .build()
+                                .unwrap(),
+                            ))
+                        })
+                        .build()
+                        .unwrap(),
+                );
+
+                let exists = F::exists(
+                    QuantifierBuilder::exists(vec![t2.dupe()])
+                        .expression(|q_params| {
+                            Ok(F::pred(
+                                q.values(vec![
+                                    Value::param(&params[0]),
+                                    Value::bound(&q_params[0]),
+                                ])
+                                .build()
+                                .unwrap(),
+                            ))
+                        })
+                        .build()
+                        .unwrap(),
+                );
+
+                Ok(F::and(vec![forall, exists]))
+            })
+            .effect(|_| Ok(E::And(Vec::new())))
+            .build()
+            .unwrap();
+
+        let rp1 = p
+            .resolved_values(vec![x.dupe(), y1.dupe()])
+            .build()
+            .unwrap();
+        let rp2 = p
+            .resolved_values(vec![x.dupe(), y2.dupe()])
+            .build()
+            .unwrap();
+        let rq = q
+            .resolved_values(vec![x.dupe(), y2.dupe()])
+            .build()
+            .unwrap();
+
+        let state = State::default().with_predicates(vec![rp1, rp2, rq]);
+
+        let res = state.resolve_action(&action);
+        let expected = BTreeSet::from([ParameterResolution(BTreeMap::from([(
+            &action.parameters()[0],
+            BTreeSet::from([x.dupe()]),
+        )]))]);
+
+        assert_eq!(res, expected);
     }
 }

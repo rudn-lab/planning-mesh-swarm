@@ -1,33 +1,52 @@
 use crate::{
     action::ActionParameter,
-    calculus::evaluation::{Evaluable, EvaluationContext},
+    calculus::{
+        evaluation::{Evaluable, EvaluationContext},
+        first_order::BoundVariable,
+    },
     entity::{ObjectHandle, TypeHandle},
     sealed::Sealed,
     util::named::Named,
-    InternerSymbol, INTERNER, RANDOM,
+    InternerSymbol, Marker, INTERNER,
 };
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    vec,
+    vec::Vec,
+};
 use core::{fmt::Debug, marker::PhantomData};
 use gazebo::dupe::Dupe;
 use getset::{CopyGetters, Getters};
-use rand::Rng;
+use itertools::Itertools;
 
 #[allow(private_bounds)]
-pub trait IsPredicate<P: IsPredicate<P>>: Eq + Ord + Clone + Evaluable<P> + Sealed {
-    fn unique_marker(&self) -> u32;
+pub trait IsPredicate<P: IsPredicate<P>>:
+    Debug + Eq + Ord + Clone + Evaluable<P, P> + Sealed
+{
+    fn arguments(&self) -> &Vec<TypeHandle>;
+    fn unique_marker(&self) -> Marker;
 }
 
 impl Sealed for Predicate {}
 impl Sealed for ResolvedPredicate {}
 
 impl IsPredicate<Predicate> for Predicate {
-    fn unique_marker(&self) -> u32 {
+    fn arguments(&self) -> &Vec<TypeHandle> {
+        &self.arguments
+    }
+
+    fn unique_marker(&self) -> Marker {
         self.unique_marker
     }
 }
 
 impl IsPredicate<ResolvedPredicate> for ResolvedPredicate {
-    fn unique_marker(&self) -> u32 {
+    fn arguments(&self) -> &Vec<TypeHandle> {
+        &self.arguments
+    }
+
+    fn unique_marker(&self) -> Marker {
         self.unique_marker
     }
 }
@@ -53,7 +72,7 @@ pub struct Predicate {
     /// __and__ the same variables, and the expression should not be treated as having 4 inputs,
     /// but only 2.
     #[getset(get = "pub")]
-    unique_marker: u32,
+    unique_marker: Marker,
 }
 
 impl Predicate {
@@ -61,32 +80,75 @@ impl Predicate {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    /// Creates a new resolved predicate.
+    /// Creates [ResolvedPredicate]s from this one.
     ///
     /// Takes a mapping between action parameters and concrete objects to
-    /// resolve with. Crucially, the mapping can have additional action parameters
+    /// resolve with. The mapping can have additional action parameters
     /// even if they aren't used in this predicate.
-    pub fn into_resolved<'a>(
-        &'a self,
-        resolution: &'a BTreeMap<&'a ActionParameter, ObjectHandle>,
-    ) -> Result<ResolvedPredicate, PredicateError> {
+    ///
+    /// This method outputs multiple [ResolvedPredicate]s
+    /// for each permutation of [BoundVariable]s in the original predicate.
+    /// This simplifies handling of [BoundVariable]s, as this can only be
+    /// called only after [Action](crate::action::Action)'s precondition
+    /// was successfully resolved.
+    pub fn into_resolved(
+        &self,
+        resolution: &BTreeMap<&ActionParameter, ObjectHandle>,
+    ) -> Result<BTreeSet<ResolvedPredicate>, PredicateError> {
         self.values
             .iter()
             .map(|v| match v {
-                Value::Object(o) => Ok(o),
+                Value::Object(o) => Ok(vec![o.dupe()]),
                 Value::ActionParameter(ap) => resolution
                     .get(ap)
                     .ok_or(PredicateError::MissingResolutionParameter)
                     .and_then(|v| {
                         if v.r#type().inherits_or_eq(&ap.r#type) {
-                            Ok(v)
+                            Ok(vec![v.dupe()])
                         } else {
                             Err(PredicateError::TypeMismatch)
                         }
                     }),
+                Value::BoundVariable(bv) => Ok(bv.r#type.get_objects()),
             })
-            .map(|v| v.cloned())
-            .collect::<Result<Vec<ObjectHandle>, PredicateError>>()
+            .collect::<Result<Vec<Vec<ObjectHandle>>, PredicateError>>()
+            .map(|values| {
+                values
+                    .into_iter()
+                    .multi_cartesian_product()
+                    .map(|values| ResolvedPredicate {
+                        name: self.name,
+                        arguments: self.arguments.clone(),
+                        values,
+                        unique_marker: self.unique_marker,
+                    })
+                    .collect::<BTreeSet<ResolvedPredicate>>()
+            })
+    }
+
+    /// Creates multiple [ResolvedPredicate]s
+    /// for each permutation of [BoundVariable]s
+    /// in the original predicate.
+    ///
+    /// WARN: for now should only be used for goal evaluation,
+    /// so will panic when original predicate contains [ActionParameter]s.
+    pub(crate) fn remove_bound(
+        &self,
+        var_assignment: &BTreeMap<BoundVariable, ObjectHandle>,
+    ) -> Result<ResolvedPredicate, PredicateError> {
+        self.values
+            .iter()
+            .map(|v| match v {
+                Value::Object(o) => Ok(o.dupe()),
+                Value::ActionParameter(_) => {
+                    panic!("This should only be used for predicates in problem goal.")
+                }
+                Value::BoundVariable(bv) => var_assignment
+                    .get(bv)
+                    .map(|v| v.dupe())
+                    .ok_or(PredicateError::MissingBoundVariable),
+            })
+            .collect::<Result<_, _>>()
             .map(|values| ResolvedPredicate {
                 name: self.name,
                 arguments: self.arguments.clone(),
@@ -95,7 +157,21 @@ impl Predicate {
             })
     }
 
-    /// Returns only [Value::ActionParameter]
+    /// Returns only [LiftedValue]s
+    /// and their indices from this predicate's values array
+    pub fn lifted_values(&self) -> Vec<LiftedValue<'_>> {
+        self.values
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| match v {
+                Value::Object(_) => None,
+                Value::ActionParameter(ap) => Some(LiftedValue::ActionParameter(i, ap)),
+                Value::BoundVariable(bp) => Some(LiftedValue::BoundVariable(i, bp)),
+            })
+            .collect::<Vec<_>>()
+    }
+
+    /// Returns only [ActionParameter]s
     /// and their indices from this predicate's values array
     pub fn action_parameters(&self) -> Vec<(usize, &ActionParameter)> {
         self.values
@@ -104,12 +180,13 @@ impl Predicate {
             .filter_map(|(i, v)| match v {
                 Value::Object(_) => None,
                 Value::ActionParameter(ap) => Some((i, ap)),
+                Value::BoundVariable(_) => None,
             })
             .collect::<Vec<_>>()
     }
 }
 
-impl Evaluable<Predicate> for Predicate {
+impl Evaluable<Predicate, Predicate> for Predicate {
     fn eval(&self, context: &impl EvaluationContext<Predicate>) -> bool {
         context.eval(self)
     }
@@ -149,7 +226,7 @@ impl PartialOrd for Predicate {
     }
 }
 
-/// A fully resolved predicate how it is stored in a state.
+/// A fully resolved [Predicate] how it is stored in a state.
 #[derive(Debug, Clone, Getters)]
 pub struct ResolvedPredicate {
     #[getset(get = "pub")]
@@ -159,7 +236,7 @@ pub struct ResolvedPredicate {
     #[getset(get = "pub")]
     values: Vec<ObjectHandle>,
     #[getset(get = "pub")]
-    unique_marker: u32,
+    unique_marker: Marker,
 }
 
 impl ResolvedPredicate {
@@ -170,18 +247,18 @@ impl ResolvedPredicate {
             return false;
         }
 
-        predicate
-            .values()
+        self.values()
             .iter()
-            .zip(self.values())
-            .all(|(av, v)| match av {
-                Value::Object(o) => o == v,
-                Value::ActionParameter(ap) => v.r#type().inherits_or_eq(&ap.r#type),
+            .zip(predicate.values())
+            .all(|(ro, v)| match v {
+                Value::Object(o) => o == ro,
+                Value::ActionParameter(ap) => ro.r#type().inherits_or_eq(&ap.r#type),
+                Value::BoundVariable(var) => ro.r#type().inherits_or_eq(&var.r#type),
             })
     }
 }
 
-impl Evaluable<ResolvedPredicate> for ResolvedPredicate {
+impl Evaluable<ResolvedPredicate, ResolvedPredicate> for ResolvedPredicate {
     fn eval(&self, context: &impl EvaluationContext<ResolvedPredicate>) -> bool {
         context.eval(self)
     }
@@ -226,12 +303,15 @@ pub enum PredicateError {
     TypeMismatch,
     WrongNumberOfValues,
     MissingResolutionParameter,
+    MissingBoundVariable,
 }
 
+/// All values that a predicate can take when it appears in an action definition
 #[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
     Object(ObjectHandle),
     ActionParameter(ActionParameter),
+    BoundVariable(BoundVariable),
 }
 
 impl Value {
@@ -242,6 +322,25 @@ impl Value {
     pub fn param(param: &ActionParameter) -> Self {
         Self::ActionParameter(param.dupe())
     }
+
+    pub fn bound(var: &BoundVariable) -> Self {
+        Self::BoundVariable(var.dupe())
+    }
+}
+
+/// Variable in a predicate
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LiftedValue<'a> {
+    ActionParameter(usize, &'a ActionParameter),
+    BoundVariable(usize, &'a BoundVariable),
+}
+
+impl LiftedValue<'_> {
+    pub fn idx(&self) -> usize {
+        match self {
+            LiftedValue::ActionParameter(i, _) | LiftedValue::BoundVariable(i, _) => *i,
+        }
+    }
 }
 
 #[allow(private_bounds)]
@@ -251,7 +350,7 @@ pub trait PredicateBuilderState: Sealed {}
 pub struct New;
 #[derive(Debug, Clone)]
 pub struct HasName;
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HasArguments;
 #[derive(Debug, Clone)]
 pub struct HasValues;
@@ -270,7 +369,7 @@ impl Sealed for HasArguments {}
 impl Sealed for HasValues {}
 impl Sealed for HasResolvedValues {}
 
-#[derive(Debug, Clone, CopyGetters)]
+#[derive(Debug, Clone, PartialEq, Eq, CopyGetters)]
 pub struct PredicateBuilder<S: PredicateBuilderState> {
     #[getset(get_copy = "pub")]
     name: InternerSymbol,
@@ -293,10 +392,10 @@ impl PredicateBuilder<New> {
 }
 
 impl PredicateBuilder<HasName> {
-    pub fn arguments(self, arguments: &[TypeHandle]) -> PredicateBuilder<HasArguments> {
+    pub fn arguments(self, arguments: Vec<TypeHandle>) -> PredicateBuilder<HasArguments> {
         PredicateBuilder {
             name: self.name,
-            arguments: arguments.to_vec(),
+            arguments,
             values: self.values,
             resolved_values: self.resolved_values,
             state: PhantomData,
@@ -317,22 +416,25 @@ impl PredicateBuilder<HasArguments> {
         &self.arguments
     }
 
-    pub fn values(&self, values: &[Value]) -> PredicateBuilder<HasValues> {
+    pub fn values(&self, values: Vec<Value>) -> PredicateBuilder<HasValues> {
         PredicateBuilder {
             name: self.name,
             arguments: self.arguments.clone(),
-            values: values.to_vec(),
+            values,
             resolved_values: Vec::new(),
             state: PhantomData,
         }
     }
 
-    pub fn resolved_values(&self, values: &[ObjectHandle]) -> PredicateBuilder<HasResolvedValues> {
+    pub fn resolved_values(
+        &self,
+        resolved_values: Vec<ObjectHandle>,
+    ) -> PredicateBuilder<HasResolvedValues> {
         PredicateBuilder {
             name: self.name,
             arguments: self.arguments.clone(),
             values: Vec::new(),
-            resolved_values: values.to_vec(),
+            resolved_values,
             state: PhantomData,
         }
     }
@@ -342,7 +444,6 @@ impl PredicateBuilder<HasValues> {
     pub fn build(self) -> Result<Predicate, PredicateError> {
         let name = self.name;
         let arguments = self.arguments;
-        let unique_marker = RANDOM.lock().gen();
         let values = self.values;
 
         if arguments.len() != values.len() {
@@ -354,6 +455,7 @@ impl PredicateBuilder<HasValues> {
             .map(|v| match v {
                 Value::Object(o) => o.r#type(),
                 Value::ActionParameter(ap) => ap.r#type.dupe(),
+                Value::BoundVariable(var) => var.r#type.dupe(),
             })
             .zip(&arguments)
             .all(|(t, a)| t.inherits_or_eq(a))
@@ -365,7 +467,7 @@ impl PredicateBuilder<HasValues> {
             name,
             arguments: arguments.to_vec(),
             values: values.to_vec(),
-            unique_marker,
+            unique_marker: Marker::new(),
         })
     }
 }
@@ -374,8 +476,11 @@ impl PredicateBuilder<HasResolvedValues> {
     pub fn build(self) -> Result<ResolvedPredicate, PredicateError> {
         let name = self.name;
         let arguments = self.arguments;
-        let unique_marker = RANDOM.lock().gen();
         let values = self.resolved_values;
+
+        if arguments.len() != values.len() {
+            return Err(PredicateError::WrongNumberOfValues);
+        }
 
         if !values
             .iter()
@@ -389,7 +494,7 @@ impl PredicateBuilder<HasResolvedValues> {
             name,
             arguments: arguments.to_vec(),
             values: values.to_vec(),
-            unique_marker,
+            unique_marker: Marker::new(),
         })
     }
 }
@@ -406,13 +511,13 @@ mod tests {
     fn test_equality() {
         // Same predicates, even though the marker is different for each one
         let p = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         assert!(p == p1);
@@ -420,13 +525,13 @@ mod tests {
 
         // Different because of marker and name
         let p = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
 
@@ -438,13 +543,13 @@ mod tests {
         let x = entities.get_or_create_object("x", &t);
 
         let p = PredicateBuilder::new("foo")
-            .arguments(&[t.clone()])
-            .values(&[Value::object(&x)])
+            .arguments(vec![t.clone()])
+            .values(vec![Value::object(&x)])
             .build()
             .unwrap();
         let mut p1 = PredicateBuilder::new("foo")
-            .arguments(&[t.clone()])
-            .values(&[Value::object(&x)])
+            .arguments(vec![t.clone()])
+            .values(vec![Value::object(&x)])
             .build()
             .unwrap();
         p1.unique_marker = p.unique_marker;
@@ -456,13 +561,13 @@ mod tests {
         let y = entities.get_or_create_object("y", &t1);
 
         let p = PredicateBuilder::new("foo")
-            .arguments(&[t.clone()])
-            .values(&[Value::object(&x)])
+            .arguments(vec![t.clone()])
+            .values(vec![Value::object(&x)])
             .build()
             .unwrap();
         let mut p1 = PredicateBuilder::new("foo")
-            .arguments(&[t1.clone()])
-            .values(&[Value::object(&y)])
+            .arguments(vec![t1.clone()])
+            .values(vec![Value::object(&y)])
             .build()
             .unwrap();
         p1.unique_marker = p.unique_marker;
@@ -479,12 +584,14 @@ mod tests {
         let o1 = entities.get_or_create_object("o1", &t1);
         let o2 = entities.get_or_create_object("o2", &t2);
 
-        let p = PredicateBuilder::new("foo").arguments(&[t1.clone(), t2.clone()]);
+        let p = PredicateBuilder::new("foo").arguments(vec![t1.clone(), t2.clone()]);
 
-        let p1 = p.values(&[Value::object(&o1), Value::object(&o1)]).build();
+        let p1 = p
+            .values(vec![Value::object(&o1), Value::object(&o1)])
+            .build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
-        let p1 = p.resolved_values(&[o1.dupe(), o1.dupe()]).build();
+        let p1 = p.resolved_values(vec![o1.dupe(), o1.dupe()]).build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
         let ap1 = ActionParameter {
@@ -496,10 +603,12 @@ mod tests {
             r#type: t2.dupe(),
         };
 
-        let p1 = p.values(&[Value::param(&ap1), Value::param(&ap1)]).build();
+        let p1 = p
+            .values(vec![Value::param(&ap1), Value::param(&ap1)])
+            .build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
         let p1 = p
-            .values(&[Value::param(&ap1), Value::param(&ap2)])
+            .values(vec![Value::param(&ap1), Value::param(&ap2)])
             .build()
             .unwrap();
 
@@ -528,25 +637,25 @@ mod tests {
     #[test]
     fn test_builder_shortcut_equality() {
         let p1 = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .values(&[])
+            .arguments(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         assert_eq!(p1, p2);
 
         let pr1 = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .resolved_values(&[])
+            .arguments(vec![])
+            .resolved_values(vec![])
             .build()
             .unwrap();
         let pr2 = PredicateBuilder::new("foo")
-            .arguments(&[])
-            .resolved_values(&[])
+            .arguments(vec![])
+            .resolved_values(vec![])
             .build()
             .unwrap();
         assert_eq!(pr1, pr2);
@@ -561,14 +670,14 @@ mod tests {
         let o1 = entities.get_or_create_object("o1", &t1);
         let o2 = entities.get_or_create_object("o2", &t2);
 
-        let pb1 = PredicateBuilder::new("foo").arguments(&[t1.clone(), t2.clone()]);
+        let pb1 = PredicateBuilder::new("foo").arguments(vec![t1.clone(), t2.clone()]);
         let p1 = pb1
-            .values(&[Value::object(&o1), Value::object(&o2)])
+            .values(vec![Value::object(&o1), Value::object(&o2)])
             .build()
             .unwrap();
         let pr1 = p1.into_resolved(&BTreeMap::new()).unwrap();
-        let pr2 = pb1.resolved_values(&[o1, o2]).build().unwrap();
+        let pr2 = pb1.resolved_values(vec![o1, o2]).build().unwrap();
 
-        assert_eq!(pr1, pr2);
+        assert_eq!(pr1, BTreeSet::from([pr2]));
     }
 }

@@ -1,3 +1,4 @@
+#![feature(lazy_type_alias)]
 #![feature(coverage_attribute)]
 #![cfg_attr(not(test), no_std)]
 
@@ -13,18 +14,29 @@ pub mod problem;
 pub mod state;
 pub mod truth_table;
 mod util;
-pub use gazebo::dupe::Dupe;
 
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+pub use gazebo::dupe::Dupe;
 use spin::Mutex;
 use string_interner::{backend::BufferBackend, symbol::SymbolU16, StringInterner};
 
-type InternerSymbol = SymbolU16;
+pub type InternerSymbol = SymbolU16;
+
 type Interner = StringInterner<BufferBackend<InternerSymbol>>;
 lazy_static::lazy_static! {
     static ref INTERNER: Mutex<Interner> = Mutex::new(Interner::new());
-    static ref RANDOM: Mutex<ChaCha8Rng> = Mutex::new(ChaCha8Rng::seed_from_u64(42));
+}
+
+/// Is used to uniquely mark things.
+#[derive(Debug, Clone, Dupe, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Marker(usize);
+
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+impl Marker {
+    fn new() -> Self {
+        Marker(COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
 }
 
 mod sealed {

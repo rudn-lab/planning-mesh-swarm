@@ -67,15 +67,19 @@ impl TypeHandle {
 pub type SuperTypeHandle = TypeHandle;
 pub type SubTypeHandle = TypeHandle;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+type ObjectName = InternerSymbol;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Object {
-    name: InternerSymbol,
+    name: ObjectName,
+    r#type: TypeHandle,
 }
 
 impl Object {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str, r#type: &TypeHandle) -> Self {
         Self {
             name: INTERNER.lock().get_or_intern(name),
+            r#type: r#type.dupe(),
         }
     }
 }
@@ -99,7 +103,7 @@ pub enum TypeError {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EntityStorage {
     types: Rc<RefCell<Vec<Type>>>,
-    objects: Rc<RefCell<Vec<(Object, TypeHandle)>>>,
+    objects: Rc<RefCell<Vec<(ObjectName, TypeHandle)>>>,
     supertypes: Rc<RefCell<BTreeMap<SubTypeIdx, SuperTypeIdx>>>,
     subtypes: Rc<RefCell<BTreeMap<SuperTypeIdx, Vec<SubTypeIdx>>>>,
 }
@@ -125,9 +129,7 @@ pub trait TypeStorage: Debug {
 pub trait ObjectStorage: Debug {
     fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle;
     /// Returns the object with this name and this type
-    fn get_object_strict(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle>;
-    /// Returns the object with this name for which the given type is a supertype
-    fn get_object(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle>;
+    fn get_object(&self, object_name: &str) -> Option<ObjectHandle>;
     fn get_type_for(&self, object: &ObjectHandle) -> TypeHandle;
 }
 
@@ -239,44 +241,22 @@ impl TypeStorage for EntityStorage {
 
 impl ObjectStorage for EntityStorage {
     fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle {
-        self.get_object_strict(object_name, r#type)
-            .unwrap_or_else(|| {
-                let idx = self.objects.borrow().len();
-                self.objects
-                    .borrow_mut()
-                    .push((Object::new(object_name), r#type.dupe()));
-                ObjectHandle::from_raw(idx, self.clone())
-            })
+        self.get_object(object_name).unwrap_or_else(|| {
+            let idx = self.objects.borrow().len();
+            let object_name = INTERNER.lock().get_or_intern(object_name);
+            self.objects.borrow_mut().push((object_name, r#type.dupe()));
+            ObjectHandle::from_raw(idx, self.clone())
+        })
     }
 
-    fn get_object(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle> {
+    fn get_object(&self, object_name: &str) -> Option<ObjectHandle> {
         let object_name = INTERNER.lock().get_or_intern(object_name);
         self.objects
             .borrow()
             .iter()
             .enumerate()
-            .find_map(|(i, (o, t))| {
-                if o.name == object_name && t.inherits_or_eq(r#type) {
-                    #[cfg(test)]
-                    {
-                        println!("Hello");
-                    }
-
-                    Some(ObjectHandle::from_raw(i, self.clone()))
-                } else {
-                    None
-                }
-            })
-    }
-
-    fn get_object_strict(&self, object_name: &str, r#type: &TypeHandle) -> Option<ObjectHandle> {
-        let object_name = INTERNER.lock().get_or_intern(object_name);
-        self.objects
-            .borrow()
-            .iter()
-            .enumerate()
-            .find_map(|(i, (o, t))| {
-                if o.name == object_name && t == r#type {
+            .find_map(|(i, (n, _))| {
+                if *n == object_name {
                     Some(ObjectHandle::from_raw(i, self.clone()))
                 } else {
                     None
@@ -301,7 +281,8 @@ impl Storage<Object> for EntityStorage {
     fn get<S: Storage<Object>>(&self, handle: &SmartHandle<Object, S>) -> Object {
         // Cannot panic, because the only way to create a handle is
         // through the ObjectStorage, so they are all accounted for
-        self.objects.borrow()[handle.idx.0].0
+        let (name, r#type) = self.objects.borrow()[handle.idx.0].clone();
+        Object { name, r#type }
     }
 }
 
@@ -339,12 +320,8 @@ mod tests {
         let o11 = entities.get_or_create_object("a", &t1);
         assert_eq!(o1, o11);
 
-        let o3 = entities.get_or_create_object("a", &t2);
-        assert_ne!(o3, o1);
-        assert_ne!(o3, o2);
-
         assert_eq!(t1.inner(), Type::new("foo"));
-        assert_eq!(o1.inner(), Object::new("a"));
+        assert_eq!(o1.inner(), Object::new("a", &t1));
     }
 
     #[test]
