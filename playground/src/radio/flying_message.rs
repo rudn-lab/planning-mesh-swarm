@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_arrows_plugin::prelude::VecArrow;
 
 use crate::{
     clock::{Simulation, SimulationInstant, SimulationTime},
@@ -58,6 +59,7 @@ pub(crate) struct FlyingMessageBundle {
     name: Name,
     mesh: Mesh2d,
     material: MeshMaterial2d<ColorMaterial>,
+    arrow: VecArrow,
 }
 
 /// This event is dispatched whenever a robot sends a message to another robot.
@@ -107,6 +109,10 @@ fn create_flying_message(
             )),
             mesh: Mesh2d(mesh),
             material: MeshMaterial2d(material),
+            arrow: VecArrow::new(
+                Vec3::new(0.0, 0.0, 1.0),
+                bevy_arrows_plugin::vec_arrow::TargetCoordinateSpace::Global,
+            ),
         };
 
         commands.spawn(bundle);
@@ -122,16 +128,18 @@ fn update_flying_message(
     mut commands: Commands,
     time: Res<Time<Simulation>>,
     speed: Res<FlyingMessageSpeed>,
-    mut messages: Query<(Entity, &FlyingMessage, &mut Transform)>,
+    mut messages: Query<(Entity, &FlyingMessage, &mut Transform, &mut VecArrow)>,
     mut robots: Query<(&GlobalTransform, &mut RobotState)>,
 ) {
-    for (msg_entity, message, mut transform) in messages.iter_mut() {
+    for (msg_entity, message, mut transform, mut arrow) in messages.iter_mut() {
         let (destination, _) = robots.get(message.receiver_robot).unwrap();
 
         let vector = destination.translation() - transform.translation;
         let distance = vector.length();
         let normalized_vector = vector / distance;
         let delta_change = normalized_vector * speed.speed * time.delta_secs();
+
+        arrow.target = transform.translation + normalized_vector;
 
         transform.translation += delta_change;
 

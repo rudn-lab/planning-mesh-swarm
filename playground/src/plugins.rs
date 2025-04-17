@@ -46,6 +46,7 @@ impl Plugin for MyPlugins {
         .add_plugins(
             WorldInspectorPlugin::default().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
+        .add_plugins(bevy_arrows_plugin::BevyArrowsPlugin)
         .add_plugins(crate::ui::Ui)
         .add_plugins(GhostRobotPlugin)
         .add_plugins(SimulationClockPlugin)
