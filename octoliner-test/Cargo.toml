@@ -16,7 +16,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 
 embassy-embedded-hal = { git="https://github.com/embassy-rs/embassy", features = ["defmt"] }
 
-embassy-executor = { git="https://github.com/embassy-rs/embassy", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers", "task-arena-size-32768"] }
+embassy-executor = { git="https://github.com/embassy-rs/embassy", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-futures = { git="https://github.com/embassy-rs/embassy" }
 embassy-sync = { git="https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-time = { git="https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime"] }
