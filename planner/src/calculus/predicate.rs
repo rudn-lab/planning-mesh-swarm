@@ -36,30 +36,7 @@ pub trait IsPredicate<P: IsPredicate<P>>:
     fn unique_marker(&self) -> Marker;
 }
 
-impl Sealed for LiftedPredicate {}
-impl Sealed for GroundedPredicate {}
-
-impl IsPredicate<LiftedPredicate> for LiftedPredicate {
-    fn arguments(&self) -> &Vec<TypeHandle> {
-        &self.arguments
-    }
-
-    fn unique_marker(&self) -> Marker {
-        self.unique_marker
-    }
-}
-
-impl IsPredicate<GroundedPredicate> for GroundedPredicate {
-    fn arguments(&self) -> &Vec<TypeHandle> {
-        &self.arguments
-    }
-
-    fn unique_marker(&self) -> Marker {
-        self.unique_marker
-    }
-}
-
-pub trait PredicateValue: PartialEq + Ord {
+pub trait PredicateValue: Debug + Clone + PartialEq + Ord {
     fn r#type(&self) -> TypeHandle;
 }
 
@@ -119,6 +96,26 @@ pub struct Predicate<V: PredicateValue> {
     unique_marker: Marker,
 }
 
+impl<V: PredicateValue> Evaluable<Predicate<V>, Predicate<V>> for Predicate<V> {
+    fn eval(&self, context: &impl EvaluationContext<Predicate<V>>) -> bool {
+        context.eval(self)
+    }
+
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Predicate<V>> + 'a> {
+        Box::new(core::iter::once(self))
+    }
+}
+
+impl<V: PredicateValue> IsPredicate<Predicate<V>> for Predicate<V> {
+    default fn arguments(&self) -> &Vec<TypeHandle> {
+        &self.arguments
+    }
+
+    default fn unique_marker(&self) -> Marker {
+        self.unique_marker
+    }
+}
+
 impl<V: PredicateValue> Named for Predicate<V> {
     fn name(&self) -> InternerSymbol {
         self.name
@@ -148,6 +145,8 @@ impl<V: PredicateValue> PartialOrd for Predicate<V> {
         Some(self.cmp(other))
     }
 }
+
+impl<V: PredicateValue> Sealed for Predicate<V> {}
 
 pub type LiftedPredicate = Predicate<Value>;
 
@@ -217,37 +216,6 @@ impl LiftedPredicate {
             })
     }
 
-    /// Creates multiple [GroundedPredicate]s
-    /// for each permutation of [BoundVariable]s
-    /// in the original predicate.
-    ///
-    /// WARN: for now should only be used for goal evaluation,
-    /// so will panic when original predicate contains [ActionParameter]s.
-    pub(crate) fn remove_bound(
-        &self,
-        var_assignment: &BTreeMap<BoundVariable, ObjectHandle>,
-    ) -> Result<GroundedPredicate, PredicateError> {
-        self.values
-            .iter()
-            .map(|v| match v {
-                Value::Object(o) => Ok(o.dupe()),
-                Value::ActionParameter(_) => {
-                    panic!("This should only be used for predicates in problem goal.")
-                }
-                Value::BoundVariable(bv) => var_assignment
-                    .get(bv)
-                    .map(|v| v.dupe())
-                    .ok_or(PredicateError::MissingBoundVariable),
-            })
-            .collect::<Result<_, _>>()
-            .map(|values| GroundedPredicate {
-                name: self.name,
-                arguments: self.arguments.clone(),
-                values,
-                unique_marker: self.unique_marker,
-            })
-    }
-
     /// Returns only [LiftedValue]s
     /// and their indices from this predicate's values array
     pub fn lifted_values(&self) -> Vec<LiftedValue<'_>> {
@@ -274,16 +242,6 @@ impl LiftedPredicate {
                 Value::BoundVariable(_) => None,
             })
             .collect::<Vec<_>>()
-    }
-}
-
-impl Evaluable<LiftedPredicate, LiftedPredicate> for LiftedPredicate {
-    fn eval(&self, context: &impl EvaluationContext<LiftedPredicate>) -> bool {
-        context.eval(self)
-    }
-
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a LiftedPredicate> + 'a> {
-        Box::new(core::iter::once(self))
     }
 }
 
@@ -316,13 +274,56 @@ impl GroundedPredicate {
     }
 }
 
-impl Evaluable<GroundedPredicate, GroundedPredicate> for GroundedPredicate {
-    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
-        context.eval(self)
+#[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GoalValue {
+    Object(ObjectHandle),
+    BoundVariable(BoundVariable),
+}
+
+impl GoalValue {
+    pub fn object(handle: &ObjectHandle) -> Self {
+        Self::Object(handle.dupe())
     }
 
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a GroundedPredicate> + 'a> {
-        Box::new(core::iter::once(self))
+    pub fn bound(var: &BoundVariable) -> Self {
+        Self::BoundVariable(var.dupe())
+    }
+}
+
+impl PredicateValue for GoalValue {
+    fn r#type(&self) -> TypeHandle {
+        match self {
+            GoalValue::Object(o) => o.r#type(),
+            GoalValue::BoundVariable(bv) => bv.r#type.dupe(),
+        }
+    }
+}
+
+pub type GoalPredicate = Predicate<GoalValue>;
+
+impl GoalPredicate {
+    /// Creates a [GroundedPredicate] with the [BoundVariable]s
+    /// in `var_assignment`.
+    pub(crate) fn remove_bound(
+        &self,
+        var_assignment: &BTreeMap<BoundVariable, ObjectHandle>,
+    ) -> Result<GroundedPredicate, PredicateError> {
+        self.values
+            .iter()
+            .map(|v| match v {
+                GoalValue::Object(o) => Ok(o.dupe()),
+                GoalValue::BoundVariable(bv) => var_assignment
+                    .get(bv)
+                    .map(|v| v.dupe())
+                    .ok_or(PredicateError::MissingBoundVariable),
+            })
+            .collect::<Result<_, _>>()
+            .map(|values| GroundedPredicate {
+                name: self.name,
+                arguments: self.arguments.clone(),
+                values,
+                unique_marker: self.unique_marker,
+            })
     }
 }
 

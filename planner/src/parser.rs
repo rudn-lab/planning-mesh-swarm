@@ -3,7 +3,8 @@ use crate::{
     calculus::{
         first_order::{BoundVariable, QuantifiedFormula, QuantifierBuilder},
         predicate::{
-            GroundedPredicate, LiftedPredicate, PredicateBuilder, PredicateDefinition, Value,
+            GoalPredicate, GoalValue, GroundedPredicate, LiftedPredicate, Predicate,
+            PredicateBuilder, PredicateDefinition, PredicateValue, Value,
         },
     },
     entity::{ObjectStorage, TypeHandle, TypeStorage},
@@ -62,8 +63,8 @@ fn parse_arguments<'a>(
 }
 
 /// Parses predicates in action's precondition and effect,
-/// where they can have variables in them
-fn parse_predicate(
+/// where they can have variables and objects in them
+fn parse_full_predicate(
     pred: &AtomicFormula<Term>,
     params: &BTreeMap<&str, ActionParameter>,
     bound_vars: &BTreeMap<&str, BoundVariable>,
@@ -106,6 +107,41 @@ fn parse_predicate(
     }
 }
 
+/// Parses predicates in problem's goal,
+/// where they can only have objects and bound variables in quantifiers.
+fn parse_goal_predicate(
+    pred: &AtomicFormula<Term>,
+    bound_vars: &BTreeMap<&str, BoundVariable>,
+    objects: &dyn ObjectStorage,
+    predicates: &NamedStorage<PredicateDefinition>,
+) -> Result<GoalPredicate, BE> {
+    match pred {
+        AtomicFormula::Equality(_) => Err(BE::UnsupportedFeature(UF::Equality)),
+        AtomicFormula::Predicate(pred) => predicates
+            .get(pred.predicate())
+            .ok_or(BE::BadDefinition(BD::UnknownPredicate(
+                pred.predicate().to_string(),
+            )))
+            .and_then(|p| {
+                pred.values()
+                    .iter()
+                    .map(|v| match v {
+                        Term::Name(name) => objects
+                            .get_object(name)
+                            .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
+                            .map(GoalValue::Object),
+                        Term::Variable(var) => bound_vars
+                            .get(var.deref().deref())
+                            .map(|bv| GoalValue::BoundVariable(bv.dupe()))
+                            .ok_or(BE::BadDefinition(BD::UnknownParameter(var.to_string()))),
+                        Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .and_then(|v| p.values(v).build().map_err(BE::PredicateError))
+            }),
+    }
+}
+
 /// Parses predicates in problem's init,
 /// where they have only concrete objects in them
 fn parse_grounded_predicate(
@@ -134,20 +170,41 @@ fn parse_grounded_predicate(
     }
 }
 
-fn parse_goal(
+fn parse_goal<V, F>(
     goal: &GoalDefinition,
     action_params: &BTreeMap<&str, ActionParameter>,
     bound_vars: &BTreeMap<&str, BoundVariable>,
     types: &dyn TypeStorage,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<QuantifiedFormula<LiftedPredicate>, BE> {
+    parse_pred: &F,
+) -> Result<QuantifiedFormula<Predicate<V>>, BE>
+where
+    V: PredicateValue,
+    F: Fn(
+        &AtomicFormula<Term>,
+        &BTreeMap<&str, ActionParameter>,
+        &BTreeMap<&str, BoundVariable>,
+        &dyn ObjectStorage,
+        &NamedStorage<PredicateDefinition>,
+    ) -> Result<Predicate<V>, BE>,
+{
     use GoalDefinition::*;
     use QuantifiedFormula as F;
-    let parse_gd = |g| parse_goal(g, action_params, bound_vars, types, objects, predicates);
+    let parse_gd = |g| {
+        parse_goal(
+            g,
+            action_params,
+            bound_vars,
+            types,
+            objects,
+            predicates,
+            parse_pred,
+        )
+    };
     match goal {
         AtomicFormula(pred) => {
-            parse_predicate(pred, action_params, bound_vars, objects, predicates).map(F::pred)
+            parse_pred(pred, action_params, bound_vars, objects, predicates).map(F::pred)
         }
         Literal(_) => Err(BE::BadDefinition(BD::LiteralInGoalDefinition)),
         And(goals) => goals
@@ -177,7 +234,15 @@ fn parse_goal(
                             .into_iter()
                             .chain(param_names.iter().copied().zip(params.to_vec()))
                             .collect::<BTreeMap<&str, BoundVariable>>();
-                        parse_goal(goal, action_params, &bound_vars, types, objects, predicates)
+                        parse_goal(
+                            goal,
+                            action_params,
+                            &bound_vars,
+                            types,
+                            objects,
+                            predicates,
+                            parse_pred,
+                        )
                     })
                     .build()
             })
@@ -191,7 +256,15 @@ fn parse_goal(
                             .into_iter()
                             .chain(param_names.iter().copied().zip(params.to_vec()))
                             .collect::<BTreeMap<&str, BoundVariable>>();
-                        parse_goal(goal, action_params, &bound_vars, types, objects, predicates)
+                        parse_goal(
+                            goal,
+                            action_params,
+                            &bound_vars,
+                            types,
+                            objects,
+                            predicates,
+                            parse_pred,
+                        )
                     })
                     .build()
             })
@@ -200,18 +273,35 @@ fn parse_goal(
     }
 }
 
-fn parse_precondition_goal_definition(
+fn parse_precondition_goal_definition<V, F>(
     goal: &PreconditionGoalDefinition,
     action_params: &BTreeMap<&str, ActionParameter>,
     bound_vars: &BTreeMap<&str, BoundVariable>,
     types: &dyn TypeStorage,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<QuantifiedFormula<LiftedPredicate>, BE> {
+    parse_pred: &F,
+) -> Result<QuantifiedFormula<Predicate<V>>, BE>
+where
+    V: PredicateValue,
+    F: Fn(
+        &AtomicFormula<Term>,
+        &BTreeMap<&str, ActionParameter>,
+        &BTreeMap<&str, BoundVariable>,
+        &dyn ObjectStorage,
+        &NamedStorage<PredicateDefinition>,
+    ) -> Result<Predicate<V>, BE>,
+{
     match goal {
-        PreconditionGoalDefinition::Preference(PreferenceGD::Goal(goal)) => {
-            parse_goal(goal, action_params, bound_vars, types, objects, predicates)
-        }
+        PreconditionGoalDefinition::Preference(PreferenceGD::Goal(goal)) => parse_goal(
+            goal,
+            action_params,
+            bound_vars,
+            types,
+            objects,
+            predicates,
+            parse_pred,
+        ),
         PreconditionGoalDefinition::Preference(PreferenceGD::Preference(_)) => {
             Err(BE::UnsupportedFeature(UF::Preference))
         }
@@ -234,6 +324,7 @@ fn parse_precondition_goal_definition(
                                     types,
                                     objects,
                                     predicates,
+                                    parse_pred,
                                 )
                             })
                             .collect::<Result<Vec<_>, _>>()
@@ -262,11 +353,11 @@ fn parse_effects(
     match effect {
         CEffect::Effect(effect) => match effect {
             PEffect::AtomicFormula(pred) => {
-                parse_predicate(pred, action_params, bound_vars, objects, predicates)
+                parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
                     .map(ActionEffect::pred)
             }
             PEffect::NotAtomicFormula(pred) => {
-                parse_predicate(pred, action_params, bound_vars, objects, predicates)
+                parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
                     .map(ActionEffect::npred)
             }
             PEffect::AssignNumericFluent(_, _, _) => Err(BE::UnsupportedFeature(UF::NumericFluent)),
@@ -401,6 +492,9 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                                                 types,
                                                 objects,
                                                 predicates,
+                                                &|p, ap, bv, o, ps| {
+                                                    parse_full_predicate(p, ap, bv, o, ps)
+                                                },
                                             )
                                         })
                                         .collect::<Result<Vec<_>, _>>()
@@ -539,6 +633,7 @@ pub fn parse_problem<'a>(
                         types,
                         objects,
                         predicates,
+                        &|p, _, bv, o, ps| parse_goal_predicate(p, bv, o, ps),
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -558,7 +653,10 @@ pub fn parse_problem<'a>(
 #[coverage(off)]
 mod tests {
     use super::*;
-    use crate::{action::ActionEffect as E, calculus::first_order::QuantifiedFormula as F};
+    use crate::{
+        action::ActionEffect as E,
+        calculus::{first_order::QuantifiedFormula as F, predicate::GoalValue},
+    };
 
     const SIMPLE_DOMAIN: &str = r#"
 (define
@@ -781,19 +879,19 @@ mod tests {
                 Ok(F::and(vec![
                     F::pred(
                         walls_built
-                            .values(vec![Value::object(&s1)])
+                            .values(vec![GoalValue::object(&s1)])
                             .build()
                             .unwrap(),
                     ),
                     F::pred(
                         cables_installed
-                            .values(vec![Value::object(&s1)])
+                            .values(vec![GoalValue::object(&s1)])
                             .build()
                             .unwrap(),
                     ),
                     F::pred(
                         windows_fitted
-                            .values(vec![Value::object(&s1)])
+                            .values(vec![GoalValue::object(&s1)])
                             .build()
                             .unwrap(),
                     ),
@@ -1190,11 +1288,13 @@ mod tests {
                             let b = &params[0];
                             Ok(F::or(vec![
                                 F::not(F::pred(
-                                    at.values(vec![Value::bound(b), Value::object(&loc2)])
+                                    at.values(vec![GoalValue::bound(b), GoalValue::object(&loc2)])
                                         .build()
                                         .unwrap(),
                                 )),
-                                F::pred(collected.values(vec![Value::bound(b)]).build().unwrap()),
+                                F::pred(
+                                    collected.values(vec![GoalValue::bound(b)]).build().unwrap(),
+                                ),
                             ]))
                         })
                         .build()

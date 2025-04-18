@@ -2,7 +2,7 @@ use crate::{
     action::Action,
     calculus::{
         first_order::QuantifiedFormula,
-        predicate::{GroundedPredicate, LiftedPredicate, PredicateDefinition, PredicateError},
+        predicate::{GoalPredicate, GroundedPredicate, PredicateDefinition, PredicateError},
     },
     entity::{EntityStorage, ObjectStorage, TypeStorage},
     sealed::Sealed,
@@ -36,7 +36,7 @@ impl Domain {
             &dyn TypeStorage,
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
-        ) -> Result<QuantifiedFormula<LiftedPredicate>, BuildError>,
+        ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
     {
         ProblemBuilder {
             problem_name: INTERNER.lock().get_or_intern(name),
@@ -67,7 +67,7 @@ pub struct Problem {
     pub entities: EntityStorage,
     pub actions: NamedStorage<Action>,
     pub init: State,
-    pub goal: QuantifiedFormula<LiftedPredicate>,
+    pub goal: QuantifiedFormula<GoalPredicate>,
 }
 
 pub const SUPPORTED_REQUIREMENTS: [Requirement; 7] = [
@@ -364,7 +364,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<LiftedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
     S: ProblemBuilderState,
 {
     problem_name: InternerSymbol,
@@ -387,7 +387,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<LiftedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
 {
     pub fn objects(self, add_objects: O) -> ProblemBuilder<O, I, G, HasObjects> {
         ProblemBuilder {
@@ -413,7 +413,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<LiftedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
 {
     pub fn init(self, add_init: I) -> ProblemBuilder<O, I, G, HasInit> {
         ProblemBuilder {
@@ -439,7 +439,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<LiftedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
 {
     pub fn goal(self, add_goal: G) -> ProblemBuilder<O, I, G, HasGoal> {
         ProblemBuilder {
@@ -465,7 +465,7 @@ where
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<LiftedPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
 {
     pub fn build(self) -> Result<Problem, BuildError> {
         let mut entities = self.domain.entities;
@@ -500,7 +500,7 @@ mod tests {
         action::{ActionBuilder, ActionEffect as E},
         calculus::{
             first_order::QuantifiedFormula as F,
-            predicate::{PredicateBuilder, Value},
+            predicate::{GoalValue, PredicateBuilder, Value},
         },
     };
 
@@ -589,7 +589,7 @@ mod tests {
                 let o2 = objects.get_object("b").unwrap();
                 let p2 = predicates.get("bar").unwrap();
                 Ok(F::pred(
-                    p2.values(vec![Value::object(&c1), Value::object(&o2)])
+                    p2.values(vec![GoalValue::object(&c1), GoalValue::object(&o2)])
                         .build()
                         .unwrap(),
                 ))
@@ -623,7 +623,7 @@ mod tests {
                 let o4 = objects.get_object("d").unwrap();
                 let p2 = predicates.get("bar").unwrap();
                 Ok(F::pred(
-                    p2.values(vec![Value::object(&c1), Value::object(&o4)])
+                    p2.values(vec![GoalValue::object(&c1), GoalValue::object(&o4)])
                         .build()
                         .unwrap(),
                 ))

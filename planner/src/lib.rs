@@ -1,3 +1,4 @@
+#![feature(specialization)]
 #![feature(lazy_type_alias)]
 #![feature(coverage_attribute)]
 #![cfg_attr(not(test), no_std)]
