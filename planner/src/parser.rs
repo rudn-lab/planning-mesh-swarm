@@ -129,7 +129,7 @@ fn parse_grounded_predicate(
                             .ok_or(BE::BadDefinition(BD::UnknownObject(o.to_string())))
                     })
                     .collect::<Result<Vec<_>, _>>()
-                    .and_then(|v| p.grounded_values(v).build().map_err(BE::PredicateError))
+                    .and_then(|v| p.values(v).build().map_err(BE::PredicateError))
             }),
     }
 }
@@ -765,24 +765,9 @@ mod tests {
 
                 let on_site = predicates.get("on-site").unwrap();
 
-                init.insert(
-                    on_site
-                        .grounded_values(vec![b.dupe(), s1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    on_site
-                        .grounded_values(vec![c.dupe(), s1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    on_site
-                        .grounded_values(vec![w.dupe(), s1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
+                init.insert(on_site.values(vec![b.dupe(), s1.dupe()]).build().unwrap());
+                init.insert(on_site.values(vec![c.dupe(), s1.dupe()]).build().unwrap());
+                init.insert(on_site.values(vec![w.dupe(), s1.dupe()]).build().unwrap());
 
                 Ok(())
             })
@@ -1129,74 +1114,62 @@ mod tests {
                 let size_smaller = predicates.get("size-smaller").unwrap();
                 let different = predicates.get("different").unwrap();
 
-                init.insert(
-                    at.grounded_values(vec![box1.dupe(), loc1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    at.grounded_values(vec![box2.dupe(), loc1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    at.grounded_values(vec![box3.dupe(), loc1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
+                init.insert(at.values(vec![box1.dupe(), loc1.dupe()]).build().unwrap());
+                init.insert(at.values(vec![box2.dupe(), loc1.dupe()]).build().unwrap());
+                init.insert(at.values(vec![box3.dupe(), loc1.dupe()]).build().unwrap());
 
                 init.insert(
                     size_smaller
-                        .grounded_values(vec![box1.dupe(), box2.dupe()])
+                        .values(vec![box1.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     size_smaller
-                        .grounded_values(vec![box1.dupe(), box3.dupe()])
+                        .values(vec![box1.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     size_smaller
-                        .grounded_values(vec![box2.dupe(), box3.dupe()])
+                        .values(vec![box2.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
 
                 init.insert(
                     different
-                        .grounded_values(vec![box1.dupe(), box2.dupe()])
+                        .values(vec![box1.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .grounded_values(vec![box2.dupe(), box1.dupe()])
+                        .values(vec![box2.dupe(), box1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .grounded_values(vec![box1.dupe(), box3.dupe()])
+                        .values(vec![box1.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .grounded_values(vec![box3.dupe(), box1.dupe()])
+                        .values(vec![box3.dupe(), box1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .grounded_values(vec![box2.dupe(), box3.dupe()])
+                        .values(vec![box2.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .grounded_values(vec![box3.dupe(), box2.dupe()])
+                        .values(vec![box3.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );

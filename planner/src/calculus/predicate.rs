@@ -20,6 +20,14 @@ use gazebo::dupe::Dupe;
 use getset::{CopyGetters, Getters};
 use itertools::Itertools;
 
+#[derive(Debug)]
+pub enum PredicateError {
+    TypeMismatch,
+    WrongNumberOfValues,
+    MissingGroundingParameter,
+    MissingBoundVariable,
+}
+
 #[allow(private_bounds)]
 pub trait IsPredicate<P: IsPredicate<P>>:
     Debug + Eq + Ord + Clone + Evaluable<P, P> + Sealed
@@ -51,15 +59,51 @@ impl IsPredicate<GroundedPredicate> for GroundedPredicate {
     }
 }
 
+pub trait PredicateValue: PartialEq + Ord {
+    fn r#type(&self) -> TypeHandle;
+}
+
+/// All values that a predicate can take when it appears in an action definition
+#[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Value {
+    Object(ObjectHandle),
+    ActionParameter(ActionParameter),
+    BoundVariable(BoundVariable),
+}
+
+impl Value {
+    pub fn object(handle: &ObjectHandle) -> Self {
+        Self::Object(handle.dupe())
+    }
+
+    pub fn param(param: &ActionParameter) -> Self {
+        Self::ActionParameter(param.dupe())
+    }
+
+    pub fn bound(var: &BoundVariable) -> Self {
+        Self::BoundVariable(var.dupe())
+    }
+}
+
+impl PredicateValue for Value {
+    fn r#type(&self) -> TypeHandle {
+        match self {
+            Value::Object(o) => o.r#type(),
+            Value::ActionParameter(ap) => ap.r#type.dupe(),
+            Value::BoundVariable(bv) => bv.r#type.dupe(),
+        }
+    }
+}
+
 /// A predicate how it is used in actions.
 #[derive(Debug, Clone, Getters)]
-pub struct LiftedPredicate {
+pub struct Predicate<V: PredicateValue> {
     #[getset(get = "pub")]
     name: InternerSymbol,
     #[getset(get = "pub")]
     arguments: Vec<TypeHandle>,
     #[getset(get = "pub")]
-    values: Vec<Value>,
+    values: Vec<V>,
     /// A marker to help distinguish real predicates from copies
     /// made when transforming an expression.
     ///
@@ -73,6 +117,53 @@ pub struct LiftedPredicate {
     /// but only 2.
     #[getset(get = "pub")]
     unique_marker: Marker,
+}
+
+impl<V: PredicateValue> Named for Predicate<V> {
+    fn name(&self) -> InternerSymbol {
+        self.name
+    }
+}
+
+impl<V: PredicateValue> PartialEq for Predicate<V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.arguments == other.arguments && self.values == other.values
+    }
+}
+
+impl<V: PredicateValue> Eq for Predicate<V> {}
+
+impl<V: PredicateValue> Ord for Predicate<V> {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (&self.name, &self.arguments, &self.values).cmp(&(
+            &other.name,
+            &other.arguments,
+            &other.values,
+        ))
+    }
+}
+
+impl<V: PredicateValue> PartialOrd for Predicate<V> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+pub type LiftedPredicate = Predicate<Value>;
+
+/// Variable in a predicate
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LiftedValue<'a> {
+    ActionParameter(usize, &'a ActionParameter),
+    BoundVariable(usize, &'a BoundVariable),
+}
+
+impl LiftedValue<'_> {
+    pub fn idx(&self) -> usize {
+        match self {
+            LiftedValue::ActionParameter(i, _) | LiftedValue::BoundVariable(i, _) => *i,
+        }
+    }
 }
 
 impl LiftedPredicate {
@@ -196,48 +287,15 @@ impl Evaluable<LiftedPredicate, LiftedPredicate> for LiftedPredicate {
     }
 }
 
-impl Named for LiftedPredicate {
-    fn name(&self) -> InternerSymbol {
-        self.name
+impl PredicateValue for ObjectHandle {
+    fn r#type(&self) -> TypeHandle {
+        self.r#type()
     }
 }
 
-impl PartialEq for LiftedPredicate {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.arguments == other.arguments && self.values == other.values
-    }
-}
-
-impl Eq for LiftedPredicate {}
-
-impl Ord for LiftedPredicate {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (&self.name, &self.arguments, &self.values).cmp(&(
-            &other.name,
-            &other.arguments,
-            &other.values,
-        ))
-    }
-}
-
-impl PartialOrd for LiftedPredicate {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// A fully grounded [LiftedPredicate] how it is stored in a state.
-#[derive(Debug, Clone, Getters)]
-pub struct GroundedPredicate {
-    #[getset(get = "pub")]
-    name: InternerSymbol,
-    #[getset(get = "pub")]
-    arguments: Vec<TypeHandle>,
-    #[getset(get = "pub")]
-    values: Vec<ObjectHandle>,
-    #[getset(get = "pub")]
-    unique_marker: Marker,
-}
+/// A [LiftedPredicate] where all [LiftedValue]s
+/// were replaced by concrete [Object](ObjectHandle)s.
+pub type GroundedPredicate = Predicate<ObjectHandle>;
 
 impl GroundedPredicate {
     /// Checks whether this predicate is a possible groundings of another predicate
@@ -268,81 +326,6 @@ impl Evaluable<GroundedPredicate, GroundedPredicate> for GroundedPredicate {
     }
 }
 
-impl Named for GroundedPredicate {
-    fn name(&self) -> InternerSymbol {
-        self.name
-    }
-}
-
-impl PartialEq for GroundedPredicate {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.arguments == other.arguments && self.values == other.values
-    }
-}
-
-impl Eq for GroundedPredicate {}
-
-impl Ord for GroundedPredicate {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        (&self.name, &self.arguments, &self.values).cmp(&(
-            &other.name,
-            &other.arguments,
-            &other.values,
-        ))
-    }
-}
-
-impl PartialOrd for GroundedPredicate {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-#[derive(Debug)]
-pub enum PredicateError {
-    TypeMismatch,
-    WrongNumberOfValues,
-    MissingGroundingParameter,
-    MissingBoundVariable,
-}
-
-/// All values that a predicate can take when it appears in an action definition
-#[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Value {
-    Object(ObjectHandle),
-    ActionParameter(ActionParameter),
-    BoundVariable(BoundVariable),
-}
-
-impl Value {
-    pub fn object(handle: &ObjectHandle) -> Self {
-        Self::Object(handle.dupe())
-    }
-
-    pub fn param(param: &ActionParameter) -> Self {
-        Self::ActionParameter(param.dupe())
-    }
-
-    pub fn bound(var: &BoundVariable) -> Self {
-        Self::BoundVariable(var.dupe())
-    }
-}
-
-/// Variable in a predicate
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LiftedValue<'a> {
-    ActionParameter(usize, &'a ActionParameter),
-    BoundVariable(usize, &'a BoundVariable),
-}
-
-impl LiftedValue<'_> {
-    pub fn idx(&self) -> usize {
-        match self {
-            LiftedValue::ActionParameter(i, _) | LiftedValue::BoundVariable(i, _) => *i,
-        }
-    }
-}
-
 #[allow(private_bounds)]
 pub trait PredicateBuilderState: Sealed {}
 
@@ -361,21 +344,18 @@ impl PredicateBuilderState for New {}
 impl PredicateBuilderState for HasName {}
 impl PredicateBuilderState for HasArguments {}
 impl PredicateBuilderState for HasValues {}
-impl PredicateBuilderState for HasGroundedValues {}
 
 impl Sealed for New {}
 impl Sealed for HasName {}
 impl Sealed for HasArguments {}
 impl Sealed for HasValues {}
-impl Sealed for HasGroundedValues {}
 
 #[derive(Debug, Clone, PartialEq, Eq, CopyGetters)]
 pub struct PredicateBuilder<S: PredicateBuilderState> {
     #[getset(get_copy = "pub")]
     name: InternerSymbol,
     arguments: Vec<TypeHandle>,
-    values: Vec<Value>,
-    grounded_values: Vec<ObjectHandle>,
+    values: Vec<ObjectHandle>,
     state: PhantomData<S>,
 }
 
@@ -385,7 +365,6 @@ impl PredicateBuilder<New> {
             name: INTERNER.lock().get_or_intern(name),
             arguments: Vec::new(),
             values: Vec::new(),
-            grounded_values: Vec::new(),
             state: PhantomData,
         }
     }
@@ -397,7 +376,6 @@ impl PredicateBuilder<HasName> {
             name: self.name,
             arguments,
             values: self.values,
-            grounded_values: self.grounded_values,
             state: PhantomData,
         }
     }
@@ -411,39 +389,30 @@ impl Named for PredicateDefinition {
     }
 }
 
-impl PredicateBuilder<HasArguments> {
+impl PredicateDefinition {
     pub fn arguments(&self) -> &[TypeHandle] {
         &self.arguments
     }
+}
 
-    pub fn values(&self, values: Vec<Value>) -> PredicateBuilder<HasValues> {
-        PredicateBuilder {
-            name: self.name,
-            arguments: self.arguments.clone(),
+pub struct PredicateFinalizer<V: PredicateValue> {
+    definition: PredicateDefinition,
+    values: Vec<V>,
+}
+
+impl PredicateBuilder<HasArguments> {
+    pub fn values<V: PredicateValue>(&self, values: Vec<V>) -> PredicateFinalizer<V> {
+        PredicateFinalizer {
+            definition: self.clone(),
             values,
-            grounded_values: Vec::new(),
-            state: PhantomData,
-        }
-    }
-
-    pub fn grounded_values(
-        &self,
-        grounded_values: Vec<ObjectHandle>,
-    ) -> PredicateBuilder<HasGroundedValues> {
-        PredicateBuilder {
-            name: self.name,
-            arguments: self.arguments.clone(),
-            values: Vec::new(),
-            grounded_values,
-            state: PhantomData,
         }
     }
 }
 
-impl PredicateBuilder<HasValues> {
-    pub fn build(self) -> Result<LiftedPredicate, PredicateError> {
-        let name = self.name;
-        let arguments = self.arguments;
+impl<V: PredicateValue> PredicateFinalizer<V> {
+    pub fn build(self) -> Result<Predicate<V>, PredicateError> {
+        let name = self.definition.name;
+        let arguments = self.definition.arguments;
         let values = self.values;
 
         if arguments.len() != values.len() {
@@ -452,48 +421,17 @@ impl PredicateBuilder<HasValues> {
 
         if !values
             .iter()
-            .map(|v| match v {
-                Value::Object(o) => o.r#type(),
-                Value::ActionParameter(ap) => ap.r#type.dupe(),
-                Value::BoundVariable(var) => var.r#type.dupe(),
-            })
+            .map(|v| v.r#type())
             .zip(&arguments)
             .all(|(t, a)| t.inherits_or_eq(a))
         {
             return Err(PredicateError::TypeMismatch);
         }
 
-        Ok(LiftedPredicate {
+        Ok(Predicate {
             name,
             arguments: arguments.to_vec(),
-            values: values.to_vec(),
-            unique_marker: Marker::new(),
-        })
-    }
-}
-
-impl PredicateBuilder<HasGroundedValues> {
-    pub fn build(self) -> Result<GroundedPredicate, PredicateError> {
-        let name = self.name;
-        let arguments = self.arguments;
-        let values = self.grounded_values;
-
-        if arguments.len() != values.len() {
-            return Err(PredicateError::WrongNumberOfValues);
-        }
-
-        if !values
-            .iter()
-            .zip(&arguments)
-            .all(|(v, a)| v.r#type().inherits_or_eq(a))
-        {
-            return Err(PredicateError::TypeMismatch);
-        }
-
-        Ok(GroundedPredicate {
-            name,
-            arguments: arguments.to_vec(),
-            values: values.to_vec(),
+            values,
             unique_marker: Marker::new(),
         })
     }
@@ -510,12 +448,12 @@ mod tests {
     #[test]
     fn test_equality() {
         // Same predicates, even though the marker is different for each one
-        let p = PredicateBuilder::new("foo")
+        let p: LiftedPredicate = PredicateBuilder::new("foo")
             .arguments(vec![])
             .values(vec![])
             .build()
             .unwrap();
-        let p1 = PredicateBuilder::new("foo")
+        let p1: LiftedPredicate = PredicateBuilder::new("foo")
             .arguments(vec![])
             .values(vec![])
             .build()
@@ -524,12 +462,12 @@ mod tests {
         assert!(p.unique_marker != p1.unique_marker);
 
         // Different because of marker and name
-        let p = PredicateBuilder::new("foo")
+        let p: LiftedPredicate = PredicateBuilder::new("foo")
             .arguments(vec![])
             .values(vec![])
             .build()
             .unwrap();
-        let p1 = PredicateBuilder::new("bar")
+        let p1: LiftedPredicate = PredicateBuilder::new("bar")
             .arguments(vec![])
             .values(vec![])
             .build()
@@ -591,7 +529,7 @@ mod tests {
             .build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
-        let p1 = p.grounded_values(vec![o1.dupe(), o1.dupe()]).build();
+        let p1 = p.values(vec![o1.dupe(), o1.dupe()]).build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
         let ap1 = ActionParameter {
@@ -636,7 +574,7 @@ mod tests {
 
     #[test]
     fn test_builder_shortcut_equality() {
-        let p1 = PredicateBuilder::new("foo")
+        let p1: LiftedPredicate = PredicateBuilder::new("foo")
             .arguments(vec![])
             .values(vec![])
             .build()
@@ -648,19 +586,23 @@ mod tests {
             .unwrap();
         assert_eq!(p1, p2);
 
-        let gp1 = PredicateBuilder::new("foo")
+        let gp1: LiftedPredicate = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let gp2 = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         assert_eq!(gp1, gp2);
     }
 
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
     #[test]
     fn test_grounding_equality() {
         let mut entities = EntityStorage::default();
@@ -676,7 +618,7 @@ mod tests {
             .build()
             .unwrap();
         let gp1 = p1.into_grounded(&BTreeMap::new()).unwrap();
-        let gp2 = pb1.grounded_values(vec![o1, o2]).build().unwrap();
+        let gp2 = pb1.values(vec![o1, o2]).build().unwrap();
 
         assert_eq!(gp1, BTreeSet::from([gp2]));
     }

@@ -180,7 +180,7 @@ impl<P: IsPredicate<P>> From<Formula<P>> for Dnf<P> {
 mod tests {
     use super::*;
     use crate::{
-        calculus::predicate::{PredicateBuilder, Value},
+        calculus::predicate::{LiftedPredicate, PredicateBuilder, Value},
         entity::{EntityStorage, ObjectStorage, TypeStorage},
         state::State,
     };
@@ -195,12 +195,12 @@ mod tests {
     fn test_basic_and() {
         let t = PredicateBuilder::new("true")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let f = PredicateBuilder::new("false")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let state = State::default().with_predicates(vec![t.clone()]);
@@ -224,12 +224,12 @@ mod tests {
     fn test_basic_or() {
         let t = PredicateBuilder::new("true")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let f = PredicateBuilder::new("false")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let state = State::default().with_predicates(vec![t.clone()]);
@@ -260,12 +260,12 @@ mod tests {
     fn test_basic_not() {
         let t = PredicateBuilder::new("true")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let f = PredicateBuilder::new("false")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let state = State::default().with_predicates(vec![t.clone()]);
@@ -281,7 +281,7 @@ mod tests {
     fn test_formula() {
         let t = PredicateBuilder::new("true")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let state = State::default().with_predicates(vec![t.clone()]);
@@ -299,12 +299,12 @@ mod tests {
     fn test_basic_dnf() {
         let t = PredicateBuilder::new("true")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let f = PredicateBuilder::new("false")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let state = State::default().with_predicates(vec![t.clone()]);
@@ -324,12 +324,12 @@ mod tests {
     fn test_expression_get_predicates() {
         let p = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
 
         // All predicates are the same
-        let expression = F::and(vec![
+        let expression: F<LiftedPredicate> = F::and(vec![
             F::or(vec![F::pred(p.clone()), F::not(F::pred(p.clone()))]),
             F::pred(p.clone()),
             F::not(F::and(vec![F::pred(p.clone()), F::not(F::pred(p.clone()))])),
@@ -340,31 +340,31 @@ mod tests {
         // All predicates are unique
         let p = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("baz")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p3 = PredicateBuilder::new("qux")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p4 = PredicateBuilder::new("corge")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
 
-        let expression = F::and(vec![
+        let expression: F<LiftedPredicate> = F::and(vec![
             F::or(vec![F::pred(p), F::not(F::pred(p1))]),
             F::pred(p2),
             F::not(F::and(vec![F::pred(p3), F::not(F::pred(p4))])),
@@ -376,21 +376,21 @@ mod tests {
         // Look at Predicate.unique_marker.
         let p = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p1 = PredicateBuilder::new("bar")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
         let p2 = PredicateBuilder::new("baz")
             .arguments(vec![])
-            .grounded_values(vec![])
+            .values(vec![])
             .build()
             .unwrap();
 
-        let expression = F::and(vec![
+        let expression: F<LiftedPredicate> = F::and(vec![
             F::or(vec![F::pred(p), F::not(F::pred(p1.clone()))]),
             F::pred(p2.clone()),
             F::not(F::and(vec![F::pred(p1), F::not(F::pred(p2))])),

@@ -996,15 +996,9 @@ mod test {
 
         let pdnf: Pdnf<_> = f.into();
 
-        let gp1 = p
-            .grounded_values(vec![a.dupe(), b1.dupe()])
-            .build()
-            .unwrap();
-        let gp2 = p
-            .grounded_values(vec![a.dupe(), b2.dupe()])
-            .build()
-            .unwrap();
-        let gq1 = q.grounded_values(vec![a.dupe()]).build().unwrap();
+        let gp1 = p.values(vec![a.dupe(), b1.dupe()]).build().unwrap();
+        let gp2 = p.values(vec![a.dupe(), b2.dupe()]).build().unwrap();
+        let gq1 = q.values(vec![a.dupe()]).build().unwrap();
 
         let state = State::default().with_predicates(vec![gp1, gp2, gq1]);
 
@@ -1053,10 +1047,7 @@ mod test {
 
         let pdnf: Pdnf<_> = f.into();
 
-        let gp = p
-            .grounded_values(vec![a.dupe(), b1.dupe()])
-            .build()
-            .unwrap();
+        let gp = p.values(vec![a.dupe(), b1.dupe()]).build().unwrap();
 
         // `q(a)` is missing
         let state = State::default().with_predicates(vec![gp]);
@@ -1106,7 +1097,7 @@ mod test {
 
         let pdnf: Pdnf<_> = f.into();
 
-        let gq = q.grounded_values(vec![a.dupe()]).build().unwrap();
+        let gq = q.values(vec![a.dupe()]).build().unwrap();
 
         // No matching `p(a, b1)`
         let state = State::default().with_predicates(vec![gq]);
@@ -1145,7 +1136,7 @@ mod test {
         let pdnf: Pdnf<_> = f.into();
 
         // Only `q(a)` is true - should still satisfy the initial disjunction
-        let gq = q.grounded_values(vec![a.dupe()]).build().unwrap();
+        let gq = q.values(vec![a.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gq]);
 
         assert!(pdnf.eval(&state));
@@ -1194,10 +1185,7 @@ mod test {
         assert!(pdnf.eval(&state));
 
         // Add p(a, b2) - now it should fail
-        let gp = p
-            .grounded_values(vec![a.dupe(), b2.dupe()])
-            .build()
-            .unwrap();
+        let gp = p.values(vec![a.dupe(), b2.dupe()]).build().unwrap();
         let state_with_violation = State::default().with_predicates(vec![gp]);
 
         assert!(!pdnf.eval(&state_with_violation));

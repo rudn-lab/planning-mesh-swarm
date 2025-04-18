@@ -513,8 +513,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p1.grounded_values(vec![x.dupe()]).build().unwrap();
-        let gp3 = p3.grounded_values(vec![y.dupe()]).build().unwrap();
+        let gp1 = p1.values(vec![x.dupe()]).build().unwrap();
+        let gp3 = p3.values(vec![y.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp1, gp3]);
 
         let action_params = action.parameters();
@@ -530,8 +530,8 @@ mod tests {
 
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.grounded_values(vec![x.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.grounded_values(vec![y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.values(vec![y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -582,7 +582,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p1.grounded_values(vec![x.dupe()]).build().unwrap();
+        let gp1 = p1.values(vec![x.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp1]);
 
         let action_params = action.parameters();
@@ -598,8 +598,8 @@ mod tests {
 
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.grounded_values(vec![x.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.grounded_values(vec![y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.values(vec![y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -654,8 +654,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p1.grounded_values(vec![x1.dupe()]).build().unwrap();
-        let gp2 = p2.grounded_values(vec![y1.dupe()]).build().unwrap();
+        let gp1 = p1.values(vec![x1.dupe()]).build().unwrap();
+        let gp2 = p2.values(vec![y1.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp1, gp2]);
 
         let action_params = action.parameters();
@@ -671,8 +671,8 @@ mod tests {
 
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Add(p1.grounded_values(vec![x2.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
+            ModifyState::Add(p1.values(vec![x2.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -727,10 +727,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp11 = p1.grounded_values(vec![x1.dupe()]).build().unwrap();
-        let gp12 = p1.grounded_values(vec![x2.dupe()]).build().unwrap();
-        let gp21 = p2.grounded_values(vec![y1.dupe()]).build().unwrap();
-        let gp22 = p2.grounded_values(vec![y2.dupe()]).build().unwrap();
+        let gp11 = p1.values(vec![x1.dupe()]).build().unwrap();
+        let gp12 = p1.values(vec![x2.dupe()]).build().unwrap();
+        let gp21 = p2.values(vec![y1.dupe()]).build().unwrap();
+        let gp22 = p2.values(vec![y2.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp11, gp12, gp21, gp22]);
 
         let res = state.ground_action(&action);
@@ -813,14 +813,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p1
-            .grounded_values(vec![x1.dupe(), x2.dupe()])
-            .build()
-            .unwrap();
-        let gp2 = p2
-            .grounded_values(vec![y1.dupe(), y2.dupe()])
-            .build()
-            .unwrap();
+        let gp1 = p1.values(vec![x1.dupe(), x2.dupe()]).build().unwrap();
+        let gp2 = p2.values(vec![y1.dupe(), y2.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp1, gp2]);
 
         let action_params = action.parameters();
@@ -837,28 +831,12 @@ mod tests {
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(
-                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
-                ModifyState::Add(
-                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
+                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(
-                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
-                ModifyState::Add(
-                    p2.grounded_values(vec![y3.dupe(), y1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
+                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y3.dupe(), y1.dupe()]).build().unwrap()),
             ]),
         ]);
 
@@ -944,14 +922,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p1
-            .grounded_values(vec![x1.dupe(), x2.dupe()])
-            .build()
-            .unwrap();
-        let gp2 = p2
-            .grounded_values(vec![y1.dupe(), y2.dupe()])
-            .build()
-            .unwrap();
+        let gp1 = p1.values(vec![x1.dupe(), x2.dupe()]).build().unwrap();
+        let gp2 = p2.values(vec![y1.dupe(), y2.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp1, gp2]);
 
         let action_params = action.parameters();
@@ -976,53 +948,21 @@ mod tests {
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(
-                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
-                ModifyState::Add(
-                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
+                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(
-                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
-                ModifyState::Add(
-                    p2.grounded_values(vec![y3.dupe(), y1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
+                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y3.dupe(), y1.dupe()]).build().unwrap()),
             ]),
             // The same as the first one, will be re&moved by the set
             BTreeSet::from([
-                ModifyState::Del(
-                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
-                ModifyState::Add(
-                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
+                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(
-                    p1.grounded_values(vec![x2.dupe(), x2.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
-                ModifyState::Add(
-                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
-                        .build()
-                        .unwrap(),
-                ),
+                ModifyState::Del(p1.values(vec![x2.dupe(), x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
             ]),
         ]);
 
@@ -1096,16 +1036,16 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1_t1_1 = p1.grounded_values(vec![x1.dupe()]).build().unwrap();
-        let gp1_t1_2 = p1.grounded_values(vec![x2.dupe()]).build().unwrap();
-        let gp1_tt1_1 = p1.grounded_values(vec![xx1.dupe()]).build().unwrap();
-        let gp1_tt1_2 = p1.grounded_values(vec![xx2.dupe()]).build().unwrap();
+        let gp1_t1_1 = p1.values(vec![x1.dupe()]).build().unwrap();
+        let gp1_t1_2 = p1.values(vec![x2.dupe()]).build().unwrap();
+        let gp1_tt1_1 = p1.values(vec![xx1.dupe()]).build().unwrap();
+        let gp1_tt1_2 = p1.values(vec![xx2.dupe()]).build().unwrap();
 
-        let rpp1_tt1_1 = pp1.grounded_values(vec![xx1.dupe()]).build().unwrap();
-        let rpp1_tt1_2 = pp1.grounded_values(vec![xx2.dupe()]).build().unwrap();
+        let rpp1_tt1_1 = pp1.values(vec![xx1.dupe()]).build().unwrap();
+        let rpp1_tt1_2 = pp1.values(vec![xx2.dupe()]).build().unwrap();
 
-        let gp2_t2_1 = p2.grounded_values(vec![y1.dupe()]).build().unwrap();
-        let gp2_t2_2 = p2.grounded_values(vec![y2.dupe()]).build().unwrap();
+        let gp2_t2_1 = p2.values(vec![y1.dupe()]).build().unwrap();
+        let gp2_t2_2 = p2.values(vec![y2.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![
             gp1_t1_1, gp1_t1_2, gp1_tt1_1, gp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, gp2_t2_1, gp2_t2_2,
         ]);
@@ -1151,36 +1091,36 @@ mod tests {
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![xx1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![xx1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![xx1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![xx1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![xx2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![xx2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.grounded_values(vec![xx2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.values(vec![xx2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
             ]),
         ]);
 
@@ -1240,12 +1180,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp11 = p1.grounded_values(vec![x.dupe()]).build().unwrap();
-        let gp12 = p1.grounded_values(vec![a.dupe()]).build().unwrap();
-        let gp21 = p2
-            .grounded_values(vec![a.dupe(), y.dupe()])
-            .build()
-            .unwrap();
+        let gp11 = p1.values(vec![x.dupe()]).build().unwrap();
+        let gp12 = p1.values(vec![a.dupe()]).build().unwrap();
+        let gp21 = p2.values(vec![a.dupe(), y.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![gp11, gp12, gp21]);
 
         let action_params = action.parameters();
@@ -1261,12 +1198,8 @@ mod tests {
 
         let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.grounded_values(vec![a.dupe()]).build().unwrap()),
-            ModifyState::Add(
-                p2.grounded_values(vec![a.dupe(), y.dupe()])
-                    .build()
-                    .unwrap(),
-            ),
+            ModifyState::Del(p1.values(vec![a.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.values(vec![a.dupe(), y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -1322,8 +1255,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let pred_a = p.grounded_values(vec![x.dupe(), a.dupe()]).build().unwrap();
-        let pred_b = p.grounded_values(vec![y.dupe(), b.dupe()]).build().unwrap();
+        let pred_a = p.values(vec![x.dupe(), a.dupe()]).build().unwrap();
+        let pred_b = p.values(vec![y.dupe(), b.dupe()]).build().unwrap();
 
         let state = State::default().with_predicates(vec![pred_a.clone(), pred_b.clone()]);
 
@@ -1374,7 +1307,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let rs = s.grounded_values(vec![x.dupe(), y.dupe()]).build().unwrap();
+        let rs = s.values(vec![x.dupe(), y.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![rs]);
 
         let res = state.ground_action(&action);
@@ -1440,18 +1373,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p
-            .grounded_values(vec![x.dupe(), y1.dupe()])
-            .build()
-            .unwrap();
-        let gp2 = p
-            .grounded_values(vec![x.dupe(), y2.dupe()])
-            .build()
-            .unwrap();
-        let gq = q
-            .grounded_values(vec![x.dupe(), y2.dupe()])
-            .build()
-            .unwrap();
+        let gp1 = p.values(vec![x.dupe(), y1.dupe()]).build().unwrap();
+        let gp2 = p.values(vec![x.dupe(), y2.dupe()]).build().unwrap();
+        let gq = q.values(vec![x.dupe(), y2.dupe()]).build().unwrap();
 
         let state = State::default().with_predicates(vec![gp1, gp2, gq]);
 

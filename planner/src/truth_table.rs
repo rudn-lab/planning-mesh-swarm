@@ -104,7 +104,7 @@ mod tests {
     use super::*;
     use crate::{
         calculus::{
-            predicate::{PredicateBuilder, Value},
+            predicate::{LiftedPredicate, PredicateBuilder, Value},
             propositional::Formula as F,
         },
         entity::{EntityStorage, ObjectStorage, TypeStorage},
@@ -127,7 +127,7 @@ mod tests {
             .values(vec![])
             .build()
             .unwrap();
-        let f = F::and(vec![F::pred(p.clone()), F::pred(p)]);
+        let f: F<LiftedPredicate> = F::and(vec![F::pred(p.clone()), F::pred(p)]);
         let tt = TruthTable::new(&f);
 
         assert_eq!(1, tt.predicates.len());

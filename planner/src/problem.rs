@@ -577,7 +577,7 @@ mod tests {
                     predicates
                         .get("foo")
                         .unwrap()
-                        .grounded_values(vec![o1])
+                        .values(vec![o1])
                         .build()
                         .unwrap(),
                 );
@@ -611,7 +611,7 @@ mod tests {
                     predicates
                         .get("foo")
                         .unwrap()
-                        .grounded_values(vec![o3.dupe()])
+                        .values(vec![o3.dupe()])
                         .build()
                         .unwrap(),
                 );
