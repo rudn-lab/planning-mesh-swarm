@@ -304,7 +304,7 @@ impl<P: IsPredicate<P>> Nnf<P> {
     }
 
     pub fn npred(operand: P) -> Self {
-        Self::Prim(Primitives::not(operand))
+        Self::Prim(Primitives::Not(operand))
     }
 }
 
@@ -328,9 +328,9 @@ impl<P: IsPredicate<P>> From<QuantifiedFormula<P>> for Nnf<P> {
                 QF::And(and) => Nnf::or(and.into_iter().map(|m| QF::not(m).into()).collect_vec()),
                 QF::Or(or) => Nnf::and(or.into_iter().map(|m| QF::not(m).into()).collect_vec()),
                 QF::Not(not) => (*not).into(),
-                QF::Pred(p) => Nnf::Prim(Primitives::not(p)),
+                QF::Pred(p) => Nnf::Prim(Primitives::Not(p)),
             },
-            QF::Pred(p) => Nnf::Prim(Primitives::pred(p)),
+            QF::Pred(p) => Nnf::Prim(Primitives::Pred(p)),
         }
     }
 }
@@ -368,21 +368,17 @@ impl Evaluable<Predicate, ResolvedPredicate> for Pdnf<Predicate> {
 
             let handle_primitives = |p: &Primitives<Predicate>| -> bool {
                 match p {
-                    Primitives::Not(not) => !handle_predicate(not.inner()),
                     Primitives::Pred(p) => handle_predicate(p),
+                    Primitives::Not(not) => !handle_predicate(not),
                 }
             };
 
             let Some((head, tail)) = prefix.split_first() else {
                 // All of the prefix is applied.
-                return matrix
-                    .expression()
-                    .members()
-                    .iter()
-                    .any(|clause| match clause {
-                        DnfMembers::And(and) => and.o.iter().all(handle_primitives),
-                        DnfMembers::Prim(p) => handle_primitives(p),
-                    });
+                return matrix.clauses.iter().any(|clause| match clause {
+                    DnfClause::And(and) => and.iter().all(handle_primitives),
+                    DnfClause::Prim(p) => handle_primitives(p),
+                });
             };
 
             fn with_var_assignment<F>(
@@ -465,8 +461,8 @@ impl<P: IsPredicate<P>> From<Nnf<P>> for Pdnf<P> {
                         .collect_vec(),
                 ),
                 Nnf::Prim(p) => match p {
-                    Primitives::Not(not) => Formula::not(Formula::Pred(*not.o)),
                     Primitives::Pred(p) => Formula::pred(p),
+                    Primitives::Not(not) => Formula::not(Formula::pred(not)),
                 },
             }
         }

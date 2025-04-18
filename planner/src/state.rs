@@ -4,7 +4,7 @@ use crate::{
         evaluation::{Evaluable, EvaluationContext},
         first_order::{BoundVariable, QuantifierSymbol},
         predicate::{LiftedValue, Predicate, ResolvedPredicate},
-        propositional::{And, DnfMembers, Expression, NormalForm, Not, Primitives},
+        propositional::{DnfClause, Primitives},
     },
     entity::ObjectHandle,
     InternerSymbol,
@@ -195,9 +195,8 @@ impl State {
     /// have all of the parameters in it, so it's only a partial resolution.
     fn resolve_negated_predicate<'a>(
         &'a self,
-        predicate: &'a Not<Predicate, Predicate>,
+        predicate: &'a Predicate,
     ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
-        let predicate = predicate.inner();
         self.resolve_predicate(predicate)
             .into_iter()
             // Because it's a negated predicate,
@@ -227,8 +226,8 @@ impl State {
         p: &'a Primitives<Predicate>,
     ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
         match p {
-            Primitives::Not(np) => self.resolve_negated_predicate(np),
             Primitives::Pred(p) => self.resolve_predicate(p),
+            Primitives::Not(np) => self.resolve_negated_predicate(np),
         }
     }
 
@@ -238,10 +237,9 @@ impl State {
     )]
     fn handle_and<'a>(
         &'a self,
-        and: &'a And<Primitives<Predicate>, Predicate>,
+        and: &'a BTreeSet<Primitives<Predicate>>,
     ) -> Option<BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>>> {
         let o = and
-            .members()
             .iter()
             .fold(BTreeMap::default(), |mut acc: BTreeMap<_, _>, p| {
                 self.handle_primitives(p).into_iter().for_each(|(k, v)| {
@@ -274,30 +272,25 @@ impl State {
         action
             .precondition()
             .matrix()
-            .expression()
-            .members()
+            .clauses
             .iter()
             // Filter out clauses that don't contain all of the action parameters
-            .filter(|clause| match clause {
-                DnfMembers::And(and) => {
-                    and.predicates()
-                        .map(|p| p.action_parameters())
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == num_params
-                }
-                DnfMembers::Prim(prim) => match prim {
-                    Primitives::Not(not) => not.inner().action_parameters().len() == num_params,
-                    Primitives::Pred(p) => p.action_parameters().len() == num_params,
-                },
+            .filter(|clause| {
+                clause
+                    .predicates()
+                    .flat_map(|p| p.action_parameters())
+                    .sorted()
+                    .dedup()
+                    .count()
+                    == num_params
             })
             .filter_map(|clause| match clause {
                 // Because DNF used "or" only as a top most operation
                 // it means that we only need one clause to evaluate to true
                 // in order to evaluate the whole DNF to true.
                 // This allows us to treat all clauses in isolation
-                DnfMembers::And(and) => self.handle_and(and),
-                DnfMembers::Prim(p) => Some(self.handle_primitives(p)),
+                DnfClause::And(and) => self.handle_and(and),
+                DnfClause::Prim(p) => Some(self.handle_primitives(p)),
             })
             // Filter out those resolutions that didn't resolve all of the action parameters
             .filter(|r| {
@@ -381,7 +374,7 @@ mod tests {
         calculus::{
             first_order::{QuantifiedFormula as F, QuantifierBuilder},
             predicate::*,
-            propositional::{Dnf, DnfMembers, Primitives as Pr},
+            propositional::{Dnf, DnfClause, Primitives as Pr},
         },
         entity::*,
     };
@@ -459,7 +452,7 @@ mod tests {
         let pp2 = p2.values(vec![Value::param(&ap0)]).build().unwrap();
         // Resolutions from negated `bar`
         assert_eq!(
-            state.resolve_negated_predicate(&Not::new(pp2)),
+            state.resolve_negated_predicate(&pp2),
             BTreeMap::from([(
                 LiftedValue::ActionParameter(0, &ap0),
                 BTreeSet::from([x.dupe(), y.dupe(), b.dupe()])
@@ -481,7 +474,7 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            state.resolve_negated_predicate(&Not::new(p4)),
+            state.resolve_negated_predicate(&p4),
             BTreeMap::from([(
                 LiftedValue::ActionParameter(0, &ap0),
                 BTreeSet::from([x, y, b, c])
@@ -906,33 +899,35 @@ mod tests {
         let action = ActionBuilder::new("action")
             .parameters(vec![t1.dupe(), t2.dupe()])
             .precondition(|params| {
-                Ok(Dnf::new(vec![
-                    DnfMembers::and(vec![
-                        Pr::pred(
-                            p1.values(vec![Value::param(&params[0]), Value::object(&x2)])
-                                .build()
-                                .unwrap(),
-                        ),
-                        Pr::not(
-                            p2.values(vec![Value::object(&y1), Value::param(&params[1])])
-                                .build()
-                                .unwrap(),
-                        ),
+                Ok(Dnf {
+                    clauses: BTreeSet::from([
+                        DnfClause::And(BTreeSet::from([
+                            Pr::Pred(
+                                p1.values(vec![Value::param(&params[0]), Value::object(&x2)])
+                                    .build()
+                                    .unwrap(),
+                            ),
+                            Pr::Not(
+                                p2.values(vec![Value::object(&y1), Value::param(&params[1])])
+                                    .build()
+                                    .unwrap(),
+                            ),
+                        ])),
+                        DnfClause::And(BTreeSet::from([
+                            Pr::Not(
+                                p1.values(vec![Value::object(&x2), Value::param(&params[0])])
+                                    .build()
+                                    .unwrap(),
+                            ),
+                            Pr::Pred(
+                                p2.values(vec![Value::param(&params[1]), Value::object(&y2)])
+                                    .build()
+                                    .unwrap(),
+                            ),
+                        ])),
+                        DnfClause::And(BTreeSet::new()),
                     ]),
-                    DnfMembers::and(vec![
-                        Pr::not(
-                            p1.values(vec![Value::object(&x2), Value::param(&params[0])])
-                                .build()
-                                .unwrap(),
-                        ),
-                        Pr::pred(
-                            p2.values(vec![Value::param(&params[1]), Value::object(&y2)])
-                                .build()
-                                .unwrap(),
-                        ),
-                    ]),
-                    DnfMembers::and(vec![]),
-                ]))
+                })
             })
             .effect(|params| {
                 Ok(E::and(vec![
@@ -1072,25 +1067,27 @@ mod tests {
         let action = ActionBuilder::new("action")
             .parameters(vec![t1.dupe(), tt1.clone(), t2.dupe()])
             .precondition(|params| {
-                Ok(Dnf::new(vec![
-                    DnfMembers::and(vec![
-                        Pr::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
-                        Pr::pred(pp1.values(vec![Value::param(&params[1])]).build().unwrap()),
-                        Pr::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
+                Ok(Dnf {
+                    clauses: BTreeSet::from([
+                        DnfClause::And(BTreeSet::from([
+                            Pr::Pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                            Pr::Pred(pp1.values(vec![Value::param(&params[1])]).build().unwrap()),
+                            Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
+                        ])),
+                        DnfClause::And(BTreeSet::from([
+                            Pr::Pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                            Pr::Pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
+                            Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
+                        ])),
+                        // These won't get resolved as they are missing the other params
+                        DnfClause::Prim(Pr::Pred(
+                            pp1.values(vec![Value::param(&params[1])]).build().unwrap(),
+                        )),
+                        DnfClause::Prim(Pr::Pred(
+                            p2.values(vec![Value::param(&params[2])]).build().unwrap(),
+                        )),
                     ]),
-                    DnfMembers::and(vec![
-                        Pr::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
-                        Pr::pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
-                        Pr::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
-                    ]),
-                    // These won't get resolved as they are missing the other params
-                    DnfMembers::prim(Pr::pred(
-                        pp1.values(vec![Value::param(&params[1])]).build().unwrap(),
-                    )),
-                    DnfMembers::prim(Pr::pred(
-                        p2.values(vec![Value::param(&params[2])]).build().unwrap(),
-                    )),
-                ]))
+                })
             })
             .effect(|params| {
                 Ok(E::and(vec![

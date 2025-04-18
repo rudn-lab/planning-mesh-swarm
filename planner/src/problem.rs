@@ -1,108 +1,3 @@
-//! # Usage:
-//!```
-//! use planner::{
-//!     problem::DomainBuilder,
-//!     calculus::{
-//!         predicate::{PredicateBuilder, Value},
-//!         propositional::{Primitives as Pr, And},
-//!         first_order::QuantifiedFormula as F,
-//!     },
-//!     action::{ActionBuilder, ActionEffect as E},
-//!     Dupe,
-//! };
-//!
-//! let domain = DomainBuilder::new_domain("Sample Domain")
-//!     .types(|types| {
-//!         let t1 = types.get_or_create_type("t1");
-//!         let t2 = types.get_or_create_type("t2");
-//!         let _ = types.create_inheritance(&t2, &t1);
-//!
-//!         Ok(())
-//!     })
-//!     .consts(|types, objects| {
-//!         let _ = objects.get_or_create_object("A", &types.get_type("t1").unwrap());
-//!         let _ = objects.get_or_create_object("B", &types.get_type("t2").unwrap());
-//!
-//!         Ok(())
-//!     })
-//!     .predicate_definitions(|types, predicates| {
-//!         let t1 = types.get_type("t1").unwrap();
-//!         let t2 = types.get_type("t2").unwrap();
-//!         predicates.insert(PredicateBuilder::new("foo").arguments(vec![t1.dupe()]));
-//!         predicates.insert(PredicateBuilder::new("bar").arguments(vec![t1.dupe(), t2.dupe()]));
-//!
-//!         Ok(())
-//!     })
-//!     .actions(|types, objects, predicates, actions| {
-//!         let t1 = types.get_type("t1").unwrap();
-//!         let t2 = types.get_type("t2").unwrap();
-//!         let p1 = predicates.get("foo").unwrap();
-//!         let p2 = predicates.get("bar").unwrap();
-//!         let c1 = objects.get_object("A").unwrap();
-//!         ActionBuilder::new("baz")
-//!             .parameters(vec![t1.dupe(), t2.dupe()])
-//!             .precondition(|params| {
-//!                 Ok(F::and(vec![
-//!                     F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
-//!                     F::not(F::pred(
-//!                         p2.values(vec![Value::object(&c1), Value::param(&params[1])])
-//!                             .build()
-//!                             .unwrap(),
-//!                     )),
-//!                 ]))
-//!             })
-//!             .effect(|params| {
-//!                 Ok(E::and(vec![
-//!                     E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
-//!                     E::pred(
-//!                         p2.values(vec![Value::object(&c1), Value::param(&params[1])])
-//!                             .build()
-//!                             .unwrap(),
-//!                     ),
-//!                 ]))
-//!             })
-//!             .build()
-//!             .map(|a| actions.insert(a))
-//!     })
-//!     .build()
-//!     .unwrap();
-//!
-//! let problem = domain
-//!     .new_problem("Sample Problem")
-//!     .objects(|types, objects| {
-//!         let _ = objects.get_or_create_object("a", &types.get_type("t1").unwrap());
-//!         let _ = objects.get_or_create_object("b", &types.get_type("t2").unwrap());
-//!
-//!         Ok(())
-//!     })
-//!     .init(|objects, predicates, init| {
-//!         let o1 = objects.get_object("a").unwrap();
-//!         init.insert(
-//!             predicates
-//!                 .get("foo")
-//!                 .unwrap()
-//!                 .resolved_values(vec![o1])
-//!                 .build()
-//!                 .unwrap(),
-//!         );
-//!
-//!         Ok(())
-//!     })
-//!     .goal(|_types, objects, predicates| {
-//!         let c1 = objects.get_object("A").unwrap();
-//!         let o2 = objects.get_object("b").unwrap();
-//!         let p2 = predicates.get("bar").unwrap();
-//!         Ok(F::pred(
-//!             p2.values(vec![Value::object(&c1), Value::object(&o2)]).build().unwrap(),
-//!         ))
-//!     })
-//!     .build()
-//!     .unwrap();
-//!```
-
-use alloc::{boxed::Box, string::String, vec::Vec};
-use core::marker::PhantomData;
-
 use crate::{
     action::Action,
     calculus::{
@@ -115,6 +10,8 @@ use crate::{
     util::{deep_clone::DeepClone, named::NamedStorage},
     InternerSymbol, INTERNER,
 };
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::marker::PhantomData;
 
 pub use pddl::Requirement;
 

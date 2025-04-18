@@ -21,7 +21,7 @@ use gazebo::dupe::Dupe;
 use getset::Getters;
 use itertools::Itertools;
 
-#[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ActionParameter {
     pub(crate) parameter_idx: usize,
     pub(crate) r#type: TypeHandle,
@@ -60,7 +60,7 @@ impl ActionEffect {
     }
 
     pub fn npred(operand: Predicate) -> Self {
-        Self::Primitives(Primitives::not(operand))
+        Self::Primitives(Primitives::Not(operand))
     }
 }
 
@@ -91,13 +91,12 @@ impl Action {
                     }),
                 ActionEffect::ForAll(forall) => ground_effect_flat(forall.expression(), resolution),
                 ActionEffect::Primitives(p) => match p {
-                    Primitives::Not(not) => not
-                        .inner()
-                        .into_resolved(resolution)
-                        .map(|r| r.into_iter().map(ModifyState::Del).collect::<BTreeSet<_>>()),
                     Primitives::Pred(pred) => pred
                         .into_resolved(resolution)
                         .map(|r| r.into_iter().map(ModifyState::Add).collect::<BTreeSet<_>>()),
+                    Primitives::Not(not) => not
+                        .into_resolved(resolution)
+                        .map(|r| r.into_iter().map(ModifyState::Del).collect::<BTreeSet<_>>()),
                 },
             }
         }
@@ -284,10 +283,10 @@ mod tests {
             })
             .effect(|params| {
                 Ok(ActionEffect::And(vec![
-                    ActionEffect::Primitives(Pr::not(
+                    ActionEffect::Primitives(Pr::Not(
                         p.values(vec![Value::param(&params[0])]).build().unwrap(),
                     )),
-                    ActionEffect::Primitives(Pr::pred(
+                    ActionEffect::Primitives(Pr::Pred(
                         p1.values(vec![Value::param(&params[1])]).build().unwrap(),
                     )),
                 ]))
