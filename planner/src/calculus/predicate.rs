@@ -28,10 +28,10 @@ pub trait IsPredicate<P: IsPredicate<P>>:
     fn unique_marker(&self) -> Marker;
 }
 
-impl Sealed for Predicate {}
-impl Sealed for ResolvedPredicate {}
+impl Sealed for LiftedPredicate {}
+impl Sealed for GroundedPredicate {}
 
-impl IsPredicate<Predicate> for Predicate {
+impl IsPredicate<LiftedPredicate> for LiftedPredicate {
     fn arguments(&self) -> &Vec<TypeHandle> {
         &self.arguments
     }
@@ -41,7 +41,7 @@ impl IsPredicate<Predicate> for Predicate {
     }
 }
 
-impl IsPredicate<ResolvedPredicate> for ResolvedPredicate {
+impl IsPredicate<GroundedPredicate> for GroundedPredicate {
     fn arguments(&self) -> &Vec<TypeHandle> {
         &self.arguments
     }
@@ -53,7 +53,7 @@ impl IsPredicate<ResolvedPredicate> for ResolvedPredicate {
 
 /// A predicate how it is used in actions.
 #[derive(Debug, Clone, Getters)]
-pub struct Predicate {
+pub struct LiftedPredicate {
     #[getset(get = "pub")]
     name: InternerSymbol,
     #[getset(get = "pub")]
@@ -75,33 +75,33 @@ pub struct Predicate {
     unique_marker: Marker,
 }
 
-impl Predicate {
+impl LiftedPredicate {
     #[allow(
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    /// Creates [ResolvedPredicate]s from this one.
+    /// Creates [GroundedPredicate]s from this one.
     ///
     /// Takes a mapping between action parameters and concrete objects to
-    /// resolve with. The mapping can have additional action parameters
+    /// ground with. The mapping can have additional action parameters
     /// even if they aren't used in this predicate.
     ///
-    /// This method outputs multiple [ResolvedPredicate]s
+    /// This method outputs multiple [GroundedPredicate]s
     /// for each permutation of [BoundVariable]s in the original predicate.
     /// This simplifies handling of [BoundVariable]s, as this can only be
     /// called only after [Action](crate::action::Action)'s precondition
-    /// was successfully resolved.
-    pub fn into_resolved(
+    /// was successfully grounded.
+    pub fn into_grounded(
         &self,
-        resolution: &BTreeMap<&ActionParameter, ObjectHandle>,
-    ) -> Result<BTreeSet<ResolvedPredicate>, PredicateError> {
+        grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+    ) -> Result<BTreeSet<GroundedPredicate>, PredicateError> {
         self.values
             .iter()
             .map(|v| match v {
                 Value::Object(o) => Ok(vec![o.dupe()]),
-                Value::ActionParameter(ap) => resolution
+                Value::ActionParameter(ap) => grounding
                     .get(ap)
-                    .ok_or(PredicateError::MissingResolutionParameter)
+                    .ok_or(PredicateError::MissingGroundingParameter)
                     .and_then(|v| {
                         if v.r#type().inherits_or_eq(&ap.r#type) {
                             Ok(vec![v.dupe()])
@@ -116,17 +116,17 @@ impl Predicate {
                 values
                     .into_iter()
                     .multi_cartesian_product()
-                    .map(|values| ResolvedPredicate {
+                    .map(|values| GroundedPredicate {
                         name: self.name,
                         arguments: self.arguments.clone(),
                         values,
                         unique_marker: self.unique_marker,
                     })
-                    .collect::<BTreeSet<ResolvedPredicate>>()
+                    .collect::<BTreeSet<GroundedPredicate>>()
             })
     }
 
-    /// Creates multiple [ResolvedPredicate]s
+    /// Creates multiple [GroundedPredicate]s
     /// for each permutation of [BoundVariable]s
     /// in the original predicate.
     ///
@@ -135,7 +135,7 @@ impl Predicate {
     pub(crate) fn remove_bound(
         &self,
         var_assignment: &BTreeMap<BoundVariable, ObjectHandle>,
-    ) -> Result<ResolvedPredicate, PredicateError> {
+    ) -> Result<GroundedPredicate, PredicateError> {
         self.values
             .iter()
             .map(|v| match v {
@@ -149,7 +149,7 @@ impl Predicate {
                     .ok_or(PredicateError::MissingBoundVariable),
             })
             .collect::<Result<_, _>>()
-            .map(|values| ResolvedPredicate {
+            .map(|values| GroundedPredicate {
                 name: self.name,
                 arguments: self.arguments.clone(),
                 values,
@@ -186,31 +186,31 @@ impl Predicate {
     }
 }
 
-impl Evaluable<Predicate, Predicate> for Predicate {
-    fn eval(&self, context: &impl EvaluationContext<Predicate>) -> bool {
+impl Evaluable<LiftedPredicate, LiftedPredicate> for LiftedPredicate {
+    fn eval(&self, context: &impl EvaluationContext<LiftedPredicate>) -> bool {
         context.eval(self)
     }
 
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Predicate> + 'a> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a LiftedPredicate> + 'a> {
         Box::new(core::iter::once(self))
     }
 }
 
-impl Named for Predicate {
+impl Named for LiftedPredicate {
     fn name(&self) -> InternerSymbol {
         self.name
     }
 }
 
-impl PartialEq for Predicate {
+impl PartialEq for LiftedPredicate {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.arguments == other.arguments && self.values == other.values
     }
 }
 
-impl Eq for Predicate {}
+impl Eq for LiftedPredicate {}
 
-impl Ord for Predicate {
+impl Ord for LiftedPredicate {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         (&self.name, &self.arguments, &self.values).cmp(&(
             &other.name,
@@ -220,15 +220,15 @@ impl Ord for Predicate {
     }
 }
 
-impl PartialOrd for Predicate {
+impl PartialOrd for LiftedPredicate {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-/// A fully resolved [Predicate] how it is stored in a state.
+/// A fully grounded [LiftedPredicate] how it is stored in a state.
 #[derive(Debug, Clone, Getters)]
-pub struct ResolvedPredicate {
+pub struct GroundedPredicate {
     #[getset(get = "pub")]
     name: InternerSymbol,
     #[getset(get = "pub")]
@@ -239,9 +239,9 @@ pub struct ResolvedPredicate {
     unique_marker: Marker,
 }
 
-impl ResolvedPredicate {
-    /// Checks whether this predicate is a possible resolution of another predicate
-    pub fn is_resolution_of(&self, predicate: &Predicate) -> bool {
+impl GroundedPredicate {
+    /// Checks whether this predicate is a possible groundings of another predicate
+    pub fn is_grounded_from(&self, predicate: &LiftedPredicate) -> bool {
         if predicate.name() != self.name() || predicate.arguments().len() != self.arguments().len()
         {
             return false;
@@ -258,31 +258,31 @@ impl ResolvedPredicate {
     }
 }
 
-impl Evaluable<ResolvedPredicate, ResolvedPredicate> for ResolvedPredicate {
-    fn eval(&self, context: &impl EvaluationContext<ResolvedPredicate>) -> bool {
+impl Evaluable<GroundedPredicate, GroundedPredicate> for GroundedPredicate {
+    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
         context.eval(self)
     }
 
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ResolvedPredicate> + 'a> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a GroundedPredicate> + 'a> {
         Box::new(core::iter::once(self))
     }
 }
 
-impl Named for ResolvedPredicate {
+impl Named for GroundedPredicate {
     fn name(&self) -> InternerSymbol {
         self.name
     }
 }
 
-impl PartialEq for ResolvedPredicate {
+impl PartialEq for GroundedPredicate {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.arguments == other.arguments && self.values == other.values
     }
 }
 
-impl Eq for ResolvedPredicate {}
+impl Eq for GroundedPredicate {}
 
-impl Ord for ResolvedPredicate {
+impl Ord for GroundedPredicate {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         (&self.name, &self.arguments, &self.values).cmp(&(
             &other.name,
@@ -292,7 +292,7 @@ impl Ord for ResolvedPredicate {
     }
 }
 
-impl PartialOrd for ResolvedPredicate {
+impl PartialOrd for GroundedPredicate {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
@@ -302,7 +302,7 @@ impl PartialOrd for ResolvedPredicate {
 pub enum PredicateError {
     TypeMismatch,
     WrongNumberOfValues,
-    MissingResolutionParameter,
+    MissingGroundingParameter,
     MissingBoundVariable,
 }
 
@@ -355,19 +355,19 @@ pub struct HasArguments;
 #[derive(Debug, Clone)]
 pub struct HasValues;
 #[derive(Debug, Clone)]
-pub struct HasResolvedValues;
+pub struct HasGroundedValues;
 
 impl PredicateBuilderState for New {}
 impl PredicateBuilderState for HasName {}
 impl PredicateBuilderState for HasArguments {}
 impl PredicateBuilderState for HasValues {}
-impl PredicateBuilderState for HasResolvedValues {}
+impl PredicateBuilderState for HasGroundedValues {}
 
 impl Sealed for New {}
 impl Sealed for HasName {}
 impl Sealed for HasArguments {}
 impl Sealed for HasValues {}
-impl Sealed for HasResolvedValues {}
+impl Sealed for HasGroundedValues {}
 
 #[derive(Debug, Clone, PartialEq, Eq, CopyGetters)]
 pub struct PredicateBuilder<S: PredicateBuilderState> {
@@ -375,7 +375,7 @@ pub struct PredicateBuilder<S: PredicateBuilderState> {
     name: InternerSymbol,
     arguments: Vec<TypeHandle>,
     values: Vec<Value>,
-    resolved_values: Vec<ObjectHandle>,
+    grounded_values: Vec<ObjectHandle>,
     state: PhantomData<S>,
 }
 
@@ -385,7 +385,7 @@ impl PredicateBuilder<New> {
             name: INTERNER.lock().get_or_intern(name),
             arguments: Vec::new(),
             values: Vec::new(),
-            resolved_values: Vec::new(),
+            grounded_values: Vec::new(),
             state: PhantomData,
         }
     }
@@ -397,7 +397,7 @@ impl PredicateBuilder<HasName> {
             name: self.name,
             arguments,
             values: self.values,
-            resolved_values: self.resolved_values,
+            grounded_values: self.grounded_values,
             state: PhantomData,
         }
     }
@@ -421,27 +421,27 @@ impl PredicateBuilder<HasArguments> {
             name: self.name,
             arguments: self.arguments.clone(),
             values,
-            resolved_values: Vec::new(),
+            grounded_values: Vec::new(),
             state: PhantomData,
         }
     }
 
-    pub fn resolved_values(
+    pub fn grounded_values(
         &self,
-        resolved_values: Vec<ObjectHandle>,
-    ) -> PredicateBuilder<HasResolvedValues> {
+        grounded_values: Vec<ObjectHandle>,
+    ) -> PredicateBuilder<HasGroundedValues> {
         PredicateBuilder {
             name: self.name,
             arguments: self.arguments.clone(),
             values: Vec::new(),
-            resolved_values,
+            grounded_values,
             state: PhantomData,
         }
     }
 }
 
 impl PredicateBuilder<HasValues> {
-    pub fn build(self) -> Result<Predicate, PredicateError> {
+    pub fn build(self) -> Result<LiftedPredicate, PredicateError> {
         let name = self.name;
         let arguments = self.arguments;
         let values = self.values;
@@ -463,7 +463,7 @@ impl PredicateBuilder<HasValues> {
             return Err(PredicateError::TypeMismatch);
         }
 
-        Ok(Predicate {
+        Ok(LiftedPredicate {
             name,
             arguments: arguments.to_vec(),
             values: values.to_vec(),
@@ -472,11 +472,11 @@ impl PredicateBuilder<HasValues> {
     }
 }
 
-impl PredicateBuilder<HasResolvedValues> {
-    pub fn build(self) -> Result<ResolvedPredicate, PredicateError> {
+impl PredicateBuilder<HasGroundedValues> {
+    pub fn build(self) -> Result<GroundedPredicate, PredicateError> {
         let name = self.name;
         let arguments = self.arguments;
-        let values = self.resolved_values;
+        let values = self.grounded_values;
 
         if arguments.len() != values.len() {
             return Err(PredicateError::WrongNumberOfValues);
@@ -490,7 +490,7 @@ impl PredicateBuilder<HasResolvedValues> {
             return Err(PredicateError::TypeMismatch);
         }
 
-        Ok(ResolvedPredicate {
+        Ok(GroundedPredicate {
             name,
             arguments: arguments.to_vec(),
             values: values.to_vec(),
@@ -591,7 +591,7 @@ mod tests {
             .build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
-        let p1 = p.resolved_values(vec![o1.dupe(), o1.dupe()]).build();
+        let p1 = p.grounded_values(vec![o1.dupe(), o1.dupe()]).build();
         assert!(matches!(p1, Err(PredicateError::TypeMismatch)));
 
         let ap1 = ActionParameter {
@@ -612,25 +612,25 @@ mod tests {
             .build()
             .unwrap();
 
-        let pr1 = p1.into_resolved(&BTreeMap::from([(&ap1, o2.dupe()), (&ap2, o1.dupe())]));
-        assert!(matches!(pr1, Err(PredicateError::TypeMismatch)));
+        let gp1 = p1.into_grounded(&BTreeMap::from([(&ap1, o2.dupe()), (&ap2, o1.dupe())]));
+        assert!(matches!(gp1, Err(PredicateError::TypeMismatch)));
 
         let ap3 = ActionParameter {
             parameter_idx: 2,
             r#type: t2,
         };
-        let pr1 = p1.into_resolved(&BTreeMap::from([
+        let gp1 = p1.into_grounded(&BTreeMap::from([
             (&ap1, o1.dupe()),
             (&ap2, o2.dupe()),
             (&ap3, o1.dupe()),
         ]));
         // More action parameters is not an error, they are ignored
-        assert!(pr1.is_ok());
+        assert!(gp1.is_ok());
 
-        let pr1 = p1.into_resolved(&BTreeMap::from([(&ap2, o2), (&ap3, o1)]));
+        let gp1 = p1.into_grounded(&BTreeMap::from([(&ap2, o2), (&ap3, o1)]));
         assert!(matches!(
-            pr1,
-            Err(PredicateError::MissingResolutionParameter)
+            gp1,
+            Err(PredicateError::MissingGroundingParameter)
         ));
     }
 
@@ -648,21 +648,21 @@ mod tests {
             .unwrap();
         assert_eq!(p1, p2);
 
-        let pr1 = PredicateBuilder::new("foo")
+        let gp1 = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .resolved_values(vec![])
+            .grounded_values(vec![])
             .build()
             .unwrap();
-        let pr2 = PredicateBuilder::new("foo")
+        let gp2 = PredicateBuilder::new("foo")
             .arguments(vec![])
-            .resolved_values(vec![])
+            .grounded_values(vec![])
             .build()
             .unwrap();
-        assert_eq!(pr1, pr2);
+        assert_eq!(gp1, gp2);
     }
 
     #[test]
-    fn test_resolution_equality() {
+    fn test_grounding_equality() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -675,9 +675,9 @@ mod tests {
             .values(vec![Value::object(&o1), Value::object(&o2)])
             .build()
             .unwrap();
-        let pr1 = p1.into_resolved(&BTreeMap::new()).unwrap();
-        let pr2 = pb1.resolved_values(vec![o1, o2]).build().unwrap();
+        let gp1 = p1.into_grounded(&BTreeMap::new()).unwrap();
+        let gp2 = pb1.grounded_values(vec![o1, o2]).build().unwrap();
 
-        assert_eq!(pr1, BTreeSet::from([pr2]));
+        assert_eq!(gp1, BTreeSet::from([gp2]));
     }
 }

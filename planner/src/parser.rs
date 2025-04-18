@@ -2,7 +2,9 @@ use crate::{
     action::{ActionBuilder, ActionEffect, ActionParameter},
     calculus::{
         first_order::{BoundVariable, QuantifiedFormula, QuantifierBuilder},
-        predicate::{Predicate, PredicateBuilder, PredicateDefinition, ResolvedPredicate, Value},
+        predicate::{
+            GroundedPredicate, LiftedPredicate, PredicateBuilder, PredicateDefinition, Value,
+        },
     },
     entity::{ObjectStorage, TypeHandle, TypeStorage},
     problem::{
@@ -67,7 +69,7 @@ fn parse_predicate(
     bound_vars: &BTreeMap<&str, BoundVariable>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<Predicate, BE> {
+) -> Result<LiftedPredicate, BE> {
     match pred {
         AtomicFormula::Equality(_) => Err(BE::UnsupportedFeature(UF::Equality)),
         AtomicFormula::Predicate(pred) => predicates
@@ -106,11 +108,11 @@ fn parse_predicate(
 
 /// Parses predicates in problem's init,
 /// where they have only concrete objects in them
-fn parse_resolved_predicate(
+fn parse_grounded_predicate(
     pred: &AtomicFormula<Name>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<ResolvedPredicate, BE> {
+) -> Result<GroundedPredicate, BE> {
     match pred {
         AtomicFormula::Equality(_) => Err(BE::UnsupportedFeature(UF::Equality)),
         AtomicFormula::Predicate(pred) => predicates
@@ -127,7 +129,7 @@ fn parse_resolved_predicate(
                             .ok_or(BE::BadDefinition(BD::UnknownObject(o.to_string())))
                     })
                     .collect::<Result<Vec<_>, _>>()
-                    .and_then(|v| p.resolved_values(v).build().map_err(BE::PredicateError))
+                    .and_then(|v| p.grounded_values(v).build().map_err(BE::PredicateError))
             }),
     }
 }
@@ -139,7 +141,7 @@ fn parse_goal(
     types: &dyn TypeStorage,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<QuantifiedFormula<Predicate>, BE> {
+) -> Result<QuantifiedFormula<LiftedPredicate>, BE> {
     use GoalDefinition::*;
     use QuantifiedFormula as F;
     let parse_gd = |g| parse_goal(g, action_params, bound_vars, types, objects, predicates);
@@ -205,7 +207,7 @@ fn parse_precondition_goal_definition(
     types: &dyn TypeStorage,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<QuantifiedFormula<Predicate>, BE> {
+) -> Result<QuantifiedFormula<LiftedPredicate>, BE> {
     match goal {
         PreconditionGoalDefinition::Preference(PreferenceGD::Goal(goal)) => {
             parse_goal(goal, action_params, bound_vars, types, objects, predicates)
@@ -505,7 +507,7 @@ pub fn parse_problem<'a>(
                 .map(|i| match i {
                     pddl::InitElement::Literal(lit) => match lit {
                         pddl::Literal::AtomicFormula(pred) => {
-                            parse_resolved_predicate(pred, objects, predicates)
+                            parse_grounded_predicate(pred, objects, predicates)
                                 .map(|p| init.insert(p))
                         }
                         pddl::Literal::NotAtomicFormula(_) => {
@@ -765,19 +767,19 @@ mod tests {
 
                 init.insert(
                     on_site
-                        .resolved_values(vec![b.dupe(), s1.dupe()])
+                        .grounded_values(vec![b.dupe(), s1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     on_site
-                        .resolved_values(vec![c.dupe(), s1.dupe()])
+                        .grounded_values(vec![c.dupe(), s1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     on_site
-                        .resolved_values(vec![w.dupe(), s1.dupe()])
+                        .grounded_values(vec![w.dupe(), s1.dupe()])
                         .build()
                         .unwrap(),
                 );
@@ -1128,73 +1130,73 @@ mod tests {
                 let different = predicates.get("different").unwrap();
 
                 init.insert(
-                    at.resolved_values(vec![box1.dupe(), loc1.dupe()])
+                    at.grounded_values(vec![box1.dupe(), loc1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
-                    at.resolved_values(vec![box2.dupe(), loc1.dupe()])
+                    at.grounded_values(vec![box2.dupe(), loc1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
-                    at.resolved_values(vec![box3.dupe(), loc1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-
-                init.insert(
-                    size_smaller
-                        .resolved_values(vec![box1.dupe(), box2.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    size_smaller
-                        .resolved_values(vec![box1.dupe(), box3.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    size_smaller
-                        .resolved_values(vec![box2.dupe(), box3.dupe()])
+                    at.grounded_values(vec![box3.dupe(), loc1.dupe()])
                         .build()
                         .unwrap(),
                 );
 
                 init.insert(
+                    size_smaller
+                        .grounded_values(vec![box1.dupe(), box2.dupe()])
+                        .build()
+                        .unwrap(),
+                );
+                init.insert(
+                    size_smaller
+                        .grounded_values(vec![box1.dupe(), box3.dupe()])
+                        .build()
+                        .unwrap(),
+                );
+                init.insert(
+                    size_smaller
+                        .grounded_values(vec![box2.dupe(), box3.dupe()])
+                        .build()
+                        .unwrap(),
+                );
+
+                init.insert(
                     different
-                        .resolved_values(vec![box1.dupe(), box2.dupe()])
+                        .grounded_values(vec![box1.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .resolved_values(vec![box2.dupe(), box1.dupe()])
+                        .grounded_values(vec![box2.dupe(), box1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .resolved_values(vec![box1.dupe(), box3.dupe()])
+                        .grounded_values(vec![box1.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .resolved_values(vec![box3.dupe(), box1.dupe()])
+                        .grounded_values(vec![box3.dupe(), box1.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .resolved_values(vec![box2.dupe(), box3.dupe()])
+                        .grounded_values(vec![box2.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
                 init.insert(
                     different
-                        .resolved_values(vec![box3.dupe(), box2.dupe()])
+                        .grounded_values(vec![box3.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );

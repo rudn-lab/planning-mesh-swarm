@@ -1,13 +1,13 @@
 use crate::{
     calculus::{
         first_order::{FOExpression, ForAll, Pdnf},
-        predicate::{Predicate, PredicateError},
+        predicate::{LiftedPredicate, PredicateError},
         propositional::Primitives,
     },
     entity::{ObjectHandle, TypeHandle},
     problem::BuildError,
     sealed::Sealed,
-    state::{ModifyState, ParameterResolution},
+    state::{ModifyState, ParameterGrounding},
     util::named::Named,
     InternerSymbol, INTERNER,
 };
@@ -34,7 +34,7 @@ pub struct Action {
     #[getset(get = "pub")]
     parameters: Vec<ActionParameter>,
     #[getset(get = "pub")]
-    precondition: Pdnf<Predicate>,
+    precondition: Pdnf<LiftedPredicate>,
     #[getset(get = "pub")]
     effect: ActionEffect,
 }
@@ -42,8 +42,8 @@ pub struct Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionEffect {
     And(Vec<ActionEffect>),
-    ForAll(ForAll<ActionEffect, Predicate>),
-    Primitives(Primitives<Predicate>),
+    ForAll(ForAll<ActionEffect, LiftedPredicate>),
+    Primitives(Primitives<LiftedPredicate>),
 }
 
 impl ActionEffect {
@@ -51,15 +51,15 @@ impl ActionEffect {
         Self::And(operands)
     }
 
-    pub fn forall(operand: ForAll<ActionEffect, Predicate>) -> Self {
+    pub fn forall(operand: ForAll<ActionEffect, LiftedPredicate>) -> Self {
         Self::ForAll(operand)
     }
 
-    pub fn pred(operand: Predicate) -> Self {
+    pub fn pred(operand: LiftedPredicate) -> Self {
         Self::Primitives(Primitives::Pred(operand))
     }
 
-    pub fn npred(operand: Predicate) -> Self {
+    pub fn npred(operand: LiftedPredicate) -> Self {
         Self::Primitives(Primitives::Not(operand))
     }
 }
@@ -71,42 +71,42 @@ impl Action {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    pub fn resolved_effects<'a>(
+    pub fn grounded_effect<'a>(
         &'a self,
-        parameter_resolutions: &'a BTreeSet<ParameterResolution<'a>>,
+        parameter_groundings: &'a BTreeSet<ParameterGrounding<'a>>,
     ) -> Result<BTreeSet<BTreeSet<ModifyState>>, PredicateError> {
         fn ground_effect_flat(
             effect: &ActionEffect,
-            resolution: &BTreeMap<&ActionParameter, ObjectHandle>,
+            grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
         ) -> Result<BTreeSet<ModifyState>, PredicateError> {
             match effect {
                 ActionEffect::And(effects) => effects
                     .iter()
-                    .map(|e| ground_effect_flat(e, resolution))
+                    .map(|e| ground_effect_flat(e, grounding))
                     .try_fold(BTreeSet::new(), |mut acc, el| {
                         el.map(|e| {
                             acc.extend(e);
                             acc
                         })
                     }),
-                ActionEffect::ForAll(forall) => ground_effect_flat(forall.expression(), resolution),
+                ActionEffect::ForAll(forall) => ground_effect_flat(forall.expression(), grounding),
                 ActionEffect::Primitives(p) => match p {
                     Primitives::Pred(pred) => pred
-                        .into_resolved(resolution)
+                        .into_grounded(grounding)
                         .map(|r| r.into_iter().map(ModifyState::Add).collect::<BTreeSet<_>>()),
                     Primitives::Not(not) => not
-                        .into_resolved(resolution)
+                        .into_grounded(grounding)
                         .map(|r| r.into_iter().map(ModifyState::Del).collect::<BTreeSet<_>>()),
                 },
             }
         }
 
-        parameter_resolutions
+        parameter_groundings
             .iter()
-            .flat_map(|resolution| {
-                resolution
+            .flat_map(|grounding| {
+                grounding
                     .as_simple()
-                    .map(|resolution| ground_effect_flat(&self.effect, &resolution))
+                    .map(|grounding| ground_effect_flat(&self.effect, &grounding))
             })
             .collect::<Result<BTreeSet<_>, _>>()
     }
@@ -143,7 +143,7 @@ pub struct ActionBuilder<P, E, D, S>
 where
     P: Fn(&[ActionParameter]) -> Result<D, BuildError>,
     E: Fn(&[ActionParameter]) -> Result<ActionEffect, BuildError>,
-    D: Into<Pdnf<Predicate>>,
+    D: Into<Pdnf<LiftedPredicate>>,
     S: ActionBuilderState,
 {
     name: InternerSymbol,
@@ -157,7 +157,7 @@ impl<P, E, D> ActionBuilder<P, E, D, New>
 where
     P: Fn(&[ActionParameter]) -> Result<D, BuildError>,
     E: Fn(&[ActionParameter]) -> Result<ActionEffect, BuildError>,
-    D: Into<Pdnf<Predicate>>,
+    D: Into<Pdnf<LiftedPredicate>>,
 {
     pub fn new(name: &str) -> ActionBuilder<P, E, D, HasName> {
         ActionBuilder {
@@ -174,7 +174,7 @@ impl<P, E, D> ActionBuilder<P, E, D, HasName>
 where
     P: Fn(&[ActionParameter]) -> Result<D, BuildError>,
     E: Fn(&[ActionParameter]) -> Result<ActionEffect, BuildError>,
-    D: Into<Pdnf<Predicate>>,
+    D: Into<Pdnf<LiftedPredicate>>,
 {
     pub fn parameters(self, parameters: Vec<TypeHandle>) -> ActionBuilder<P, E, D, HasParameters> {
         let parameters = parameters
@@ -200,7 +200,7 @@ impl<P, E, D> ActionBuilder<P, E, D, HasParameters>
 where
     P: Fn(&[ActionParameter]) -> Result<D, BuildError>,
     E: Fn(&[ActionParameter]) -> Result<ActionEffect, BuildError>,
-    D: Into<Pdnf<Predicate>>,
+    D: Into<Pdnf<LiftedPredicate>>,
 {
     pub fn precondition(self, precondition: P) -> ActionBuilder<P, E, D, HasPrecondition> {
         ActionBuilder {
@@ -217,7 +217,7 @@ impl<P, E, D> ActionBuilder<P, E, D, HasPrecondition>
 where
     P: Fn(&[ActionParameter]) -> Result<D, BuildError>,
     E: Fn(&[ActionParameter]) -> Result<ActionEffect, BuildError>,
-    D: Into<Pdnf<Predicate>>,
+    D: Into<Pdnf<LiftedPredicate>>,
 {
     pub fn effect(self, effect: E) -> ActionBuilder<P, E, D, HasEffect> {
         ActionBuilder {
@@ -234,7 +234,7 @@ impl<P, E, D> ActionBuilder<P, E, D, HasEffect>
 where
     P: Fn(&[ActionParameter]) -> Result<D, BuildError>,
     E: Fn(&[ActionParameter]) -> Result<ActionEffect, BuildError>,
-    D: Into<Pdnf<Predicate>>,
+    D: Into<Pdnf<LiftedPredicate>>,
 {
     pub fn build(self) -> Result<Action, BuildError> {
         let params = self.parameters.unwrap();

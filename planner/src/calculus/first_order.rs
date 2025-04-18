@@ -1,7 +1,7 @@
 use crate::{
     calculus::{
         evaluation::{Evaluable, EvaluationContext},
-        predicate::{IsPredicate, Predicate},
+        predicate::{IsPredicate, LiftedPredicate},
         propositional::*,
     },
     entity::{ObjectHandle, TypeHandle},
@@ -14,7 +14,7 @@ use gazebo::dupe::Dupe;
 use getset::Getters;
 use itertools::Itertools;
 
-use super::predicate::ResolvedPredicate;
+use super::predicate::GroundedPredicate;
 
 #[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BoundVariable {
@@ -352,21 +352,21 @@ pub struct Pdnf<P: IsPredicate<P>> {
 
 impl<P: IsPredicate<P>> FOExpression for Pdnf<P> {}
 
-impl Evaluable<Predicate, ResolvedPredicate> for Pdnf<Predicate> {
-    fn eval(&self, context: &impl EvaluationContext<ResolvedPredicate>) -> bool {
+impl Evaluable<LiftedPredicate, GroundedPredicate> for Pdnf<LiftedPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
         fn eval_with_prefix(
             prefix: &[QuantifierSymbol],
             var_assignment: &mut BTreeMap<BoundVariable, ObjectHandle>,
-            matrix: &Dnf<Predicate>,
-            context: &impl EvaluationContext<ResolvedPredicate>,
+            matrix: &Dnf<LiftedPredicate>,
+            context: &impl EvaluationContext<GroundedPredicate>,
         ) -> bool {
-            let handle_predicate = |p: &Predicate| -> bool {
+            let handle_predicate = |p: &LiftedPredicate| -> bool {
                 p.remove_bound(var_assignment)
                     .map(|rp| context.eval(&rp))
                     .unwrap_or(false)
             };
 
-            let handle_primitives = |p: &Primitives<Predicate>| -> bool {
+            let handle_primitives = |p: &Primitives<LiftedPredicate>| -> bool {
                 match p {
                     Primitives::Pred(p) => handle_predicate(p),
                     Primitives::Not(not) => !handle_predicate(not),
@@ -424,7 +424,7 @@ impl Evaluable<Predicate, ResolvedPredicate> for Pdnf<Predicate> {
         eval_with_prefix(&self.prefix, &mut BTreeMap::new(), &self.matrix, context)
     }
 
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Predicate> + 'a> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a LiftedPredicate> + 'a> {
         self.matrix.predicates()
     }
 }
@@ -996,17 +996,17 @@ mod test {
 
         let pdnf: Pdnf<_> = f.into();
 
-        let rp1 = p
-            .resolved_values(vec![a.dupe(), b1.dupe()])
+        let gp1 = p
+            .grounded_values(vec![a.dupe(), b1.dupe()])
             .build()
             .unwrap();
-        let rp2 = p
-            .resolved_values(vec![a.dupe(), b2.dupe()])
+        let gp2 = p
+            .grounded_values(vec![a.dupe(), b2.dupe()])
             .build()
             .unwrap();
-        let rq1 = q.resolved_values(vec![a.dupe()]).build().unwrap();
+        let gq1 = q.grounded_values(vec![a.dupe()]).build().unwrap();
 
-        let state = State::default().with_predicates(vec![rp1, rp2, rq1]);
+        let state = State::default().with_predicates(vec![gp1, gp2, gq1]);
 
         assert!(pdnf.eval(&state));
     }
@@ -1053,13 +1053,13 @@ mod test {
 
         let pdnf: Pdnf<_> = f.into();
 
-        let rp = p
-            .resolved_values(vec![a.dupe(), b1.dupe()])
+        let gp = p
+            .grounded_values(vec![a.dupe(), b1.dupe()])
             .build()
             .unwrap();
 
         // `q(a)` is missing
-        let state = State::default().with_predicates(vec![rp]);
+        let state = State::default().with_predicates(vec![gp]);
 
         assert!(!pdnf.eval(&state));
     }
@@ -1106,10 +1106,10 @@ mod test {
 
         let pdnf: Pdnf<_> = f.into();
 
-        let rq = q.resolved_values(vec![a.dupe()]).build().unwrap();
+        let gq = q.grounded_values(vec![a.dupe()]).build().unwrap();
 
         // No matching `p(a, b1)`
-        let state = State::default().with_predicates(vec![rq]);
+        let state = State::default().with_predicates(vec![gq]);
 
         assert!(!pdnf.eval(&state));
     }
@@ -1145,8 +1145,8 @@ mod test {
         let pdnf: Pdnf<_> = f.into();
 
         // Only `q(a)` is true - should still satisfy the initial disjunction
-        let rq = q.resolved_values(vec![a.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rq]);
+        let gq = q.grounded_values(vec![a.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gq]);
 
         assert!(pdnf.eval(&state));
     }
@@ -1194,11 +1194,11 @@ mod test {
         assert!(pdnf.eval(&state));
 
         // Add p(a, b2) - now it should fail
-        let rp = p
-            .resolved_values(vec![a.dupe(), b2.dupe()])
+        let gp = p
+            .grounded_values(vec![a.dupe(), b2.dupe()])
             .build()
             .unwrap();
-        let state_with_violation = State::default().with_predicates(vec![rp]);
+        let state_with_violation = State::default().with_predicates(vec![gp]);
 
         assert!(!pdnf.eval(&state_with_violation));
     }

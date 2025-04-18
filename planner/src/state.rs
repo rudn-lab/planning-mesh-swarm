@@ -3,7 +3,7 @@ use crate::{
     calculus::{
         evaluation::{Evaluable, EvaluationContext},
         first_order::{BoundVariable, QuantifierSymbol},
-        predicate::{LiftedValue, Predicate, ResolvedPredicate},
+        predicate::{GroundedPredicate, LiftedPredicate, LiftedValue},
         propositional::{DnfClause, Primitives},
     },
     entity::ObjectHandle,
@@ -19,25 +19,25 @@ use itertools::Itertools;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct PredicateKey(InternerSymbol, usize);
 
-impl From<&Predicate> for PredicateKey {
-    fn from(value: &Predicate) -> Self {
+impl From<&LiftedPredicate> for PredicateKey {
+    fn from(value: &LiftedPredicate) -> Self {
         Self(*value.name(), value.arguments().len())
     }
 }
 
-impl From<&ResolvedPredicate> for PredicateKey {
-    fn from(value: &ResolvedPredicate) -> Self {
+impl From<&GroundedPredicate> for PredicateKey {
+    fn from(value: &GroundedPredicate) -> Self {
         Self(*value.name(), value.arguments().len())
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct State {
-    predicates: BTreeMap<PredicateKey, BTreeSet<ResolvedPredicate>>,
+    predicates: BTreeMap<PredicateKey, BTreeSet<GroundedPredicate>>,
 }
 
 impl State {
-    pub fn with_predicates(mut self, predicates: Vec<ResolvedPredicate>) -> Self {
+    pub fn with_predicates(mut self, predicates: Vec<GroundedPredicate>) -> Self {
         for p in predicates {
             match self.predicates.entry((&p).into()) {
                 Entry::Vacant(e) => {
@@ -52,15 +52,13 @@ impl State {
     }
 }
 
-/// All possible valid resolutions for action parameters.
+/// All possible valid groundings for action parameters.
 ///
-/// All permutations of the values are valid resolutions in a state.
+/// All permutations of the values are valid groundings in a state.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ParameterResolution<'a>(
-    pub(crate) BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>,
-);
+pub struct ParameterGrounding<'a>(pub(crate) BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>);
 
-impl<'a> ParameterResolution<'a> {
+impl<'a> ParameterGrounding<'a> {
     /// Transforms the inner map of [ActionParameter] to multiple [ObjectHandle]s
     /// into several simple maps of [ActionParameter] to one [ObjectHandle].
     pub(crate) fn as_simple(
@@ -144,15 +142,15 @@ impl State {
         reason = "See SmartHandle Hash and Ord impls."
     )]
     /// This returns a "raw" map, because a predicate may not
-    /// have all of the parameters in it, so it's only a partial resolution.
-    fn resolve_predicate<'a>(
+    /// have all of the parameters in it, so it's only a partial grounding.
+    fn ground_predicate<'a>(
         &'a self,
-        predicate: &'a Predicate,
+        predicate: &'a LiftedPredicate,
     ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
         let keys = predicate.lifted_values();
 
         // Populating accumulator with all of the keys,
-        // because even if there's no resolution for a predicate
+        // because even if there's no grounding for a predicate
         // we still need somehting that holds the value's type
         // (like ap in this case) to use later.
         // Because this method is being called for positive predicates
@@ -167,14 +165,14 @@ impl State {
             .map(|preds| {
                 preds
                     .iter()
-                    .filter(|rp| rp.is_resolution_of(predicate))
+                    .filter(|rp| rp.is_grounded_from(predicate))
                     // Get only those values that correspond to an action parameter
                     .flat_map(|rp| {
                         keys.iter()
                             .zip(keys.iter().map(|k| rp.values()[k.idx()].dupe()))
                             .collect_vec()
                     })
-                    // This just transforms a list of ResolvedPredicates to the output type
+                    // This just transforms a list of GroundedPredicates to the output type
                     .fold(acc(), |mut acc, (lv, v)| {
                         acc.entry(*lv)
                             .and_modify(|s: &mut BTreeSet<_>| {
@@ -192,15 +190,15 @@ impl State {
         reason = "See SmartHandle Hash and Ord impls."
     )]
     /// This returns a "raw" map, because a predicate may not
-    /// have all of the parameters in it, so it's only a partial resolution.
-    fn resolve_negated_predicate<'a>(
+    /// have all of the parameters in it, so it's only a partial grounding.
+    fn ground_negated_predicate<'a>(
         &'a self,
-        predicate: &'a Predicate,
+        predicate: &'a LiftedPredicate,
     ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
-        self.resolve_predicate(predicate)
+        self.ground_predicate(predicate)
             .into_iter()
             // Because it's a negated predicate,
-            // possible resolutions should be all objects
+            // possible groundings should be all objects
             // except for those found for a positive predicate
             .map(|(r, obj_for_param)| {
                 let objects = match r {
@@ -223,11 +221,11 @@ impl State {
     )]
     fn handle_primitives<'a>(
         &'a self,
-        p: &'a Primitives<Predicate>,
+        p: &'a Primitives<LiftedPredicate>,
     ) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
         match p {
-            Primitives::Pred(p) => self.resolve_predicate(p),
-            Primitives::Not(np) => self.resolve_negated_predicate(np),
+            Primitives::Pred(p) => self.ground_predicate(p),
+            Primitives::Not(np) => self.ground_negated_predicate(np),
         }
     }
 
@@ -237,7 +235,7 @@ impl State {
     )]
     fn handle_and<'a>(
         &'a self,
-        and: &'a BTreeSet<Primitives<Predicate>>,
+        and: &'a BTreeSet<Primitives<LiftedPredicate>>,
     ) -> Option<BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>>> {
         let o = and
             .iter()
@@ -246,7 +244,7 @@ impl State {
                     acc.entry(k)
                         .and_modify(|s: &mut BTreeSet<_>| {
                             // Because we're doing intersection here
-                            // the resulting resolution set should apply
+                            // the resulting grounding set should apply
                             // to all predicates with this parameter
                             *s = s.intersection(&v).cloned().collect()
                         })
@@ -266,7 +264,7 @@ impl State {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    pub fn resolve_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterResolution<'a>> {
+    pub fn ground_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterGrounding<'a>> {
         let num_params = action.parameters().len();
         let prefix = action.precondition().prefix();
         action
@@ -292,7 +290,7 @@ impl State {
                 DnfClause::And(and) => self.handle_and(and),
                 DnfClause::Prim(p) => Some(self.handle_primitives(p)),
             })
-            // Filter out those resolutions that didn't resolve all of the action parameters
+            // Filter out those groundings that didn't ground all of the action parameters
             .filter(|r| {
                 r.iter()
                     .filter(|(k, v)| {
@@ -314,7 +312,7 @@ impl State {
                     })
                     .collect::<BTreeMap<_, _>>()
             })
-            .map(ParameterResolution)
+            .map(ParameterGrounding)
             .collect::<BTreeSet<_>>()
     }
 
@@ -346,8 +344,8 @@ impl State {
     }
 }
 
-impl EvaluationContext<ResolvedPredicate> for State {
-    fn eval(&self, predicate: &ResolvedPredicate) -> bool {
+impl EvaluationContext<GroundedPredicate> for State {
+    fn eval(&self, predicate: &GroundedPredicate) -> bool {
         self.predicates
             .get(&predicate.into())
             .map(|preds| preds.iter().any(|v| v == predicate))
@@ -357,8 +355,8 @@ impl EvaluationContext<ResolvedPredicate> for State {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModifyState {
-    Add(ResolvedPredicate),
-    Del(ResolvedPredicate),
+    Add(GroundedPredicate),
+    Del(GroundedPredicate),
 }
 
 #[allow(
@@ -380,7 +378,7 @@ mod tests {
     };
 
     #[test]
-    fn test_preciate_resolution() {
+    fn test_preciate_grounding() {
         let mut entities = EntityStorage::default();
         let t = entities.get_or_create_type("t");
 
@@ -394,35 +392,35 @@ mod tests {
             .values(vec![Value::object(&x), Value::object(&y)])
             .build()
             .unwrap();
-        let rp = ps.into_resolved(&BTreeMap::new()).unwrap();
+        let rp = ps.into_grounded(&BTreeMap::new()).unwrap();
         // Just for the test creating a predicate with the same name
         // to simulate that there migth be several different
-        // resolved versions of the same predicate in a state.
+        // grounded versions of the same predicate in a state.
         // Normally names are unique, and this predicate should have
         // arguments like [ArgumentValue::ActionParameter],
-        // which then get resolved and added to the state over the
+        // which then get grounded and added to the state over the
         // course of the program.
         let p1 = PredicateBuilder::new("foo")
             .arguments(vec![t.dupe(), t.dupe()])
             .values(vec![Value::object(&x), Value::object(&b)])
             .build()
             .unwrap();
-        let rp1 = p1.into_resolved(&BTreeMap::new()).unwrap();
+        let gp1 = p1.into_grounded(&BTreeMap::new()).unwrap();
 
         let p2 = PredicateBuilder::new("bar").arguments(vec![t.dupe()]);
         let ps2 = p2.values(vec![Value::object(&c)]).build().unwrap();
-        let rp2 = ps2.into_resolved(&BTreeMap::new()).unwrap();
+        let gp2 = ps2.into_grounded(&BTreeMap::new()).unwrap();
 
         let state = State::default().with_predicates(
             rp.iter()
-                .chain(rp1.iter())
-                .chain(rp2.iter())
+                .chain(gp1.iter())
+                .chain(gp2.iter())
                 .cloned()
                 .collect_vec(),
         );
 
         // No values, because no ActionParameters
-        assert_eq!(state.resolve_predicate(&ps), BTreeMap::default());
+        assert_eq!(state.ground_predicate(&ps), BTreeMap::default());
 
         let ap0 = ActionParameter {
             parameter_idx: 0,
@@ -434,9 +432,9 @@ mod tests {
             .values(vec![Value::param(&ap0), Value::param(&ap1)])
             .build()
             .unwrap();
-        // Resolutions from `rp` and `rp1`, because they are both `foo` and have the same type of arguments
+        // Groundings from `rp` and `gp1`, because they are both `foo` and have the same type of arguments
         assert_eq!(
-            state.resolve_predicate(&pp),
+            state.ground_predicate(&pp),
             BTreeMap::from([
                 (
                     LiftedValue::ActionParameter(0, &ap0),
@@ -450,22 +448,22 @@ mod tests {
         );
 
         let pp2 = p2.values(vec![Value::param(&ap0)]).build().unwrap();
-        // Resolutions from negated `bar`
+        // Groundings from negated `bar`
         assert_eq!(
-            state.resolve_negated_predicate(&pp2),
+            state.ground_negated_predicate(&pp2),
             BTreeMap::from([(
                 LiftedValue::ActionParameter(0, &ap0),
                 BTreeSet::from([x.dupe(), y.dupe(), b.dupe()])
             )])
         );
 
-        // Predicate with no parameters doesn't get resolved
+        // Predicate with no parameters doesn't get grounded
         let p3 = PredicateBuilder::new("baz")
             .arguments(vec![])
             .values(vec![])
             .build()
             .unwrap();
-        assert_eq!(state.resolve_predicate(&p3), BTreeMap::default());
+        assert_eq!(state.ground_predicate(&p3), BTreeMap::default());
 
         // Negated predicate that isn't in a state should get all permutations of values
         let p4 = PredicateBuilder::new("qux")
@@ -474,7 +472,7 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            state.resolve_negated_predicate(&p4),
+            state.ground_negated_predicate(&p4),
             BTreeMap::from([(
                 LiftedValue::ActionParameter(0, &ap0),
                 BTreeSet::from([x, y, b, c])
@@ -483,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_action_resolution_with_explicit_predicates() {
+    pub fn test_action_grounding_with_explicit_predicates() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -515,25 +513,25 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(vec![x.dupe()]).build().unwrap();
-        let rp3 = p3.resolved_values(vec![y.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rp1, rp3]);
+        let gp1 = p1.grounded_values(vec![x.dupe()]).build().unwrap();
+        let gp3 = p3.grounded_values(vec![y.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp1, gp3]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
             (&action_params[0], BTreeSet::from([x.clone()])),
             (&action_params[1], BTreeSet::from([y.clone()])),
         ]))]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values(vec![x.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(vec![y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.grounded_values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.grounded_values(vec![y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -554,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_action_resolution_with_not_predicate() {
+    pub fn test_action_grounding_with_not_predicate() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -584,24 +582,24 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(vec![x.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rp1]);
+        let gp1 = p1.grounded_values(vec![x.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp1]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
             (&action_params[0], BTreeSet::from([x.clone()])),
             (&action_params[1], BTreeSet::from([y.clone()])),
         ]))]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values(vec![x.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(vec![y.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.grounded_values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.grounded_values(vec![y.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -622,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_action_resolution_with_only_negated() {
+    pub fn test_action_grounding_with_only_negated() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -656,25 +654,25 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1.resolved_values(vec![x1.dupe()]).build().unwrap();
-        let rp2 = p2.resolved_values(vec![y1.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rp1, rp2]);
+        let gp1 = p1.grounded_values(vec![x1.dupe()]).build().unwrap();
+        let gp2 = p2.grounded_values(vec![y1.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp1, gp2]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
             (&action_params[0], BTreeSet::from([x2.dupe()])),
             (&action_params[1], BTreeSet::from([y2.dupe()])),
         ]))]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Add(p1.resolved_values(vec![x2.dupe()]).build().unwrap()),
-            ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
+            ModifyState::Add(p1.grounded_values(vec![x2.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);
@@ -695,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_impossible_action_resolution() {
+    pub fn test_impossible_action_grounding() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -729,17 +727,17 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp11 = p1.resolved_values(vec![x1.dupe()]).build().unwrap();
-        let rp12 = p1.resolved_values(vec![x2.dupe()]).build().unwrap();
-        let rp21 = p2.resolved_values(vec![y1.dupe()]).build().unwrap();
-        let rp22 = p2.resolved_values(vec![y2.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rp11, rp12, rp21, rp22]);
+        let gp11 = p1.grounded_values(vec![x1.dupe()]).build().unwrap();
+        let gp12 = p1.grounded_values(vec![x2.dupe()]).build().unwrap();
+        let gp21 = p2.grounded_values(vec![y1.dupe()]).build().unwrap();
+        let gp22 = p2.grounded_values(vec![y2.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp11, gp12, gp21, gp22]);
 
-        let res = state.resolve_action(&action);
-        // This one is empty because not all params are resolved
-        // the output is like this before partially resolved variants are removed:
+        let res = state.ground_action(&action);
+        // This one is empty because not all params are grounded
+        // the output is like this before partially grounded variants are removed:
         // ```
-        // let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        // let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
         //     (&action_params[0], BTreeSet::from([])),
         //     (&action_params[1], BTreeSet::from([y2])),
         // ]))]);
@@ -747,7 +745,7 @@ mod tests {
         println!("{:?}", res);
         assert!(res.is_empty());
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::new();
 
         assert_eq!(effects, correct_effects);
@@ -768,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_impossible_resolution_with_partially_resolved_predicate() {
+    pub fn test_impossible_grounding_with_partially_grounded_predicates() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -815,49 +813,49 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1
-            .resolved_values(vec![x1.dupe(), x2.dupe()])
+        let gp1 = p1
+            .grounded_values(vec![x1.dupe(), x2.dupe()])
             .build()
             .unwrap();
-        let rp2 = p2
-            .resolved_values(vec![y1.dupe(), y2.dupe()])
+        let gp2 = p2
+            .grounded_values(vec![y1.dupe(), y2.dupe()])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(vec![rp1, rp2]);
+        let state = State::default().with_predicates(vec![gp1, gp2]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
             (&action_params[0], BTreeSet::from([x1.dupe()])),
             (&action_params[1], BTreeSet::from([y1.dupe(), y3.dupe()])),
         ]))]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(
-                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
                         .build()
                         .unwrap(),
                 ),
                 ModifyState::Add(
-                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
                         .build()
                         .unwrap(),
                 ),
             ]),
             BTreeSet::from([
                 ModifyState::Del(
-                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
                         .build()
                         .unwrap(),
                 ),
                 ModifyState::Add(
-                    p2.resolved_values(vec![y3.dupe(), y1.dupe()])
+                    p2.grounded_values(vec![y3.dupe(), y1.dupe()])
                         .build()
                         .unwrap(),
                 ),
@@ -946,57 +944,57 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p1
-            .resolved_values(vec![x1.dupe(), x2.dupe()])
+        let gp1 = p1
+            .grounded_values(vec![x1.dupe(), x2.dupe()])
             .build()
             .unwrap();
-        let rp2 = p2
-            .resolved_values(vec![y1.dupe(), y2.dupe()])
+        let gp2 = p2
+            .grounded_values(vec![y1.dupe(), y2.dupe()])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(vec![rp1, rp2]);
+        let state = State::default().with_predicates(vec![gp1, gp2]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([
-            ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([
+            ParameterGrounding(BTreeMap::from([
                 (&action_params[0], BTreeSet::from([x1.dupe()])),
                 (&action_params[1], BTreeSet::from([y1.dupe(), y3.dupe()])),
             ])),
-            ParameterResolution(BTreeMap::from([
+            ParameterGrounding(BTreeMap::from([
                 // Both `x1` and `x2` here, because the initial pred already doesn't
-                // resolve because of the Object as the first parameter
+                // ground because of the Object as the first parameter
                 (&action_params[0], BTreeSet::from([x1.dupe(), x2.dupe()])),
                 (&action_params[1], BTreeSet::from([y1.dupe()])),
             ])),
         ]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(
-                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
                         .build()
                         .unwrap(),
                 ),
                 ModifyState::Add(
-                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
                         .build()
                         .unwrap(),
                 ),
             ]),
             BTreeSet::from([
                 ModifyState::Del(
-                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
                         .build()
                         .unwrap(),
                 ),
                 ModifyState::Add(
-                    p2.resolved_values(vec![y3.dupe(), y1.dupe()])
+                    p2.grounded_values(vec![y3.dupe(), y1.dupe()])
                         .build()
                         .unwrap(),
                 ),
@@ -1004,24 +1002,24 @@ mod tests {
             // The same as the first one, will be re&moved by the set
             BTreeSet::from([
                 ModifyState::Del(
-                    p1.resolved_values(vec![x2.dupe(), x1.dupe()])
+                    p1.grounded_values(vec![x2.dupe(), x1.dupe()])
                         .build()
                         .unwrap(),
                 ),
                 ModifyState::Add(
-                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
                         .build()
                         .unwrap(),
                 ),
             ]),
             BTreeSet::from([
                 ModifyState::Del(
-                    p1.resolved_values(vec![x2.dupe(), x2.dupe()])
+                    p1.grounded_values(vec![x2.dupe(), x2.dupe()])
                         .build()
                         .unwrap(),
                 ),
                 ModifyState::Add(
-                    p2.resolved_values(vec![y1.dupe(), y1.dupe()])
+                    p2.grounded_values(vec![y1.dupe(), y1.dupe()])
                         .build()
                         .unwrap(),
                 ),
@@ -1046,7 +1044,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_action_resolution_with_subtypes() {
+    pub fn test_action_grounding_with_subtypes() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let tt1 = entities.get_or_create_type("tt1");
@@ -1079,7 +1077,7 @@ mod tests {
                             Pr::Pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
                             Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
                         ])),
-                        // These won't get resolved as they are missing the other params
+                        // These won't get grounded as they are missing the other params
                         DnfClause::Prim(Pr::Pred(
                             pp1.values(vec![Value::param(&params[1])]).build().unwrap(),
                         )),
@@ -1098,26 +1096,26 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1_t1_1 = p1.resolved_values(vec![x1.dupe()]).build().unwrap();
-        let rp1_t1_2 = p1.resolved_values(vec![x2.dupe()]).build().unwrap();
-        let rp1_tt1_1 = p1.resolved_values(vec![xx1.dupe()]).build().unwrap();
-        let rp1_tt1_2 = p1.resolved_values(vec![xx2.dupe()]).build().unwrap();
+        let gp1_t1_1 = p1.grounded_values(vec![x1.dupe()]).build().unwrap();
+        let gp1_t1_2 = p1.grounded_values(vec![x2.dupe()]).build().unwrap();
+        let gp1_tt1_1 = p1.grounded_values(vec![xx1.dupe()]).build().unwrap();
+        let gp1_tt1_2 = p1.grounded_values(vec![xx2.dupe()]).build().unwrap();
 
-        let rpp1_tt1_1 = pp1.resolved_values(vec![xx1.dupe()]).build().unwrap();
-        let rpp1_tt1_2 = pp1.resolved_values(vec![xx2.dupe()]).build().unwrap();
+        let rpp1_tt1_1 = pp1.grounded_values(vec![xx1.dupe()]).build().unwrap();
+        let rpp1_tt1_2 = pp1.grounded_values(vec![xx2.dupe()]).build().unwrap();
 
-        let rp2_t2_1 = p2.resolved_values(vec![y1.dupe()]).build().unwrap();
-        let rp2_t2_2 = p2.resolved_values(vec![y2.dupe()]).build().unwrap();
+        let gp2_t2_1 = p2.grounded_values(vec![y1.dupe()]).build().unwrap();
+        let gp2_t2_2 = p2.grounded_values(vec![y2.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![
-            rp1_t1_1, rp1_t1_2, rp1_tt1_1, rp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, rp2_t2_1, rp2_t2_2,
+            gp1_t1_1, gp1_t1_2, gp1_tt1_1, gp1_tt1_2, rpp1_tt1_1, rpp1_tt1_2, gp2_t2_1, gp2_t2_2,
         ]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([
-            ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([
+            ParameterGrounding(BTreeMap::from([
                 // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
                 // and the predicate is declared with `t1` which is a supertype of `tt1`
                 (
@@ -1125,7 +1123,7 @@ mod tests {
                     BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
                 ),
                 // This predicate is defined with type `tt1`, which has no subentities,
-                // so only values of this type will be resolved
+                // so only values of this type will be grounded
                 (
                     &action_params[1],
                     BTreeSet::from([xx1.clone(), xx2.clone()]),
@@ -1133,13 +1131,13 @@ mod tests {
                 // Same as above, no subentities
                 (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
             ])),
-            ParameterResolution(BTreeMap::from([
+            ParameterGrounding(BTreeMap::from([
                 (
                     &action_params[0],
                     BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
                 ),
                 // This predicate is defined with `t1`, but it was turned into a specific
-                // with `tt1`, so it should only resolve with `tt1`
+                // with `tt1`, so it should only grounded with `tt1`
                 (
                     &action_params[1],
                     BTreeSet::from([xx1.clone(), xx2.clone()]),
@@ -1148,41 +1146,41 @@ mod tests {
             ])),
         ]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![x1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![x2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![xx1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![xx1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![xx1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![xx1.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![xx2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y1.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![xx2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y1.dupe()]).build().unwrap()),
             ]),
             BTreeSet::from([
-                ModifyState::Del(p1.resolved_values(vec![xx2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.resolved_values(vec![y2.dupe()]).build().unwrap()),
+                ModifyState::Del(p1.grounded_values(vec![xx2.dupe()]).build().unwrap()),
+                ModifyState::Add(p2.grounded_values(vec![y2.dupe()]).build().unwrap()),
             ]),
         ]);
 
@@ -1242,30 +1240,30 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp11 = p1.resolved_values(vec![x.dupe()]).build().unwrap();
-        let rp12 = p1.resolved_values(vec![a.dupe()]).build().unwrap();
-        let rp21 = p2
-            .resolved_values(vec![a.dupe(), y.dupe()])
+        let gp11 = p1.grounded_values(vec![x.dupe()]).build().unwrap();
+        let gp12 = p1.grounded_values(vec![a.dupe()]).build().unwrap();
+        let gp21 = p2
+            .grounded_values(vec![a.dupe(), y.dupe()])
             .build()
             .unwrap();
-        let state = State::default().with_predicates(vec![rp11, rp12, rp21]);
+        let state = State::default().with_predicates(vec![gp11, gp12, gp21]);
 
         let action_params = action.parameters();
-        let res = state.resolve_action(&action);
+        let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_resolution = BTreeSet::from([ParameterResolution(BTreeMap::from([
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
             (&action_params[0], BTreeSet::from([a.dupe()])),
             (&action_params[1], BTreeSet::from([y.dupe()])),
         ]))]);
 
-        assert_eq!(res, correct_resolution);
+        assert_eq!(res, correct_grounding);
 
-        let effects = action.resolved_effects(&res).unwrap();
+        let effects = action.grounded_effect(&res).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
-            ModifyState::Del(p1.resolved_values(vec![a.dupe()]).build().unwrap()),
+            ModifyState::Del(p1.grounded_values(vec![a.dupe()]).build().unwrap()),
             ModifyState::Add(
-                p2.resolved_values(vec![a.dupe(), y.dupe()])
+                p2.grounded_values(vec![a.dupe(), y.dupe()])
                     .build()
                     .unwrap(),
             ),
@@ -1324,13 +1322,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let pred_a = p.resolved_values(vec![x.dupe(), a.dupe()]).build().unwrap();
-        let pred_b = p.resolved_values(vec![y.dupe(), b.dupe()]).build().unwrap();
+        let pred_a = p.grounded_values(vec![x.dupe(), a.dupe()]).build().unwrap();
+        let pred_b = p.grounded_values(vec![y.dupe(), b.dupe()]).build().unwrap();
 
         let state = State::default().with_predicates(vec![pred_a.clone(), pred_b.clone()]);
 
-        let res = state.resolve_action(&action);
-        let correct = BTreeSet::from([ParameterResolution(BTreeMap::from([(
+        let res = state.ground_action(&action);
+        let correct = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
             &action.parameters()[0],
             BTreeSet::from([x.dupe(), y.dupe()]),
         )]))]);
@@ -1376,11 +1374,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let rs = s.resolved_values(vec![x.dupe(), y.dupe()]).build().unwrap();
+        let rs = s.grounded_values(vec![x.dupe(), y.dupe()]).build().unwrap();
         let state = State::default().with_predicates(vec![rs]);
 
-        let res = state.resolve_action(&action);
-        let expected = BTreeSet::from([ParameterResolution(BTreeMap::from([(
+        let res = state.ground_action(&action);
+        let expected = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
             &action.parameters()[0],
             BTreeSet::from([x.dupe()]),
         )]))]);
@@ -1442,23 +1440,23 @@ mod tests {
             .build()
             .unwrap();
 
-        let rp1 = p
-            .resolved_values(vec![x.dupe(), y1.dupe()])
+        let gp1 = p
+            .grounded_values(vec![x.dupe(), y1.dupe()])
             .build()
             .unwrap();
-        let rp2 = p
-            .resolved_values(vec![x.dupe(), y2.dupe()])
+        let gp2 = p
+            .grounded_values(vec![x.dupe(), y2.dupe()])
             .build()
             .unwrap();
-        let rq = q
-            .resolved_values(vec![x.dupe(), y2.dupe()])
+        let gq = q
+            .grounded_values(vec![x.dupe(), y2.dupe()])
             .build()
             .unwrap();
 
-        let state = State::default().with_predicates(vec![rp1, rp2, rq]);
+        let state = State::default().with_predicates(vec![gp1, gp2, gq]);
 
-        let res = state.resolve_action(&action);
-        let expected = BTreeSet::from([ParameterResolution(BTreeMap::from([(
+        let res = state.ground_action(&action);
+        let expected = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
             &action.parameters()[0],
             BTreeSet::from([x.dupe()]),
         )]))]);
