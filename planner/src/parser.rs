@@ -62,17 +62,18 @@ fn parse_arguments<'a>(
         .collect()
 }
 
-/// Parses predicates in action's precondition and effect,
-/// where they can have variables and objects in them
-fn parse_full_predicate(
+fn parse_predicate<V: PredicateValue, F>(
     pred: &AtomicFormula<Term>,
-    params: &BTreeMap<&str, ActionParameter>,
-    bound_vars: &BTreeMap<&str, BoundVariable>,
-    objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<LiftedPredicate, BE> {
+    parse_term: F,
+) -> Result<Predicate<V>, BE>
+where
+    F: Fn(&Term) -> Result<V, BE>,
+{
     match pred {
-        AtomicFormula::Equality(_) => Err(BE::UnsupportedFeature(UF::Equality)),
+        AtomicFormula::Equality(eq) => parse_term(eq.first()).and_then(|first| {
+            parse_term(eq.second()).map(|second| PredicateBuilder::equality(first, second))
+        }),
         AtomicFormula::Predicate(pred) => predicates
             .get(pred.predicate())
             .ok_or(BE::BadDefinition(BD::UnknownPredicate(
@@ -81,30 +82,44 @@ fn parse_full_predicate(
             .and_then(|p| {
                 pred.values()
                     .iter()
-                    .map(|v| match v {
-                        Term::Name(name) => objects
-                            .get_object(name)
-                            .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
-                            .map(Value::Object),
-                        Term::Variable(var) => {
-                            params
-                                // First, try getting an action parameter
-                                .get(var.deref().deref())
-                                .map(|ap| Value::ActionParameter(ap.dupe()))
-                                // If that fails, try getting a bound variable
-                                .or_else(|| {
-                                    bound_vars
-                                        .get(var.deref().deref())
-                                        .map(|bv| Value::BoundVariable(bv.dupe()))
-                                })
-                                .ok_or(BE::BadDefinition(BD::UnknownParameter(var.to_string())))
-                        }
-                        Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
-                    })
+                    .map(parse_term)
                     .collect::<Result<Vec<_>, _>>()
                     .and_then(|v| p.values(v).build().map_err(BE::PredicateError))
             }),
     }
+}
+
+/// Parses predicates in action's precondition and effect,
+/// where they can have variables and objects in them
+fn parse_full_predicate(
+    pred: &AtomicFormula<Term>,
+    action_params: &BTreeMap<&str, ActionParameter>,
+    bound_vars: &BTreeMap<&str, BoundVariable>,
+    objects: &dyn ObjectStorage,
+    predicates: &NamedStorage<PredicateDefinition>,
+) -> Result<LiftedPredicate, BE> {
+    let parse_term = |term: &Term| match term {
+        Term::Name(name) => objects
+            .get_object(name)
+            .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
+            .map(Value::Object),
+        Term::Variable(var) => {
+            action_params
+                // First, try getting an action parameter
+                .get(var.deref().deref())
+                .map(|ap| Value::ActionParameter(ap.dupe()))
+                // If that fails, try getting a bound variable
+                .or_else(|| {
+                    bound_vars
+                        .get(var.deref().deref())
+                        .map(|bv| Value::BoundVariable(bv.dupe()))
+                })
+                .ok_or(BE::BadDefinition(BD::UnknownParameter(var.to_string())))
+        }
+        Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
+    };
+
+    parse_predicate(pred, predicates, parse_term)
 }
 
 /// Parses predicates in problem's goal,
@@ -115,31 +130,19 @@ fn parse_goal_predicate(
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
 ) -> Result<GoalPredicate, BE> {
-    match pred {
-        AtomicFormula::Equality(_) => Err(BE::UnsupportedFeature(UF::Equality)),
-        AtomicFormula::Predicate(pred) => predicates
-            .get(pred.predicate())
-            .ok_or(BE::BadDefinition(BD::UnknownPredicate(
-                pred.predicate().to_string(),
-            )))
-            .and_then(|p| {
-                pred.values()
-                    .iter()
-                    .map(|v| match v {
-                        Term::Name(name) => objects
-                            .get_object(name)
-                            .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
-                            .map(GoalValue::Object),
-                        Term::Variable(var) => bound_vars
-                            .get(var.deref().deref())
-                            .map(|bv| GoalValue::BoundVariable(bv.dupe()))
-                            .ok_or(BE::BadDefinition(BD::UnknownParameter(var.to_string()))),
-                        Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .and_then(|v| p.values(v).build().map_err(BE::PredicateError))
-            }),
-    }
+    let parse_term = |term: &Term| match term {
+        Term::Name(name) => objects
+            .get_object(name)
+            .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
+            .map(GoalValue::Object),
+        Term::Variable(var) => bound_vars
+            .get(var.deref().deref())
+            .map(|bv| GoalValue::BoundVariable(bv.dupe()))
+            .ok_or(BE::BadDefinition(BD::UnknownParameter(var.to_string()))),
+        Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
+    };
+
+    parse_predicate(pred, predicates, parse_term)
 }
 
 /// Parses predicates in problem's init,
@@ -149,8 +152,15 @@ fn parse_grounded_predicate(
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
 ) -> Result<GroundedPredicate, BE> {
+    let get_obj = |name: &Name| {
+        objects
+            .get_object(name)
+            .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
+    };
     match pred {
-        AtomicFormula::Equality(_) => Err(BE::UnsupportedFeature(UF::Equality)),
+        AtomicFormula::Equality(eq) => get_obj(eq.first()).and_then(|first| {
+            get_obj(eq.second()).map(|second| PredicateBuilder::equality(first, second))
+        }),
         AtomicFormula::Predicate(pred) => predicates
             .get(pred.predicate())
             .ok_or(BE::BadDefinition(BD::UnknownPredicate(
@@ -159,11 +169,7 @@ fn parse_grounded_predicate(
             .and_then(|p| {
                 pred.values()
                     .iter()
-                    .map(|o| {
-                        objects
-                            .get_object(o)
-                            .ok_or(BE::BadDefinition(BD::UnknownObject(o.to_string())))
-                    })
+                    .map(get_obj)
                     .collect::<Result<Vec<_>, _>>()
                     .and_then(|v| p.values(v).build().map_err(BE::PredicateError))
             }),
@@ -913,14 +919,13 @@ mod tests {
     (at ?b - box ?l - location)
     (size-smaller ?b1 - box ?b2 - box)
     (collected ?b - box)
-    (different ?b1 - box ?b2 - box)
   )
   (:action move
     :parameters (?b - box ?from - location ?to - location)
     :precondition (and
       (at ?b ?from)
       (forall (?other - box)
-        (imply (and (different ?other ?b) (at ?other ?from))
+        (imply (and (not (= ?other ?b)) (at ?other ?from))
                (size-smaller ?other ?b)
         )
       )
@@ -936,7 +941,7 @@ mod tests {
       (at ?b ?l)
       (exists (?other - box)
         (and
-          (different ?b ?other)
+          (not (= ?b ?other))
           (at ?other ?l)
           (size-smaller ?b ?other)
         )
@@ -961,14 +966,6 @@ mod tests {
     (size-smaller box1 box2)
     (size-smaller box1 box3)
     (size-smaller box2 box3)
-
-    ;; different predicates (symmetric)
-    (different box1 box2)
-    (different box2 box1)
-    (different box1 box3)
-    (different box3 box1)
-    (different box2 box3)
-    (different box3 box2)
   )
   (:goal
     (forall (?b - box)
@@ -1013,9 +1010,6 @@ mod tests {
                         .arguments(vec![r#box.dupe(), r#box.dupe()]),
                 );
                 predicates.insert(PredicateBuilder::new("collected").arguments(vec![r#box.dupe()]));
-                predicates.insert(
-                    PredicateBuilder::new("different").arguments(vec![r#box.dupe(), r#box.dupe()]),
-                );
 
                 Ok(())
             })
@@ -1026,7 +1020,6 @@ mod tests {
                 let at = predicates.get("at").unwrap();
                 let size_smaller = predicates.get("size-smaller").unwrap();
                 let collected = predicates.get("collected").unwrap();
-                let different = predicates.get("different").unwrap();
 
                 actions.insert(
                     ActionBuilder::new("move")
@@ -1047,15 +1040,10 @@ mod tests {
                                             let other = &q_params[0];
                                             Ok(F::or(vec![
                                                 F::not(F::and(vec![
-                                                    F::pred(
-                                                        different
-                                                            .values(vec![
-                                                                Value::bound(other),
-                                                                Value::param(b),
-                                                            ])
-                                                            .build()
-                                                            .unwrap(),
-                                                    ),
+                                                    F::not(F::pred(PredicateBuilder::equality(
+                                                        Value::bound(other),
+                                                        Value::param(b),
+                                                    ))),
                                                     F::pred(
                                                         at.values(vec![
                                                             Value::bound(other),
@@ -1119,15 +1107,10 @@ mod tests {
                                         .expression(|ex_params| {
                                             let other = &ex_params[0];
                                             Ok(F::and(vec![
-                                                F::pred(
-                                                    different
-                                                        .values(vec![
-                                                            Value::param(b),
-                                                            Value::bound(other),
-                                                        ])
-                                                        .build()
-                                                        .unwrap(),
-                                                ),
+                                                F::not(F::pred(PredicateBuilder::equality(
+                                                    Value::param(b),
+                                                    Value::bound(other),
+                                                ))),
                                                 F::pred(
                                                     at.values(vec![
                                                         Value::bound(other),
@@ -1210,7 +1193,6 @@ mod tests {
 
                 let at = predicates.get("at").unwrap();
                 let size_smaller = predicates.get("size-smaller").unwrap();
-                let different = predicates.get("different").unwrap();
 
                 init.insert(at.values(vec![box1.dupe(), loc1.dupe()]).build().unwrap());
                 init.insert(at.values(vec![box2.dupe(), loc1.dupe()]).build().unwrap());
@@ -1231,43 +1213,6 @@ mod tests {
                 init.insert(
                     size_smaller
                         .values(vec![box2.dupe(), box3.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-
-                init.insert(
-                    different
-                        .values(vec![box1.dupe(), box2.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    different
-                        .values(vec![box2.dupe(), box1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    different
-                        .values(vec![box1.dupe(), box3.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    different
-                        .values(vec![box3.dupe(), box1.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    different
-                        .values(vec![box2.dupe(), box3.dupe()])
-                        .build()
-                        .unwrap(),
-                );
-                init.insert(
-                    different
-                        .values(vec![box3.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );

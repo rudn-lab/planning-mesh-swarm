@@ -65,6 +65,12 @@ impl PredicateValue for Value {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum EvalStrat {
+    State,
+    Equality,
+}
+
 /// A predicate how it is used in actions.
 #[derive(Debug, Clone, Getters)]
 pub struct Predicate<V: PredicateValue> {
@@ -87,14 +93,25 @@ pub struct Predicate<V: PredicateValue> {
     /// but only 2.
     #[getset(get = "pub")]
     unique_marker: Marker,
+    eval_strat: EvalStrat,
 }
 
 impl Evaluable<GroundedPredicate> for GroundedPredicate {
     fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
-        context
-            .matching_predicates(&self.into())
-            .map(|preds| preds.iter().any(|v| v == self))
-            .unwrap_or(false)
+        match self.eval_strat {
+            EvalStrat::State => context
+                .matching_predicates(&self.into())
+                .map(|preds| preds.iter().any(|v| v == self))
+                .unwrap_or(false),
+            EvalStrat::Equality => {
+                let mut iter = self.values.iter();
+                if let Some(first) = iter.next() {
+                    iter.all(|e| e == first)
+                } else {
+                    true
+                }
+            }
+        }
     }
 }
 
@@ -199,6 +216,7 @@ impl LiftedPredicate {
                         arguments: self.arguments.clone(),
                         values,
                         unique_marker: self.unique_marker,
+                        eval_strat: self.eval_strat,
                     })
                     .collect::<BTreeSet<GroundedPredicate>>()
             })
@@ -311,6 +329,7 @@ impl GoalPredicate {
                 arguments: self.arguments.clone(),
                 values,
                 unique_marker: self.unique_marker,
+                eval_strat: self.eval_strat,
             })
     }
 }
@@ -321,6 +340,8 @@ pub trait PredicateBuilderState: Sealed {}
 #[derive(Debug, Clone)]
 pub struct New;
 #[derive(Debug, Clone)]
+pub struct Equality;
+#[derive(Debug, Clone)]
 pub struct HasName;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HasArguments;
@@ -330,11 +351,13 @@ pub struct HasValues;
 pub struct HasGroundedValues;
 
 impl PredicateBuilderState for New {}
+impl PredicateBuilderState for Equality {}
 impl PredicateBuilderState for HasName {}
 impl PredicateBuilderState for HasArguments {}
 impl PredicateBuilderState for HasValues {}
 
 impl Sealed for New {}
+impl Sealed for Equality {}
 impl Sealed for HasName {}
 impl Sealed for HasArguments {}
 impl Sealed for HasValues {}
@@ -355,6 +378,16 @@ impl PredicateBuilder<New> {
             arguments: Vec::new(),
             values: Vec::new(),
             state: PhantomData,
+        }
+    }
+
+    pub fn equality<V: PredicateValue>(first: V, second: V) -> Predicate<V> {
+        Predicate {
+            name: INTERNER.lock().get_or_intern("="),
+            arguments: vec![first.r#type(), second.r#type()],
+            values: vec![first, second],
+            unique_marker: Marker::new(),
+            eval_strat: EvalStrat::Equality,
         }
     }
 }
@@ -422,6 +455,7 @@ impl<V: PredicateValue> PredicateFinalizer<V> {
             arguments: arguments.to_vec(),
             values,
             unique_marker: Marker::new(),
+            eval_strat: EvalStrat::State,
         })
     }
 }
@@ -429,13 +463,16 @@ impl<V: PredicateValue> PredicateFinalizer<V> {
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
-    use crate::entity::{EntityStorage, ObjectStorage, TypeStorage};
+    use crate::{
+        entity::{EntityStorage, ObjectStorage, TypeStorage},
+        state::State,
+    };
 
     use super::*;
     use core::assert;
 
     #[test]
-    fn test_equality() {
+    fn test_predicate_equality() {
         // Same predicates, even though the marker is different for each one
         let p: LiftedPredicate = PredicateBuilder::new("foo")
             .arguments(vec![])
@@ -610,5 +647,28 @@ mod tests {
         let gp2 = pb1.values(vec![o1, o2]).build().unwrap();
 
         assert_eq!(gp1, BTreeSet::from([gp2]));
+    }
+
+    #[test]
+    fn test_equality_predicate() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+        let t3 = entities.get_or_create_type("t3");
+        let _ = entities.create_inheritance(&t2, &t1);
+        let o1 = entities.get_or_create_object("o1", &t1);
+        let o2 = entities.get_or_create_object("o2", &t2);
+        let o3 = entities.get_or_create_object("o3", &t3);
+
+        let state = State::default();
+
+        let p = PredicateBuilder::equality(o1.dupe(), o1.dupe());
+        assert!(p.eval(&state));
+
+        let p = PredicateBuilder::equality(o1.dupe(), o2.dupe());
+        assert!(!p.eval(&state));
+
+        let p = PredicateBuilder::equality(o1.dupe(), o3.dupe());
+        assert!(!p.eval(&state));
     }
 }

@@ -100,7 +100,6 @@ pub enum BuildError {
 pub enum UnsupportedFeature {
     ExtendsDomain,
     EitherOfTypes,
-    Equality,
     Function,
     Preference,
     Conditional,
