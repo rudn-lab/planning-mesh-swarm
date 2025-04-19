@@ -2,7 +2,7 @@ use crate::{
     action::{Action, ActionParameter},
     calculus::{
         first_order::{BoundVariable, QuantifierSymbol},
-        predicate::{GroundedPredicate, LiftedPredicate, LiftedValue},
+        predicate::{GroundPredicate, LiftedPredicate, LiftedValue},
         propositional::Primitives,
         EvaluationContext,
     },
@@ -25,19 +25,19 @@ impl From<&LiftedPredicate> for PredicateKey {
     }
 }
 
-impl From<&GroundedPredicate> for PredicateKey {
-    fn from(value: &GroundedPredicate) -> Self {
+impl From<&GroundPredicate> for PredicateKey {
+    fn from(value: &GroundPredicate) -> Self {
         Self(*value.name(), value.arguments().len())
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct State {
-    predicates: BTreeMap<PredicateKey, BTreeSet<GroundedPredicate>>,
+    predicates: BTreeMap<PredicateKey, BTreeSet<GroundPredicate>>,
 }
 
 impl State {
-    pub fn with_predicates(mut self, predicates: Vec<GroundedPredicate>) -> Self {
+    pub fn with_predicates(mut self, predicates: Vec<GroundPredicate>) -> Self {
         for p in predicates {
             match self.predicates.entry((&p).into()) {
                 Entry::Vacant(e) => {
@@ -165,14 +165,14 @@ impl State {
             .map(|preds| {
                 preds
                     .iter()
-                    .filter(|rp| rp.is_grounded_from(predicate))
+                    .filter(|rp| rp.is_ground_form(predicate))
                     // Get only those values that correspond to an action parameter
                     .flat_map(|rp| {
                         keys.iter()
                             .zip(keys.iter().map(|k| rp.values()[k.idx()].dupe()))
                             .collect_vec()
                     })
-                    // This just transforms a list of GroundedPredicates to the output type
+                    // This just transforms a list of GroundPredicates to the output type
                     .fold(acc(), |mut acc, (lv, v)| {
                         acc.entry(*lv)
                             .and_modify(|s: &mut BTreeSet<_>| {
@@ -344,16 +344,16 @@ impl State {
     }
 }
 
-impl EvaluationContext<GroundedPredicate> for State {
-    fn matching_predicates(&self, key: &PredicateKey) -> Option<&BTreeSet<GroundedPredicate>> {
+impl EvaluationContext<GroundPredicate> for State {
+    fn matching_predicates(&self, key: &PredicateKey) -> Option<&BTreeSet<GroundPredicate>> {
         self.predicates.get(key)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModifyState {
-    Add(GroundedPredicate),
-    Del(GroundedPredicate),
+    Add(GroundPredicate),
+    Del(GroundPredicate),
 }
 
 #[allow(
@@ -389,24 +389,24 @@ mod tests {
             .values(vec![Value::object(&x), Value::object(&y)])
             .build()
             .unwrap();
-        let rp = ps.into_grounded(&BTreeMap::new()).unwrap();
+        let rp = ps.as_ground(&BTreeMap::new()).unwrap();
         // Just for the test creating a predicate with the same name
         // to simulate that there migth be several different
-        // grounded versions of the same predicate in a state.
+        // ground versions of the same predicate in a state.
         // Normally names are unique, and this predicate should have
         // arguments like [ArgumentValue::ActionParameter],
-        // which then get grounded and added to the state over the
+        // which then get ground and added to the state over the
         // course of the program.
         let p1 = PredicateBuilder::new("foo")
             .arguments(vec![t.dupe(), t.dupe()])
             .values(vec![Value::object(&x), Value::object(&b)])
             .build()
             .unwrap();
-        let gp1 = p1.into_grounded(&BTreeMap::new()).unwrap();
+        let gp1 = p1.as_ground(&BTreeMap::new()).unwrap();
 
         let p2 = PredicateBuilder::new("bar").arguments(vec![t.dupe()]);
         let ps2 = p2.values(vec![Value::object(&c)]).build().unwrap();
-        let gp2 = ps2.into_grounded(&BTreeMap::new()).unwrap();
+        let gp2 = ps2.as_ground(&BTreeMap::new()).unwrap();
 
         let state = State::default().with_predicates(
             rp.iter()
@@ -454,7 +454,7 @@ mod tests {
             )])
         );
 
-        // Predicate with no parameters doesn't get grounded
+        // Predicate with no parameters doesn't get ground
         let p3 = PredicateBuilder::new("baz")
             .arguments(vec![])
             .values(vec![])
@@ -525,7 +525,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![y.dupe()]).build().unwrap()),
@@ -593,7 +593,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![y.dupe()]).build().unwrap()),
@@ -666,7 +666,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Add(p1.values(vec![x2.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
@@ -731,8 +731,8 @@ mod tests {
         let state = State::default().with_predicates(vec![gp11, gp12, gp21, gp22]);
 
         let res = state.ground_action(&action);
-        // This one is empty because not all params are grounded
-        // the output is like this before partially grounded variants are removed:
+        // This one is empty because not all params are ground
+        // the output is like this before partially ground variants are removed:
         // ```
         // let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
         //     (&action_params[0], BTreeSet::from([])),
@@ -742,7 +742,7 @@ mod tests {
         println!("{:?}", res);
         assert!(res.is_empty());
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::new();
 
         assert_eq!(effects, correct_effects);
@@ -763,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_impossible_grounding_with_partially_grounded_predicates() {
+    pub fn test_impossible_grounding_with_partially_ground_predicates() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
@@ -825,7 +825,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
@@ -942,7 +942,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
@@ -1014,7 +1014,7 @@ mod tests {
                             Pr::Pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
                             Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
                         ]),
-                        // These won't get grounded as they are missing the other params.
+                        // These won't get ground as they are missing the other params.
                         // Strictly speaking this should never happen, as [DNF] is full dnf,
                         // but we're doing this just for the test's sake.
                         BTreeSet::from([Pr::Pred(
@@ -1062,7 +1062,7 @@ mod tests {
                     BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
                 ),
                 // This predicate is defined with type `tt1`, which has no subentities,
-                // so only values of this type will be grounded
+                // so only values of this type will be ground
                 (
                     &action_params[1],
                     BTreeSet::from([xx1.clone(), xx2.clone()]),
@@ -1076,7 +1076,7 @@ mod tests {
                     BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
                 ),
                 // This predicate is defined with `t1`, but it was turned into a specific
-                // with `tt1`, so it should only grounded with `tt1`
+                // with `tt1`, so it should only ground with `tt1`
                 (
                     &action_params[1],
                     BTreeSet::from([xx1.clone(), xx2.clone()]),
@@ -1087,7 +1087,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(p1.values(vec![x1.dupe()]).build().unwrap()),
@@ -1195,7 +1195,7 @@ mod tests {
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.grounded_effect(&res).unwrap();
+        let effects = action.ground_effect(&res, &state).unwrap();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![a.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![a.dupe(), y.dupe()]).build().unwrap()),

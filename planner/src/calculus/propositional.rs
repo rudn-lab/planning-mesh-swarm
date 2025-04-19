@@ -1,12 +1,22 @@
-use crate::calculus::{
-    predicate::IsPredicate, truth_table::TruthTable, Evaluable, EvaluationContext,
+use crate::{
+    action::ActionParameter,
+    calculus::{
+        predicate::{
+            GroundPredicate, IsPredicate, LiftedPredicate, PredicateError, ScopedPredicate,
+        },
+        truth_table::TruthTable,
+        Evaluable, EvaluationContext,
+    },
+    entity::ObjectHandle,
 };
 
-use alloc::{boxed::Box, collections::BTreeSet, vec::*};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    vec::*,
+};
 use getset::Getters;
 use itertools::Itertools;
-
-use super::predicate::GroundedPredicate;
 
 pub trait Propositional<P: IsPredicate> {
     fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a>;
@@ -39,8 +49,8 @@ impl<P: IsPredicate> Formula<P> {
     }
 }
 
-impl Evaluable<GroundedPredicate> for Formula<GroundedPredicate> {
-    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+impl Evaluable<GroundPredicate> for Formula<GroundPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
         match self {
             Formula::And(and) => and.iter().all(|f| Evaluable::eval(f, context)),
             Formula::Or(or) => or.iter().any(|f| Evaluable::eval(f, context)),
@@ -76,6 +86,18 @@ pub enum Primitives<P: IsPredicate> {
     Not(P),
 }
 
+impl Primitives<LiftedPredicate> {
+    pub fn as_scoped(
+        &self,
+        grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+    ) -> Result<Primitives<ScopedPredicate>, PredicateError> {
+        match self {
+            Primitives::Pred(p) => p.as_scoped(grounding).map(Primitives::Pred),
+            Primitives::Not(not) => not.as_scoped(grounding).map(Primitives::Not),
+        }
+    }
+}
+
 impl<P: IsPredicate> Primitives<P> {
     pub fn inner(&self) -> &P {
         match self {
@@ -84,8 +106,8 @@ impl<P: IsPredicate> Primitives<P> {
     }
 }
 
-impl Evaluable<GroundedPredicate> for Primitives<GroundedPredicate> {
-    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+impl Evaluable<GroundPredicate> for Primitives<GroundPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
         match self {
             Primitives::Pred(p) => p.eval(context),
             Primitives::Not(not) => !not.eval(context),
@@ -101,8 +123,25 @@ pub(crate) struct Dnf<P: IsPredicate> {
     pub(crate) clauses: BTreeSet<BTreeSet<Primitives<P>>>,
 }
 
-impl Evaluable<GroundedPredicate> for Dnf<GroundedPredicate> {
-    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+impl Dnf<LiftedPredicate> {
+    pub fn as_scoped(
+        &self,
+        grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+    ) -> Result<Dnf<ScopedPredicate>, PredicateError> {
+        self.clauses
+            .iter()
+            .map(|c| {
+                c.iter()
+                    .map(|p| p.as_scoped(grounding))
+                    .collect::<Result<BTreeSet<_>, _>>()
+            })
+            .collect::<Result<BTreeSet<_>, _>>()
+            .map(|clauses| Dnf { clauses })
+    }
+}
+
+impl Evaluable<GroundPredicate> for Dnf<GroundPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
         self.clauses
             .iter()
             .any(|c| c.iter().all(|p| p.eval(context)))

@@ -2,7 +2,7 @@ use crate::{
     action::Action,
     calculus::{
         first_order::QuantifiedFormula,
-        predicate::{GoalPredicate, GroundedPredicate, PredicateDefinition, PredicateError},
+        predicate::{GroundPredicate, PredicateDefinition, PredicateError, ScopedPredicate},
     },
     entity::{EntityStorage, ObjectStorage, TypeStorage},
     sealed::Sealed,
@@ -30,13 +30,13 @@ impl Domain {
         I: FnMut(
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
-            &mut NamedStorage<GroundedPredicate>,
+            &mut NamedStorage<GroundPredicate>,
         ) -> Result<(), BuildError>,
         G: Fn(
             &dyn TypeStorage,
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
-        ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
+        ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
     {
         ProblemBuilder {
             problem_name: INTERNER.lock().get_or_intern(name),
@@ -67,10 +67,10 @@ pub struct Problem {
     pub entities: EntityStorage,
     pub actions: NamedStorage<Action>,
     pub init: State,
-    pub goal: QuantifiedFormula<GoalPredicate>,
+    pub goal: QuantifiedFormula<ScopedPredicate>,
 }
 
-pub const SUPPORTED_REQUIREMENTS: [Requirement; 7] = [
+pub const SUPPORTED_REQUIREMENTS: [Requirement; 9] = [
     Requirement::Strips,
     Requirement::Typing,
     Requirement::NegativePreconditions,
@@ -78,6 +78,8 @@ pub const SUPPORTED_REQUIREMENTS: [Requirement; 7] = [
     Requirement::ExistentialPreconditions,
     Requirement::UniversalPreconditions,
     Requirement::QuantifiedPreconditions,
+    Requirement::ConditionalEffects,
+    Requirement::Adl,
 ];
 
 #[derive(Debug)]
@@ -102,7 +104,6 @@ pub enum UnsupportedFeature {
     EitherOfTypes,
     Function,
     Preference,
-    Conditional,
     NumericFluent,
     ObjectFluent,
     DurativeAction,
@@ -357,13 +358,13 @@ where
     I: FnMut(
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundedPredicate>,
+        &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
     S: ProblemBuilderState,
 {
     problem_name: InternerSymbol,
@@ -380,13 +381,13 @@ where
     I: FnMut(
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundedPredicate>,
+        &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
 {
     pub fn objects(self, add_objects: O) -> ProblemBuilder<O, I, G, HasObjects> {
         ProblemBuilder {
@@ -406,13 +407,13 @@ where
     I: FnMut(
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundedPredicate>,
+        &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
 {
     pub fn init(self, add_init: I) -> ProblemBuilder<O, I, G, HasInit> {
         ProblemBuilder {
@@ -432,13 +433,13 @@ where
     I: FnMut(
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundedPredicate>,
+        &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
 {
     pub fn goal(self, add_goal: G) -> ProblemBuilder<O, I, G, HasGoal> {
         ProblemBuilder {
@@ -458,13 +459,13 @@ where
     I: FnMut(
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundedPredicate>,
+        &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-    ) -> Result<QuantifiedFormula<GoalPredicate>, BuildError>,
+    ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
 {
     pub fn build(self) -> Result<Problem, BuildError> {
         let mut entities = self.domain.entities;
@@ -499,7 +500,7 @@ mod tests {
         action::{ActionBuilder, ActionEffect as E},
         calculus::{
             first_order::QuantifiedFormula as F,
-            predicate::{GoalValue, PredicateBuilder, Value},
+            predicate::{PredicateBuilder, ScopedValue, Value},
         },
     };
 
@@ -588,7 +589,7 @@ mod tests {
                 let o2 = objects.get_object("b").unwrap();
                 let p2 = predicates.get("bar").unwrap();
                 Ok(F::pred(
-                    p2.values(vec![GoalValue::object(&c1), GoalValue::object(&o2)])
+                    p2.values(vec![ScopedValue::object(&c1), ScopedValue::object(&o2)])
                         .build()
                         .unwrap(),
                 ))
@@ -622,7 +623,7 @@ mod tests {
                 let o4 = objects.get_object("d").unwrap();
                 let p2 = predicates.get("bar").unwrap();
                 Ok(F::pred(
-                    p2.values(vec![GoalValue::object(&c1), GoalValue::object(&o4)])
+                    p2.values(vec![ScopedValue::object(&c1), ScopedValue::object(&o4)])
                         .build()
                         .unwrap(),
                 ))

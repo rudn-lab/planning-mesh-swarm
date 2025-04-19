@@ -17,7 +17,6 @@ mod util;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-pub use gazebo::dupe::Dupe;
 use spin::Mutex;
 use string_interner::{backend::BufferBackend, symbol::SymbolU16, StringInterner};
 
@@ -29,7 +28,7 @@ lazy_static::lazy_static! {
 }
 
 /// Is used to uniquely mark things.
-#[derive(Debug, Clone, Dupe, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Marker(usize);
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);

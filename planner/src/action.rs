@@ -1,8 +1,9 @@
 use crate::{
     calculus::{
         first_order::{FOExpression, ForAll, Pdnf},
-        predicate::{LiftedPredicate, PredicateError},
+        predicate::{GroundPredicate, LiftedPredicate, PredicateError},
         propositional::Primitives,
+        Evaluable, EvaluationContext,
     },
     entity::{ObjectHandle, TypeHandle},
     problem::BuildError,
@@ -43,6 +44,10 @@ pub struct Action {
 pub enum ActionEffect {
     And(Vec<ActionEffect>),
     ForAll(ForAll<ActionEffect, LiftedPredicate>),
+    When {
+        condition: Pdnf<LiftedPredicate>,
+        effect: Box<ActionEffect>,
+    },
     Primitives(Primitives<LiftedPredicate>),
 }
 
@@ -53,6 +58,13 @@ impl ActionEffect {
 
     pub fn forall(operand: ForAll<ActionEffect, LiftedPredicate>) -> Self {
         Self::ForAll(operand)
+    }
+
+    pub fn when<C: Into<Pdnf<LiftedPredicate>>>(condition: C, effect: ActionEffect) -> Self {
+        Self::When {
+            condition: condition.into(),
+            effect: Box::new(effect),
+        }
     }
 
     pub fn pred(operand: LiftedPredicate) -> Self {
@@ -71,31 +83,44 @@ impl Action {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    pub fn grounded_effect<'a>(
+    pub fn ground_effect<'a>(
         &'a self,
         parameter_groundings: &'a BTreeSet<ParameterGrounding<'a>>,
+        state: &impl EvaluationContext<GroundPredicate>,
     ) -> Result<BTreeSet<BTreeSet<ModifyState>>, PredicateError> {
         fn ground_effect_flat(
             effect: &ActionEffect,
             grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+            state: &impl EvaluationContext<GroundPredicate>,
         ) -> Result<BTreeSet<ModifyState>, PredicateError> {
             match effect {
                 ActionEffect::And(effects) => effects
                     .iter()
-                    .map(|e| ground_effect_flat(e, grounding))
+                    .map(|e| ground_effect_flat(e, grounding, state))
                     .try_fold(BTreeSet::new(), |mut acc, el| {
                         el.map(|e| {
                             acc.extend(e);
                             acc
                         })
                     }),
-                ActionEffect::ForAll(forall) => ground_effect_flat(forall.expression(), grounding),
+                ActionEffect::ForAll(forall) => {
+                    ground_effect_flat(forall.expression(), grounding, state)
+                }
+                ActionEffect::When { condition, effect } => {
+                    condition.into_scoped(grounding).and_then(|condition| {
+                        if condition.eval(state) {
+                            ground_effect_flat(effect, grounding, state)
+                        } else {
+                            Ok(BTreeSet::new())
+                        }
+                    })
+                }
                 ActionEffect::Primitives(p) => match p {
                     Primitives::Pred(pred) => pred
-                        .into_grounded(grounding)
+                        .as_ground(grounding)
                         .map(|r| r.into_iter().map(ModifyState::Add).collect::<BTreeSet<_>>()),
                     Primitives::Not(not) => not
-                        .into_grounded(grounding)
+                        .as_ground(grounding)
                         .map(|r| r.into_iter().map(ModifyState::Del).collect::<BTreeSet<_>>()),
                 },
             }
@@ -106,7 +131,7 @@ impl Action {
             .flat_map(|grounding| {
                 grounding
                     .as_simple()
-                    .map(|grounding| ground_effect_flat(&self.effect, &grounding))
+                    .map(|grounding| ground_effect_flat(&self.effect, &grounding, state))
             })
             .collect::<Result<BTreeSet<_>, _>>()
     }
@@ -257,10 +282,11 @@ mod tests {
             predicate::{PredicateBuilder, Value},
             propositional::{Formula as F, Primitives as Pr},
         },
-        entity::{EntityStorage, TypeStorage},
+        entity::{EntityStorage, ObjectStorage, TypeStorage},
+        state::State,
     };
 
-    use super::*;
+    use super::{ActionEffect as E, *};
 
     #[test]
     fn test_build_action() {
@@ -293,5 +319,72 @@ mod tests {
             })
             .build()
             .unwrap();
+    }
+
+    #[test]
+    fn test_when_effect() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+
+        let x = entities.get_or_create_object("x", &t1);
+        let y = entities.get_or_create_object("y", &t2);
+
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe()]);
+        let p3 = PredicateBuilder::new("p3").arguments(vec![t2.dupe()]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(vec![t1.dupe(), t2.dupe()])
+            .precondition(|params| {
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::pred(p3.values(vec![Value::param(&params[1])]).build().unwrap()),
+                ]))
+            })
+            .effect(|params| {
+                Ok(E::and(vec![
+                    E::when(
+                        F::pred(p2.values(vec![Value::param(&params[1])]).build().unwrap()),
+                        E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    ),
+                    E::npred(p3.values(vec![Value::param(&params[1])]).build().unwrap()),
+                ]))
+            })
+            .build()
+            .unwrap();
+
+        let gp1 = p1.values(vec![x.dupe()]).build().unwrap();
+        let gp2 = p2.values(vec![y.dupe()]).build().unwrap();
+        let gp3 = p3.values(vec![y.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp1.clone(), gp3.clone()]);
+
+        let action_params = action.parameters();
+        let res = state.ground_action(&action);
+        assert!(!res.is_empty());
+
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
+            (&action_params[0], BTreeSet::from([x.clone()])),
+            (&action_params[1], BTreeSet::from([y.clone()])),
+        ]))]);
+
+        assert_eq!(res, correct_grounding);
+
+        let effects = action.ground_effect(&res, &state).unwrap();
+        let correct_effects = BTreeSet::from([BTreeSet::from([ModifyState::Del(
+            p3.values(vec![y.dupe()]).build().unwrap(),
+        )])]);
+
+        assert_eq!(effects, correct_effects);
+
+        let state = State::default().with_predicates(vec![gp1, gp2, gp3]);
+        let res = state.ground_action(&action);
+        let effects = action.ground_effect(&res, &state).unwrap();
+        let correct_effects = BTreeSet::from([BTreeSet::from([
+            ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
+            ModifyState::Del(p3.values(vec![y.dupe()]).build().unwrap()),
+        ])]);
+
+        assert_eq!(effects, correct_effects);
     }
 }

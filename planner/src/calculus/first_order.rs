@@ -1,6 +1,7 @@
 use crate::{
+    action::ActionParameter,
     calculus::{
-        predicate::{GoalPredicate, GroundedPredicate, IsPredicate},
+        predicate::{GroundPredicate, IsPredicate, ScopedPredicate},
         propositional::*,
         Evaluable, EvaluationContext,
     },
@@ -13,6 +14,8 @@ use core::marker::PhantomData;
 use gazebo::dupe::Dupe;
 use getset::Getters;
 use itertools::Itertools;
+
+use super::predicate::{LiftedPredicate, PredicateError};
 
 #[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BoundVariable {
@@ -348,23 +351,35 @@ pub struct Pdnf<P: IsPredicate> {
     matrix: Dnf<P>,
 }
 
+impl Pdnf<LiftedPredicate> {
+    pub fn into_scoped(
+        &self,
+        grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+    ) -> Result<Pdnf<ScopedPredicate>, PredicateError> {
+        self.matrix.as_scoped(grounding).map(|matrix| Pdnf {
+            prefix: self.prefix.clone(),
+            matrix,
+        })
+    }
+}
+
 impl<P: IsPredicate> FOExpression for Pdnf<P> {}
 
-impl Evaluable<GroundedPredicate> for Pdnf<GoalPredicate> {
-    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+impl Evaluable<GroundPredicate> for Pdnf<ScopedPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
         fn eval_with_prefix(
             prefix: &[QuantifierSymbol],
             var_assignment: &mut BTreeMap<BoundVariable, ObjectHandle>,
-            matrix: &Dnf<GoalPredicate>,
-            context: &impl EvaluationContext<GroundedPredicate>,
+            matrix: &Dnf<ScopedPredicate>,
+            context: &impl EvaluationContext<GroundPredicate>,
         ) -> bool {
-            let handle_predicate = |p: &GoalPredicate| -> bool {
+            let handle_predicate = |p: &ScopedPredicate| -> bool {
                 p.remove_bound(var_assignment)
                     .map(|gp| gp.eval(context))
                     .unwrap_or(false)
             };
 
-            let handle_primitives = |p: &Primitives<GoalPredicate>| -> bool {
+            let handle_primitives = |p: &Primitives<ScopedPredicate>| -> bool {
                 match p {
                     Primitives::Pred(p) => handle_predicate(p),
                     Primitives::Not(not) => !handle_predicate(not),
@@ -494,7 +509,7 @@ mod test {
     use super::{QuantifiedFormula as QF, *};
     use crate::{
         calculus::{
-            predicate::{GoalValue, PredicateBuilder, Value},
+            predicate::{PredicateBuilder, ScopedValue, Value},
             propositional::Formula as F,
             truth_table::TruthTable,
         },
@@ -969,14 +984,14 @@ mod test {
                                 Ok(QF::and(vec![
                                     QF::pred(
                                         p.values(vec![
-                                            GoalValue::bound(&x_params[0]),
-                                            GoalValue::bound(&y_params[0]),
+                                            ScopedValue::bound(&x_params[0]),
+                                            ScopedValue::bound(&y_params[0]),
                                         ])
                                         .build()
                                         .unwrap(),
                                     ),
                                     QF::pred(
-                                        q.values(vec![GoalValue::bound(&x_params[0])])
+                                        q.values(vec![ScopedValue::bound(&x_params[0])])
                                             .build()
                                             .unwrap(),
                                     ),
@@ -1022,14 +1037,14 @@ mod test {
                                 Ok(QF::and(vec![
                                     QF::pred(
                                         p.values(vec![
-                                            GoalValue::bound(&x_params[0]),
-                                            GoalValue::bound(&y_params[0]),
+                                            ScopedValue::bound(&x_params[0]),
+                                            ScopedValue::bound(&y_params[0]),
                                         ])
                                         .build()
                                         .unwrap(),
                                     ),
                                     QF::pred(
-                                        q.values(vec![GoalValue::bound(&x_params[0])])
+                                        q.values(vec![ScopedValue::bound(&x_params[0])])
                                             .build()
                                             .unwrap(),
                                     ),
@@ -1074,14 +1089,14 @@ mod test {
                                 Ok(QF::and(vec![
                                     QF::pred(
                                         p.values(vec![
-                                            GoalValue::bound(&x_params[0]),
-                                            GoalValue::bound(&y_params[0]),
+                                            ScopedValue::bound(&x_params[0]),
+                                            ScopedValue::bound(&y_params[0]),
                                         ])
                                         .build()
                                         .unwrap(),
                                     ),
                                     QF::pred(
-                                        q.values(vec![GoalValue::bound(&x_params[0])])
+                                        q.values(vec![ScopedValue::bound(&x_params[0])])
                                             .build()
                                             .unwrap(),
                                     ),
@@ -1122,12 +1137,15 @@ mod test {
                 .expression(|x_params| {
                     Ok(QF::or(vec![
                         QF::pred(
-                            p.values(vec![GoalValue::bound(&x_params[0]), GoalValue::object(&b)])
-                                .build()
-                                .unwrap(),
+                            p.values(vec![
+                                ScopedValue::bound(&x_params[0]),
+                                ScopedValue::object(&b),
+                            ])
+                            .build()
+                            .unwrap(),
                         ),
                         QF::pred(
-                            q.values(vec![GoalValue::bound(&x_params[0])])
+                            q.values(vec![ScopedValue::bound(&x_params[0])])
                                 .build()
                                 .unwrap(),
                         ),
@@ -1166,8 +1184,8 @@ mod test {
                             .expression(|y_params| {
                                 Ok(QF::not(QF::pred(
                                     p.values(vec![
-                                        GoalValue::bound(&x_params[0]),
-                                        GoalValue::bound(&y_params[0]),
+                                        ScopedValue::bound(&x_params[0]),
+                                        ScopedValue::bound(&y_params[0]),
                                     ])
                                     .build()
                                     .unwrap(),

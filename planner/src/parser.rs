@@ -3,8 +3,8 @@ use crate::{
     calculus::{
         first_order::{BoundVariable, QuantifiedFormula, QuantifierBuilder},
         predicate::{
-            GoalPredicate, GoalValue, GroundedPredicate, LiftedPredicate, Predicate,
-            PredicateBuilder, PredicateDefinition, PredicateValue, Value,
+            GroundPredicate, LiftedPredicate, Predicate, PredicateBuilder, PredicateDefinition,
+            PredicateValue, ScopedPredicate, ScopedValue, Value,
         },
     },
     entity::{ObjectStorage, TypeHandle, TypeStorage},
@@ -21,9 +21,9 @@ use gazebo::dupe::Dupe;
 use itertools::Itertools;
 use nom::Err;
 use pddl::{
-    self, AtomicFormula, CEffect, ForallCEffect, GoalDefinition, Name, PEffect, Parser,
-    PreconditionGoalDefinition, PreferenceGD, PrimitiveType, StructureDef, Term, Type, TypedList,
-    TypedNames, Variable,
+    self, AtomicFormula, CEffect, ConditionalEffect, ForallCEffect, GoalDefinition, Name, PEffect,
+    Parser, PreconditionGoalDefinition, PreferenceGD, PrimitiveType, StructureDef, Term, Type,
+    TypedList, TypedNames, Variable,
 };
 
 #[derive(Debug)]
@@ -129,15 +129,15 @@ fn parse_goal_predicate(
     bound_vars: &BTreeMap<&str, BoundVariable>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<GoalPredicate, BE> {
+) -> Result<ScopedPredicate, BE> {
     let parse_term = |term: &Term| match term {
         Term::Name(name) => objects
             .get_object(name)
             .ok_or(BE::BadDefinition(BD::UnknownObject(name.to_string())))
-            .map(GoalValue::Object),
+            .map(ScopedValue::Object),
         Term::Variable(var) => bound_vars
             .get(var.deref().deref())
-            .map(|bv| GoalValue::BoundVariable(bv.dupe()))
+            .map(|bv| ScopedValue::BoundVariable(bv.dupe()))
             .ok_or(BE::BadDefinition(BD::UnknownParameter(var.to_string()))),
         Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
     };
@@ -147,11 +147,11 @@ fn parse_goal_predicate(
 
 /// Parses predicates in problem's init,
 /// where they have only concrete objects in them
-fn parse_grounded_predicate(
+fn parse_ground_predicate(
     pred: &AtomicFormula<Name>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
-) -> Result<GroundedPredicate, BE> {
+) -> Result<GroundPredicate, BE> {
     let get_obj = |name: &Name| {
         objects
             .get_object(name)
@@ -279,6 +279,14 @@ where
     }
 }
 
+fn maybe_and<T, F: Fn(Vec<T>) -> T>(val: Vec<T>, and: F) -> T {
+    if val.len() == 1 {
+        val.into_iter().next().unwrap()
+    } else {
+        and(val)
+    }
+}
+
 fn parse_precondition_goal_definition<V, F>(
     goal: &PreconditionGoalDefinition,
     action_params: &BTreeMap<&str, ActionParameter>,
@@ -334,17 +342,32 @@ where
                                 )
                             })
                             .collect::<Result<Vec<_>, _>>()
-                            .map(|g| {
-                                if g.len() == 1 {
-                                    g.into_iter().next().unwrap()
-                                } else {
-                                    QuantifiedFormula::And(g)
-                                }
-                            })
+                            .map(|g| maybe_and(g, QuantifiedFormula::And))
                     })
                     .build()
             })
             .map(QuantifiedFormula::forall),
+    }
+}
+
+fn parse_effect(
+    effect: &PEffect,
+    action_params: &BTreeMap<&str, ActionParameter>,
+    bound_vars: &BTreeMap<&str, BoundVariable>,
+    objects: &dyn ObjectStorage,
+    predicates: &NamedStorage<PredicateDefinition>,
+) -> Result<ActionEffect, BE> {
+    match effect {
+        PEffect::AtomicFormula(pred) => {
+            parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
+                .map(ActionEffect::pred)
+        }
+        PEffect::NotAtomicFormula(pred) => {
+            parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
+                .map(ActionEffect::npred)
+        }
+        PEffect::AssignNumericFluent(_, _, _) => Err(BE::UnsupportedFeature(UF::NumericFluent)),
+        PEffect::AssignObjectFluent(_, _) => Err(BE::UnsupportedFeature(UF::ObjectFluent)),
     }
 }
 
@@ -357,18 +380,9 @@ fn parse_effects(
     predicates: &NamedStorage<PredicateDefinition>,
 ) -> Result<ActionEffect, BE> {
     match effect {
-        CEffect::Effect(effect) => match effect {
-            PEffect::AtomicFormula(pred) => {
-                parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
-                    .map(ActionEffect::pred)
-            }
-            PEffect::NotAtomicFormula(pred) => {
-                parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
-                    .map(ActionEffect::npred)
-            }
-            PEffect::AssignNumericFluent(_, _, _) => Err(BE::UnsupportedFeature(UF::NumericFluent)),
-            PEffect::AssignObjectFluent(_, _) => Err(BE::UnsupportedFeature(UF::ObjectFluent)),
-        },
+        CEffect::Effect(effect) => {
+            parse_effect(effect, action_params, bound_vars, objects, predicates)
+        }
         CEffect::Forall(ForallCEffect { variables, effects }) => parse_arguments(variables, types)
             .and_then(|(param_names, param_types)| {
                 QuantifierBuilder::forall(param_types)
@@ -390,13 +404,34 @@ fn parse_effects(
                                     predicates,
                                 )
                             })
-                            .collect::<Result<_, _>>()
-                            .map(ActionEffect::And)
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(|e| maybe_and(e, ActionEffect::And))
                     })
                     .build()
             })
             .map(ActionEffect::ForAll),
-        CEffect::When(_) => Err(BE::UnsupportedFeature(UF::Conditional)),
+        CEffect::When(when) => parse_goal(
+            &when.condition,
+            action_params,
+            bound_vars,
+            types,
+            objects,
+            predicates,
+            &|p, ap, bv, o, ps| parse_full_predicate(p, ap, bv, o, ps),
+        )
+        .and_then(|condition| {
+            match &when.effect {
+                ConditionalEffect::Single(effect) => {
+                    parse_effect(effect, action_params, bound_vars, objects, predicates)
+                }
+                ConditionalEffect::All(effects) => effects
+                    .iter()
+                    .map(|e| parse_effect(e, action_params, bound_vars, objects, predicates))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|e| maybe_and(e, ActionEffect::And)),
+            }
+            .map(|effect| ActionEffect::when(condition, effect))
+        }),
     }
 }
 
@@ -529,13 +564,7 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                                                     )
                                                 })
                                                 .collect::<Result<Vec<_>, _>>()
-                                                .map(|e| {
-                                                    if e.len() == 1 {
-                                                        e.into_iter().next().unwrap()
-                                                    } else {
-                                                        ActionEffect::And(e)
-                                                    }
-                                                })
+                                                .map(|e| maybe_and(e, ActionEffect::And))
                                         })
                                         .unwrap_or(Ok(ActionEffect::And(Vec::new())))
                                 })
@@ -607,7 +636,7 @@ pub fn parse_problem<'a>(
                 .map(|i| match i {
                     pddl::InitElement::Literal(lit) => match lit {
                         pddl::Literal::AtomicFormula(pred) => {
-                            parse_grounded_predicate(pred, objects, predicates)
+                            parse_ground_predicate(pred, objects, predicates)
                                 .map(|p| init.insert(p))
                         }
                         pddl::Literal::NotAtomicFormula(_) => {
@@ -643,13 +672,7 @@ pub fn parse_problem<'a>(
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
-                .map(|g| {
-                    if g.len() == 1 {
-                        g.into_iter().next().unwrap()
-                    } else {
-                        QuantifiedFormula::And(g)
-                    }
-                })
+                .map(|g| maybe_and(g, QuantifiedFormula::And))
         })
         .build()
         .map_err(ParseError::BuildError)
@@ -661,7 +684,7 @@ mod tests {
     use super::*;
     use crate::{
         action::ActionEffect as E,
-        calculus::{first_order::QuantifiedFormula as F, predicate::GoalValue},
+        calculus::{first_order::QuantifiedFormula as F, predicate::ScopedValue},
     };
 
     const SIMPLE_DOMAIN: &str = r#"
@@ -885,19 +908,19 @@ mod tests {
                 Ok(F::and(vec![
                     F::pred(
                         walls_built
-                            .values(vec![GoalValue::object(&s1)])
+                            .values(vec![ScopedValue::object(&s1)])
                             .build()
                             .unwrap(),
                     ),
                     F::pred(
                         cables_installed
-                            .values(vec![GoalValue::object(&s1)])
+                            .values(vec![ScopedValue::object(&s1)])
                             .build()
                             .unwrap(),
                     ),
                     F::pred(
                         windows_fitted
-                            .values(vec![GoalValue::object(&s1)])
+                            .values(vec![ScopedValue::object(&s1)])
                             .build()
                             .unwrap(),
                     ),
@@ -912,69 +935,62 @@ mod tests {
     const MEDIUM_DOMAIN_NO_EQ: &str = r#"
 (define (domain box-moving)
   (:requirements :typing :quantified-preconditions)
+
   (:types
-    box location
-  )
+    box location)
+
   (:predicates
     (at ?b - box ?l - location)
     (size-smaller ?b1 - box ?b2 - box)
-    (collected ?b - box)
-  )
-  (:action move
+    (collected ?b - box))
+
+  (:action move-largest
     :parameters (?b - box ?from - location ?to - location)
     :precondition (and
+      (not (= ?from ?to))
       (at ?b ?from)
       (forall (?other - box)
         (imply (and (not (= ?other ?b)) (at ?other ?from))
-               (size-smaller ?other ?b)
-        )
-      )
-    )
+               (size-smaller ?other ?b))))
     :effect (and
       (not (at ?b ?from))
-      (at ?b ?to)
-    )
-  )
-  (:action collect
-    :parameters (?b - box ?l - location)
-    :precondition (and
-      (at ?b ?l)
-      (exists (?other - box)
-        (and
-          (not (= ?b ?other))
-          (at ?other ?l)
-          (size-smaller ?b ?other)
-        )
-      )
-    )
-    :effect (collected ?b)
-  )
-)
+      (at ?b ?to)))
+
+  (:action collect-largest
+    :parameters (?l - location)
+    :precondition (forall (?b - box)
+      (imply (at ?b ?l)
+        (exists (?other - box)
+          (and
+            (not (= ?b ?other))
+            (at ?other ?l)
+            (size-smaller ?b ?other)))))
+    :effect (forall (?b - box)
+      (when (at ?b ?l)
+        (collected ?b)))))
 "#;
 
     const MEDIUM_PROBLEM_NO_EQ: &str = r#"
 (define (problem move-a-big-box)
   (:domain box-moving)
+  
   (:objects
     box1 box2 box3 - box
-    loc1 loc2 - location
-  )
+    loc1 loc2 - location)
+  
   (:init
     (at box1 loc1)
     (at box2 loc1)
     (at box3 loc1)
+    ;; box3 is the biggest
     (size-smaller box1 box2)
     (size-smaller box1 box3)
-    (size-smaller box2 box3)
-  )
+    (size-smaller box2 box3))
+  
   (:goal
     (forall (?b - box)
       (imply (at ?b loc2)
-             (collected ?b)
-      )
-    )
-  )
-)
+             (collected ?b)))))
     "#;
 
     #[test]
@@ -1022,13 +1038,17 @@ mod tests {
                 let collected = predicates.get("collected").unwrap();
 
                 actions.insert(
-                    ActionBuilder::new("move")
+                    ActionBuilder::new("move-largest")
                         .parameters(vec![r#box.dupe(), location.dupe(), location.dupe()])
                         .precondition(|params| {
                             let b = &params[0];
                             let from = &params[1];
-                            let _to = &params[2];
+                            let to = &params[2];
                             Ok(F::and(vec![
+                                F::not(F::pred(PredicateBuilder::equality(
+                                    Value::param(from),
+                                    Value::param(to),
+                                ))),
                                 F::pred(
                                     at.values(vec![Value::param(b), Value::param(from)])
                                         .build()
@@ -1091,54 +1111,81 @@ mod tests {
                 );
 
                 actions.insert(
-                    ActionBuilder::new("collect")
-                        .parameters(vec![r#box.dupe(), location.dupe()])
+                    ActionBuilder::new("collect-largest")
+                        .parameters(vec![location.dupe()])
                         .precondition(|params| {
-                            let b = &params[0];
-                            let l = &params[1];
-                            Ok(F::and(vec![
-                                F::pred(
-                                    at.values(vec![Value::param(b), Value::param(l)])
-                                        .build()
-                                        .unwrap(),
-                                ),
-                                F::exists(
-                                    QuantifierBuilder::exists(vec![r#box.dupe()])
-                                        .expression(|ex_params| {
-                                            let other = &ex_params[0];
-                                            Ok(F::and(vec![
-                                                F::not(F::pred(PredicateBuilder::equality(
-                                                    Value::param(b),
-                                                    Value::bound(other),
-                                                ))),
-                                                F::pred(
-                                                    at.values(vec![
-                                                        Value::bound(other),
-                                                        Value::param(l),
-                                                    ])
+                            let l = &params[0];
+                            Ok(F::forall(
+                                QuantifierBuilder::forall(vec![r#box.dupe()])
+                                    .expression(|fa_params| {
+                                        let b = &fa_params[0];
+                                        Ok(F::or(vec![
+                                            F::not(F::pred(
+                                                at.values(vec![Value::bound(b), Value::param(l)])
                                                     .build()
                                                     .unwrap(),
-                                                ),
-                                                F::pred(
-                                                    size_smaller
-                                                        .values(vec![
-                                                            Value::param(b),
-                                                            Value::bound(other),
-                                                        ])
-                                                        .build()
-                                                        .unwrap(),
-                                                ),
-                                            ]))
-                                        })
-                                        .build()
-                                        .unwrap(),
-                                ),
-                            ]))
+                                            )),
+                                            F::exists(
+                                                QuantifierBuilder::exists(vec![r#box.dupe()])
+                                                    .expression(|ex_params| {
+                                                        let other = &ex_params[0];
+                                                        Ok(F::and(vec![
+                                                            F::not(F::pred(
+                                                                PredicateBuilder::equality(
+                                                                    Value::bound(b),
+                                                                    Value::bound(other),
+                                                                ),
+                                                            )),
+                                                            F::pred(
+                                                                at.values(vec![
+                                                                    Value::bound(other),
+                                                                    Value::param(l),
+                                                                ])
+                                                                .build()
+                                                                .unwrap(),
+                                                            ),
+                                                            F::pred(
+                                                                size_smaller
+                                                                    .values(vec![
+                                                                        Value::bound(b),
+                                                                        Value::bound(other),
+                                                                    ])
+                                                                    .build()
+                                                                    .unwrap(),
+                                                            ),
+                                                        ]))
+                                                    })
+                                                    .build()
+                                                    .unwrap(),
+                                            ),
+                                        ]))
+                                    })
+                                    .build()
+                                    .unwrap(),
+                            ))
                         })
                         .effect(|params| {
-                            let b = &params[0];
-                            Ok(E::pred(
-                                collected.values(vec![Value::param(b)]).build().unwrap(),
+                            let l = &params[0];
+                            Ok(E::forall(
+                                QuantifierBuilder::forall(vec![r#box.dupe()])
+                                    .expression(|fa_params| {
+                                        let b = &fa_params[0];
+                                        Ok(E::when(
+                                            F::pred(
+                                                at.values(vec![Value::bound(b), Value::param(l)])
+                                                    .build()
+                                                    .unwrap(),
+                                            ),
+                                            E::pred(
+                                                collected
+                                                    .values(vec![Value::bound(b)])
+                                                    .build()
+                                                    .unwrap(),
+                                            ),
+                                        ))
+                                    })
+                                    .build()
+                                    .unwrap(),
                             ))
                         })
                         .build()
@@ -1158,12 +1205,12 @@ mod tests {
             correct_domain.predicate_definitions
         );
         assert_eq!(
-            domain.actions.get("move").unwrap(),
-            correct_domain.actions.get("move").unwrap()
+            domain.actions.get("move-largest").unwrap(),
+            correct_domain.actions.get("move-largest").unwrap()
         );
         assert_eq!(
-            domain.actions.get("collect").unwrap(),
-            correct_domain.actions.get("collect").unwrap()
+            domain.actions.get("collect-largest").unwrap(),
+            correct_domain.actions.get("collect-largest").unwrap()
         );
 
         let problem = parse_problem(MEDIUM_PROBLEM_NO_EQ, &domain);
@@ -1233,12 +1280,18 @@ mod tests {
                             let b = &params[0];
                             Ok(F::or(vec![
                                 F::not(F::pred(
-                                    at.values(vec![GoalValue::bound(b), GoalValue::object(&loc2)])
-                                        .build()
-                                        .unwrap(),
+                                    at.values(vec![
+                                        ScopedValue::bound(b),
+                                        ScopedValue::object(&loc2),
+                                    ])
+                                    .build()
+                                    .unwrap(),
                                 )),
                                 F::pred(
-                                    collected.values(vec![GoalValue::bound(b)]).build().unwrap(),
+                                    collected
+                                        .values(vec![ScopedValue::bound(b)])
+                                        .build()
+                                        .unwrap(),
                                 ),
                             ]))
                         })

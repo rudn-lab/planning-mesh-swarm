@@ -96,8 +96,8 @@ pub struct Predicate<V: PredicateValue> {
     eval_strat: EvalStrat,
 }
 
-impl Evaluable<GroundedPredicate> for GroundedPredicate {
-    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+impl Evaluable<GroundPredicate> for GroundPredicate {
+    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
         match self.eval_strat {
             EvalStrat::State => context
                 .matching_predicates(&self.into())
@@ -175,21 +175,21 @@ impl LiftedPredicate {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    /// Creates [GroundedPredicate]s from this one.
+    /// Creates [GroundPredicate]s from this one.
     ///
     /// Takes a mapping between action parameters and concrete objects to
     /// ground with. The mapping can have additional action parameters
     /// even if they aren't used in this predicate.
     ///
-    /// This method outputs multiple [GroundedPredicate]s
+    /// This method outputs multiple [GroundPredicate]s
     /// for each permutation of [BoundVariable]s in the original predicate.
     /// This simplifies handling of [BoundVariable]s, as this can only be
     /// called only after [Action](crate::action::Action)'s precondition
-    /// was successfully grounded.
-    pub fn into_grounded(
+    /// was successfully ground.
+    pub fn as_ground(
         &self,
         grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
-    ) -> Result<BTreeSet<GroundedPredicate>, PredicateError> {
+    ) -> Result<BTreeSet<GroundPredicate>, PredicateError> {
         self.values
             .iter()
             .map(|v| match v {
@@ -211,14 +211,44 @@ impl LiftedPredicate {
                 values
                     .into_iter()
                     .multi_cartesian_product()
-                    .map(|values| GroundedPredicate {
+                    .map(|values| Predicate {
                         name: self.name,
                         arguments: self.arguments.clone(),
                         values,
                         unique_marker: self.unique_marker,
                         eval_strat: self.eval_strat,
                     })
-                    .collect::<BTreeSet<GroundedPredicate>>()
+                    .collect::<BTreeSet<GroundPredicate>>()
+            })
+    }
+
+    pub fn as_scoped(
+        &self,
+        grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+    ) -> Result<ScopedPredicate, PredicateError> {
+        self.values
+            .iter()
+            .map(|v| match v {
+                Value::Object(o) => Ok(ScopedValue::Object(o.dupe())),
+                Value::ActionParameter(ap) => grounding
+                    .get(ap)
+                    .ok_or(PredicateError::MissingGroundingParameter)
+                    .and_then(|v| {
+                        if v.r#type().inherits_or_eq(&ap.r#type) {
+                            Ok(ScopedValue::Object(v.dupe()))
+                        } else {
+                            Err(PredicateError::TypeMismatch)
+                        }
+                    }),
+                Value::BoundVariable(bv) => Ok(ScopedValue::BoundVariable(bv.dupe())),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|values| Predicate {
+                name: self.name,
+                arguments: self.arguments.clone(),
+                values,
+                unique_marker: self.unique_marker,
+                eval_strat: self.eval_strat,
             })
     }
 
@@ -259,11 +289,11 @@ impl PredicateValue for ObjectHandle {
 
 /// A [LiftedPredicate] where all [LiftedValue]s
 /// were replaced by concrete [Object](ObjectHandle)s.
-pub type GroundedPredicate = Predicate<ObjectHandle>;
+pub type GroundPredicate = Predicate<ObjectHandle>;
 
-impl GroundedPredicate {
+impl GroundPredicate {
     /// Checks whether this predicate is a possible groundings of another predicate
-    pub fn is_grounded_from(&self, predicate: &LiftedPredicate) -> bool {
+    pub fn is_ground_form(&self, predicate: &LiftedPredicate) -> bool {
         if predicate.name() != self.name() || predicate.arguments().len() != self.arguments().len()
         {
             return false;
@@ -281,12 +311,12 @@ impl GroundedPredicate {
 }
 
 #[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
-pub enum GoalValue {
+pub enum ScopedValue {
     Object(ObjectHandle),
     BoundVariable(BoundVariable),
 }
 
-impl GoalValue {
+impl ScopedValue {
     pub fn object(handle: &ObjectHandle) -> Self {
         Self::Object(handle.dupe())
     }
@@ -296,35 +326,35 @@ impl GoalValue {
     }
 }
 
-impl PredicateValue for GoalValue {
+impl PredicateValue for ScopedValue {
     fn r#type(&self) -> TypeHandle {
         match self {
-            GoalValue::Object(o) => o.r#type(),
-            GoalValue::BoundVariable(bv) => bv.r#type.dupe(),
+            ScopedValue::Object(o) => o.r#type(),
+            ScopedValue::BoundVariable(bv) => bv.r#type.dupe(),
         }
     }
 }
 
-pub type GoalPredicate = Predicate<GoalValue>;
+pub type ScopedPredicate = Predicate<ScopedValue>;
 
-impl GoalPredicate {
-    /// Creates a [GroundedPredicate] with the [BoundVariable]s
+impl ScopedPredicate {
+    /// Creates a [GroundPredicate] with the [BoundVariable]s
     /// in `var_assignment`.
     pub(crate) fn remove_bound(
         &self,
         var_assignment: &BTreeMap<BoundVariable, ObjectHandle>,
-    ) -> Result<GroundedPredicate, PredicateError> {
+    ) -> Result<GroundPredicate, PredicateError> {
         self.values
             .iter()
             .map(|v| match v {
-                GoalValue::Object(o) => Ok(o.dupe()),
-                GoalValue::BoundVariable(bv) => var_assignment
+                ScopedValue::Object(o) => Ok(o.dupe()),
+                ScopedValue::BoundVariable(bv) => var_assignment
                     .get(bv)
                     .map(|v| v.dupe())
                     .ok_or(PredicateError::MissingBoundVariable),
             })
             .collect::<Result<_, _>>()
-            .map(|values| GroundedPredicate {
+            .map(|values| GroundPredicate {
                 name: self.name,
                 arguments: self.arguments.clone(),
                 values,
@@ -348,7 +378,7 @@ pub struct HasArguments;
 #[derive(Debug, Clone)]
 pub struct HasValues;
 #[derive(Debug, Clone)]
-pub struct HasGroundedValues;
+pub struct HasGroundValues;
 
 impl PredicateBuilderState for New {}
 impl PredicateBuilderState for Equality {}
@@ -576,14 +606,14 @@ mod tests {
             .build()
             .unwrap();
 
-        let gp1 = p1.into_grounded(&BTreeMap::from([(&ap1, o2.dupe()), (&ap2, o1.dupe())]));
+        let gp1 = p1.as_ground(&BTreeMap::from([(&ap1, o2.dupe()), (&ap2, o1.dupe())]));
         assert!(matches!(gp1, Err(PredicateError::TypeMismatch)));
 
         let ap3 = ActionParameter {
             parameter_idx: 2,
             r#type: t2,
         };
-        let gp1 = p1.into_grounded(&BTreeMap::from([
+        let gp1 = p1.as_ground(&BTreeMap::from([
             (&ap1, o1.dupe()),
             (&ap2, o2.dupe()),
             (&ap3, o1.dupe()),
@@ -591,7 +621,7 @@ mod tests {
         // More action parameters is not an error, they are ignored
         assert!(gp1.is_ok());
 
-        let gp1 = p1.into_grounded(&BTreeMap::from([(&ap2, o2), (&ap3, o1)]));
+        let gp1 = p1.as_ground(&BTreeMap::from([(&ap2, o2), (&ap3, o1)]));
         assert!(matches!(
             gp1,
             Err(PredicateError::MissingGroundingParameter)
@@ -643,7 +673,7 @@ mod tests {
             .values(vec![Value::object(&o1), Value::object(&o2)])
             .build()
             .unwrap();
-        let gp1 = p1.into_grounded(&BTreeMap::new()).unwrap();
+        let gp1 = p1.as_ground(&BTreeMap::new()).unwrap();
         let gp2 = pb1.values(vec![o1, o2]).build().unwrap();
 
         assert_eq!(gp1, BTreeSet::from([gp2]));
