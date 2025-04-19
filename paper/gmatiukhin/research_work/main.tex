@@ -1,0 +1,912 @@
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{paracol}
+\usepackage[russian]{babel}
+\usepackage[14pt]{extsizes} % для того чтобы задать нестандартный 14-ый размер шрифта
+\usepackage[left=20mm, top=15mm, right=15mm, bottom=30mm, footskip=15mm]{geometry} % настройки полей документа
+\usepackage[utf8]{inputenc}
+\usepackage[style=gost-numeric]{biblatex}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{minted}
+\usepackage{caption}
+
+\setminted{fontsize=\footnotesize}
+\captionsetup[listing]{name=Листинг}
+
+\usepackage{changepage}
+
+%https://tex.stackexchange.com/questions/403463/signature-on-latex-lines
+\newcommand\signature{%
+   \begin{minipage}[t]{5cm}
+   \vspace*{1.5ex}  % leave some space above the horizontal line
+   \hrule
+   \vspace{1mm} % just a bit more whitespace below the line
+   \centering
+   \begin{tabular}[t]{c}
+   \small{(подпись)}
+   \end{tabular}
+   \end{minipage}}
+
+\usepackage{xcolor}
+
+\newcommand{\emptydate}{<<\underline{\phantom{99}}>> \underline{\phantom{февралиюня}} \the\year{} г.}
+
+\addbibresource{sources.bib}
+
+\title{Разработка PDDL планировщика}
+\author{Матюхин Григорий Васильевич}
+
+\begin{document}
+
+\begin{titlepage}
+
+  \begin{center}
+  \hfill \break
+  \large{РОССИЙСКИЙ УНИВЕРСИТЕТ ДРУЖБЫ НАРОДОВ}\\
+  \large{ИМЕНИ ПАТРИСА ЛУМУМБЫ}\\
+  \normalsize{Факультет \underline{физико-математических и естественных наук}}\\ 
+  \normalsize{Кафедра \underline{математического моделирования и искусственного интеллекта}}\\
+
+  \vspace*{\fill}
+
+  \begin{flushright}
+    \large{Утверждаю}\\
+    \normalsize{Заведующий кафедрой} 
+    \normalsize{математического \\ моделирования и \\ искусственного интеллекта \\} 
+    \underline{\phantom{signature signature}} Малых М.Д. \\
+    <<\underline{\phantom{day}}>> \underline{\phantom{month month}} 2025 г.
+    \end{flushright}
+ 
+  \vspace*{\fill}
+  \Large{\textbf{НАУЧНО-ИССЛЕДОВАТЕЛЬСКАЯ РАБОТА\\ на тему}}
+  \\
+  \underline{Разработка планировщика}
+  \vspace*{\fill}
+  
+  \end{center}
+   
+   \begin{flushright}
+    Выполнил \\
+    Студент группы \underline{НПИбд-01-21}\\
+    Студенческий билет \textnumero{}: \underline{1032211403} \\
+    \underline{Матюхин Григорий Васильевич \phantom{signature}}\\ \vspace{0.5cm}
+   \end{flushright}
+
+   \vspace*{\fill}
+
+   \begin{flushright}
+    Руководитель \\
+    \underline{Виноградов Андрей Николаевич \phantom{signature}}\\ \vspace{0.5cm}
+   \end{flushright}
+   
+  \begin{center} \textbf{МОСКВА} \\ 2025 г. \end{center}
+  \thispagestyle{empty} % выключаем отображение номера для этой страницы
+   
+\end{titlepage}
+    
+\newpage
+
+\tableofcontents
+
+\newpage
+
+\section{Введение}
+
+Настоящяя работа посвящёна описанию реализации планировщика, предназначенного для построения планов в рамках формального языка PDDL. Рассматриваются ключевые архитектурные решения, структура кода и используемые алгоритмические подходы. Основное внимание уделяется внутреннему представлению состояний и действий, механизму подстановки переменных, а также обработке логических выражений и кванторов. Целью данной реализации является создание гибкой и расширяемой платформы для последующих экспериментов и модификаций.
+
+\section{Предварительная информация}
+
+\subsection{Планировщики}
+Планировщики~\cite{ghallab2004automated} --- это системы, используемые для автоматического создания последовательности действий, необходимых для достижения заданной цели в определенной среде. Они широко применяются в различных областях, таких как робототехника, логистика, искусственный интеллект и управление задачами. Основная задача планировщика заключается в нахождении оптимального или приемлемого плана, который переводит систему из начального состояния в целевое состояние, удовлетворяя при этом заданным ограничениям и условиям.
+
+\subsection{PDDL (Planning Domain Definition Language)}
+
+PDDL (Planning Domain Definition Language)~\cite{mcdermott1998pddl}~\cite{gerevini2006pddl3}
+--- это язык описания задач планирования, используемый в области искусственного интеллекта.
+Он позволяет формализовать модель мира и определить цели, которых необходимо достичь.
+Обычно описание задачи в PDDL состоит из двух основных файлов:
+\textit{файла домена} и \textit{файла задачи}.
+Это деление позволяет отделить общую модель мира (правила, действия, объекты и свойства)
+от конкретной задачи, которая решается в рамках этого мира.
+
+\begin{enumerate}
+\item \textbf{Файл домена} описывает, какие действия возможны в рассматриваемом мире,
+  какие предикаты используются для описания состояния,
+    и как действия изменяют это состояние.
+    Ниже приведён пример PDDL-домена для маленького склада:
+
+  \begin{minted}{lisp}
+(define (domain mini-warehouse)
+  (:requirements :strips :typing :quantified-preconditions)
+  (:types robot box location)
+  (:predicates
+    (at ?r - robot ?l - location)
+    (box-at ?b - box ?l - location)
+    (carrying ?r - robot ?b - box)
+    (clean ?l - location)
+    (adjacent ?l1 - location ?l2 - location) )
+  (:action move
+    :parameters (?r - robot ?from - location ?to - location)
+    :precondition (and (at ?r ?from) (adjacent ?from ?to))
+    :effect (and (not (at ?r ?from)) (at ?r ?to)) )
+  (:action pick-up
+    :parameters (?r - robot ?b - box ?l - location)
+    :precondition (and (at ?r ?l) (box-at ?b ?l))
+    :effect (and (carrying ?r ?b) (not (box-at ?b ?l))) )
+  (:action drop
+    :parameters (?r - robot ?b - box ?l - location)
+    :precondition (and (at ?r ?l) (carrying ?r ?b))
+    :effect (and (box-at ?b ?l) (not (carrying ?r ?b))) )
+  (:action clean-nearby
+    :parameters (?r - robot ?l - location)
+    :precondition (at ?r ?l)
+    :effect (forall (?x - location)
+      (when (adjacent ?l ?x) (clean ?x))))
+)
+  \end{minted}
+
+    В этом примере моделируется поведение роботов на складе:
+    перемещение между локациями, управление коробками и очистка территорий.
+    Используются возможности языка PDDL: \texttt{:strips}, \texttt{:typing}, \texttt{:quantified-preconditions}.
+    Определены три типа объектов: роботы, коробки, локации.
+    Предикаты задают положение роботов и коробок, факт переноски, чистоту и смежность локаций.
+    Действия позволяют роботу: перемещается между соседними локациями,
+    поднимать коробку из текущей локации, опускать коробку в текущей локации, очищать все смежные с текущей локации.
+
+\item \textbf{Файл задачи} указывает,
+  какие объекты существуют в данной конкретной задаче,
+    каково начальное состояние и какое целевое состояние требуется достичь.
+    Вот пример соответствующего файла задачи:
+
+  \begin{minted}{lisp}
+(define (problem mini-a)
+  (:domain mini-warehouse)
+  (:objects
+    r1 - robot
+    b1 b2 - box
+    l1 l2 l3 - location)
+  (:init
+    (at r1 l1)
+    (box-at b1 l2)
+    (box-at b2 l3)
+    (adjacent l1 l2)
+    (adjacent l2 l3)
+    (adjacent l1 l3))
+  (:goal (and
+    (box-at b1 l3)
+    (clean l2)))
+)
+  \end{minted}
+
+  Здесь задача использует домен \texttt{mini-warehouse}. 
+  В задаче заданы: один робот, две коробки, три локации.
+  Робот находится в \texttt{l1}, коробки \texttt{b1} и \texttt{b2} -- в \texttt{l2} и \texttt{l3} соответственно.
+  Все локации попарно смежны.
+  Целью является: коробка \texttt{b1} находится в локации \texttt{l3} и локация \texttt{l2} должна быть очищена.
+\end{enumerate}
+
+Такое разделение обеспечивает переиспользуемость:
+один и тот же домен можно использовать для множества различных задач.
+Кроме того, это упрощает тестирование и отладку планирующих систем.
+Благодаря своей формальной структуре PDDL поддерживает автоматическую проверку корректности задач
+и их совместимости с определением домена,
+что делает его мощным инструментом для разработки и исследования алгоритмов планирования.
+
+Решением для такой этой конкретной проблемы будет следующая последовательность действий:
+\begin{minted}{lisp}
+(
+  (move r1 l1 l2)
+  (pick-up r1 b1 l2)
+  (move r1 l2 l3)
+  (drop r1 b1 l3)
+  (clean-nearby r1 l3)
+)
+\end{minted}
+
+Задача планировщика --- принять на вход описание домена и задачи, и вывести последовательность действий для ее решения.
+
+\section{Реализация планировщика}
+
+\subsection{Выбор языка программирования}
+
+В рамках данной работы в качестве основного языка программирования был выбран Rust~\cite{rust}.
+Этот язык обладает рядом значимых преимуществ по сравнению с другими широко используемыми языками,
+такими как C++, Python, Java и C\#,
+что делает его особенно подходящим для разработки высоконадежных и производительных программных систем.
+Наиболее важными характеристиками Rust, актуальными для реализации поставленных задач, являются следующие:
+
+\begin{enumerate}
+  \item \textbf{Высокая производительность:}
+    \begin{itemize}
+      \item \textit{Эффективность выполнения:} Rust компилируется в низкоуровневый машинный код, что обеспечивает производительность, сопоставимую с языками C и C++.
+      \item \textit{Отсутствие виртуальной машины:} В отличие от языков, использующих виртуальные машины (например, Java), Rust исполняется напрямую, без дополнительного уровня абстракции, что способствует снижению накладных расходов и увеличению скорости выполнения.
+    \end{itemize}
+
+  \item \textbf{Безопасность работы с памятью:}
+    \begin{itemize}
+      \item \textit{Гарантированное управление памятью:} Система владения и заимствования Rust исключает возможность утечек памяти и освобождает разработчика от необходимости ручного управления ресурсами.
+      \item \textit{Предотвращение типичных ошибок:} Механизмы компилятора предотвращают доступ к уже освобождённой памяти, использование недействительных указателей и другие распространённые ошибки управления памятью.
+      \item \textit{Выявление ошибок на этапе компиляции:} Благодаря строгой системе проверки, большинство ошибок, связанных с управлением памятью, обнаруживаются до запуска программы, что повышает надёжность конечного решения.
+    \end{itemize}
+
+  \item \textbf{Развитая система типов и абстракций:}
+    \begin{itemize}
+      \item \textit{Статическая типизация:} Rust проводит строгую проверку типов на этапе компиляции, что способствует раннему обнаружению логических ошибок.
+    \item \textit{Алгебраические типы данных:} Поддержка структур и перечислений (enums) позволяет выразительно и формально описывать сложные состояния предметной области.
+    \item \textit{Система трейтов (traits):} Одним из ключевых элементов абстракции в Rust является механизм трейтов, который позволяет описывать обобщённое поведение для различных типов. Это приближает язык к концепции type classes из функционального программирования и обеспечивает мощную поддержку полиморфизма без потерь производительности.
+    \end{itemize}
+\end{enumerate}
+
+Немаловажным также является тот факт, что из всех упомянутых языков программирования,
+мы лучше всего знакомы с Rust, что только добавляет к уже упомянутым преимуществам.
+Но при всех его преимуществах важно понимать также недостатки этого языка:
+
+\begin{enumerate}
+  \item Крутая кривая обучения: Понимание концепций владения, заимствования и жизненных циклов требует времени и усилий.
+  \item Вербозность
+    \begin{itemize}
+      \item Жизненные циклы: Иногда требуется явное указание жизненных циклов, что может делать код более многословным и трудным для чтения.
+      \item Типажи и обобщенные типы: Использование обобщенных типов и типажей может приводить к увеличению сложности кода и затруднять его чтение.
+    \end{itemize}
+  \item Жесткость системы типов: Система типов Rust может быть слишком строгой в некоторых случаях, требуя явного указания типов или дополнительных аннотаций там, где другие языки могут быть более гибкими.
+\end{enumerate}
+
+Вербозность и жесткость системы типов могут быть проблематичными,
+особенно при написании данного документа.
+Поэтому все примеры кода, присутствующие здесь,
+не будут соответствовать реальной реализации программы,
+они будут упрощены для передачи основной сути программы,
+и будут порой игнорировать синтаксические и семантические правила,
+чтобы не загромождать пример кода чрезвычайной вербозностью.
+
+\subsection{Парсинг PDDL файла}
+
+Первое, что наша программа должна сделать -- это прочесть два файла с описанием домена задачи
+и конкретной проблемы в этом домене. Парсинг языка PDDL выходит за рамки этой задачи,
+поэтому мы можем взять готовую реализацию в виде библиотеки pddl~\cite{pddl-crate}.
+Эта библиотека парсит PDDL версии 3.1 основываясь на документации из Planning.Wiki~\cite{planning-wiki}.
+Хотя эта библиотека поддерживает все необходимые элементы спецификации PDDL 3.1,
+результаты парсинга очень сильно совпадают с BNF описанием языка из ~\cite{pddl-bnf}. 
+Чтобы с ними можно было эффективно работать, нам необходимо преобразовать их в наши собственные типы.
+
+\subsection{Основные компоненты}
+
+\subsubsection{Объекты и Типы}
+
+Система типов позволяет нам создавать базовые типы и подтипы,
+к которым могут применяться предикаты.
+Мы используем типы, чтобы ограничить объекты, которые могут выступать в качестве параметров действия.
+Типы и подтипы позволяют нам задавать как общие, так и специфические действия и предикаты (листинг~\ref{code:entities}).
+Блок для существующих типов мы можем создать объекты и константы (которые в этом планировщике реализованы одним и тем же образом).
+Они описывают конкретные объекты, которые существуют в рамках нашей задачи.
+Каждый объект должен иметь уникальное имя и быть типизирован.
+
+\begin{figure}
+  \begin{minted}{rust}
+let mut entities = EntityStorage::default();
+
+let t1 = entities.get_or_create_type("foo");
+let t2 = entities.get_or_create_type("bar");
+let _ = entities.create_inheritance(&t1, &t2);
+
+let o1 = entities.get_or_create_object("o1", &t1);
+let o2 = entities.get_or_create_object("o2", &t2);
+  \end{minted}
+  \captionof{listing}{Типы и объекты}
+  \label{code:entities}
+\end{figure}
+
+\subsubsection{Предикаты}
+
+Предикаты применяются к объектам определённого типа или ко всем объектам.
+В любой момент выполнения плана предикаты либо истинны, либо ложны, и если они не заданы явно,
+предполагается, что они ложны.
+Структура \texttt{Predicate} (листинг~\ref{code:predicate}) реализующая предикаты PDDL параметризована типом,
+реализующим \texttt{PredicateValue}, что позволяет использовать её как с конкретными,
+так и с абстрактными значениями. Она предназначена для представления предикатов в определениях действий,
+с возможностью выбора стратегии вычисления.
+Также предусмотрен механизм различения логически независимых,
+но синтаксически совпадающих предикатов, необходимый при преобразованиях логических выражений.
+
+\begin{figure}
+  \begin{minted}{rust}
+
+enum EvalStrat {
+    State,
+    Equality,
+}
+
+struct Predicate<V: PredicateValue> {
+    #[getset(get = "pub")]
+    name: InternerSymbol,
+    #[getset(get = "pub")]
+    arguments: Vec<TypeHandle>,
+    #[getset(get = "pub")]
+    values: Vec<V>,
+    #[getset(get = "pub")]
+    unique_marker: Marker,
+    eval_strat: EvalStrat,
+}
+
+type LiftedPredicate = Predicate<SymbolicValue>;
+type GroundPredicate = Predicate<ObjectHandle>;
+type ScopedPredicate = Predicate<ScopedValue>;
+  \end{minted}
+  \captionof{listing}{Предикат}
+  \label{code:predicate}
+\end{figure}
+
+Трейт \texttt{PredicateValue} (листинг~\ref{code:valuetrait}) задаёт интерфейс для объектов,
+которые могут выступать в роли значений предиката.
+Таких объектов существует несколько, они позволяют ограничить допустимые значения, которые принимают предикаты во время решения задачи.
+Например, \texttt{SymbolicValue} описывает все значения, которые предикат может принять при декларации действия,
+а \texttt{ScopedValue} используется при описании целей, но также используется во время ее решения.
+
+\begin{figure}
+  \begin{minted}{rust}
+trait PredicateValue: Debug + Clone + PartialEq + Ord {
+    fn r#type(&self) -> TypeHandle;
+}
+
+enum SymbolicValue {
+    Object(ObjectHandle),
+    ActionParameter(ActionParameter),
+    BoundVariable(BoundVariable),
+}
+
+enum ScopedValue {
+    Object(ObjectHandle),
+    BoundVariable(BoundVariable),
+}
+
+impl PredicateValue for SymbolicValue {
+  // ...
+}
+
+impl PredicateValue for ScopedValue {
+  // ...
+}
+  \end{minted}
+  \captionof{listing}{Параметр предиката}
+  \label{code:valuetrait}
+\end{figure}
+
+\subsubsection{Выражение}
+
+Предикаты могут складываться в логические выражения логики первого порядка (листинг~\ref{code:foexpression}).
+Выражения описываются данным типом рекурсивно и состоять из предикатов, логических операций и кванторов.
+Однако из-за того, что это свободное выражение, работать с ним не удобно.
+Поэтому на первом шаге программа преобразовывает такое выражение в предварительную нормальную форму (листинг~\ref{code:pdnf}).
+В ней все кванторы находятся в начале, а оставшаяся часть (матрица) дополнительно преобразовывается в дизъюнктивную нормальную форму.
+Выражение в такой форме эквивалентно изначальному.
+
+\begin{figure}
+  \begin{minted}{rust}
+enum Quantifiers<E: FOExpression, P: IsPredicate> {
+    ForAll(ForAll<E, P>),
+    Exists(Exists<E, P>),
+}
+
+enum QuantifiedFormula<P: IsPredicate> {
+    Quantifier(Quantifiers<QuantifiedFormula<P>, P>),
+    And(Vec<QuantifiedFormula<P>>),
+    Or(Vec<QuantifiedFormula<P>>),
+    Not(Box<QuantifiedFormula<P>>),
+    Pred(P),
+}
+
+impl FOExpression for QuantifiedFormula {
+  // ..
+}
+  \end{minted}
+  \captionof{listing}{Формула}
+  \label{code:foexpression}
+\end{figure}
+
+\begin{figure}
+  \begin{minted}{rust}
+struct Pdnf<P: IsPredicate> {
+    prefix: Vec<QuantifierSymbol>,
+    matrix: Dnf<P>,
+}
+
+struct Dnf<P: IsPredicate> {
+     clauses: BTreeSet<BTreeSet<Primitives<P>>>,
+}
+  \end{minted}
+  \captionof{listing}{Предварительная дизъюнктивная нормальная форма}
+  \label{code:pdnf}
+\end{figure}
+
+\subsubsection{Действия}
+
+Действие определяет преобразование состояния мира.
+Это преобразование, представляет собой действие,
+которое может быть выполнено в ходе выполнения плана,
+например, поднятие объекта, строительство чего-либо или другое изменение.
+Действие состоит из трех частей (листинг~\ref{code:action}):
+\begin{enumerate}
+  \item Параметры, которые определяют объекты, к которым применяется действие, и, следовательно, предикаты, которые будут проверяться и изменяться в дальнейшем.
+  \item Предусловие -- полное логическое выражение, которое должно быть выполнено, чтобы действие могло быть применено.
+  \item Эффект состоит из конъюнктивного логического выражения,
+    которое определяет, какие значения должны быть установлены в \textit{истину} или \textit{ложь} при выполнении действия (листинг~\ref{code:effect}).
+    Хотя это логическое выражение, оно не обладает той же выразительной силой, что и предусловия, поскольку ему может быть сопоставлен только один набор истинностных значений.
+    Это ограничивает нас в использовании операторов \texttt{and} и \texttt{not}, а так-же квантор \texttt{forall} для описания эффектов действия.
+    Внутри эффектов могут также находится дополнительные условия, если используется операция \texttt{when}.
+    В таком случае первый аргумент может быть полноценным выражением, потому что он используется только для проверки истинности,
+    а не для изменения состояния.
+\end{enumerate}
+
+\begin{figure}
+  \begin{minted}{rust}
+struct Action {
+    name: InternerSymbol,
+    parameters: Vec<ActionParameter>,
+    precondition: Pdnf<LiftedPredicate>,
+    effect: ActionEffect,
+}
+  \end{minted}
+  \captionof{listing}{Действие}
+  \label{code:action}
+\end{figure}
+
+\begin{figure}
+  \begin{minted}{rust}
+enum ActionEffect {
+    And(Vec<ActionEffect>),
+    ForAll(ForAll<ActionEffect, LiftedPredicate>),
+    When {
+        condition: Pdnf<LiftedPredicate>,
+        effect: Box<ActionEffect>,
+    },
+    Primitives(Primitives<LiftedPredicate>),
+}
+  \end{minted}
+  \captionof{listing}{Эффект}
+  \label{code:effect}
+\end{figure}
+
+\subsubsection{Описание задачи}
+
+\begin{figure}
+  \begin{minted}{rust}
+struct Problem {
+    name: InternerSymbol,
+    domain_name: InternerSymbol,
+    entities: EntityStorage,
+    actions: NamedStorage<Action>,
+    init: State,
+    goal: QuantifiedFormula<ScopedPredicate>,
+}
+
+struct State {
+    predicates: BTreeMap<PredicateKey, BTreeSet<GroundPredicate>>,
+}
+  \end{minted}
+  \captionof{listing}{Проблема}
+  \label{code:problem}
+\end{figure}
+
+В описании задачи, которую наша программа должна решить мы храним изначальное состояние,
+цель, типы и объекты, а также набор всех возможных действий (листинг~\ref{code:problem}).
+Само же состояние состоит из набора предикатов, которые верны для данного состояния
+(если предикат отстутствует значит он неверен), набора констант, набора именнованных объектов
+и всех определенных типов для объектов.
+
+\subsection{Решение задачи}
+
+Чтобы наша программа могла решить задачу планирования, необходимо,
+чтобы существовал механизм перехода из одного состояния в другое посредством действий.
+Для этого нужно:
+\begin{enumerate}
+  \item Найти действие, условие которого выполняется
+  \item Определить конкретные объекты, с которыми можно применить эффекты действия
+  \item Изменить состояние с помощью эффектов
+\end{enumerate}
+
+\subsubsection{Проверка условий действия}
+
+Чтобы проверить, выполняется ли предусловие действия в заданном состоянии,
+необходимо реализовать механизм, преобразующий \texttt{LiftedPredicate}
+--- содержащие параметры действия, ограниченные типами,
+а также связанные переменные в кванторах ---
+в \texttt{GroundPredicate}, содержащие только конкретные объекты.
+Для этого используется метод \texttt{State::ground\_action} (листинг~\ref{code:groundaction}).
+В нём мы обрабатываем каждую дизъюнктивную клаузу предусловия,
+приведённого к предикатной дизъюнктивной нормальной форме (PDNF), отдельно.
+Это возможно благодаря тому, что наш алгоритм преобразования произвольного логического выражения в PDNF
+производит полную дизъюнктивную нормальную форму, в которой все предикаты присутствуют в каждой клаузе.
+Следовательно, все параметры действия также присутствуют в каждой клаузе.
+Это избавляет нас от необходимости учитывать случаи их отсутствия.
+
+Клауза содержит несколько предикатов, некоторые из которых могут быть отрицаны.
+Для каждого положительного предиката мы можем просто проверить,
+с какими объектами он присутствует в состоянии.
+Это даёт отображение от параметра действия и связанной переменной (которая будет использоваться позже) к множеству объектов,
+с которыми предикат истинно выполняется в этом состоянии (листинг~\ref{code:groundpredicate}).
+С отрицательными предикатами задача сложнее: нам необходимо найти все объекты, с которыми вложенный положительный предикат \textit{не} выполняется.
+Это достигается путём применения той же процедуры, что и для положительных предикатов,
+а затем вычитанием полученного множества объектов из множества всех объектов, определённых в данной задаче.
+Мы повторяем этот процесс для каждого предиката в клаузе, а затем объединяем полученные отображения (листинг~\ref{code:handleclause}).
+Если один и тот же параметр встречается в нескольких предикатах,
+мы пересекаем множества объектов, соответствующих этому параметру, что гарантирует выполнение всех предикатов одновременно.
+Таким образом, мы обрабатываем матрицу PDNF.
+
+На следующем этапе необходимо применить префикс,
+чтобы дополнительно сузить множество возможных конкретизаций выражения (листинг~\ref{code:evalprefix}).
+Префикс включает два квантора: \textit{forall} и \textit{exists}.
+Изолированно для успешной проверки квантора \textit{forall} требуется,
+чтобы выражение было истинно для всех объектов соответствующего типа, указанного при определении квантора.
+Для \textit{exists} достаточно, чтобы выражение было истинно хотя бы для одного объекта.
+Поскольку кванторы в префиксе могут появляться в произвольном порядке,
+мы решаем их комбинацию методом полного перебора всех возможных перестановок связанных переменных.
+Сначала мы строим отображение от связанной переменной к конкретному объекту,
+а затем проверяем, существует ли такая комбинация в отображении, полученном на предыдущем шаге.
+Если все комбинации проходят проверку, это означает, что соответствующая клауза делает всё исходное выражение истинным.
+
+В конце алгоритма связанные переменные исключаются из результата, после чего все решения для отдельных клауз объединяются в одно множество.
+Оно и представляет собой результат работы алгоритма,
+предоставляя несколько <<параллельных>> способов преобразования обобщённого выражения в конкретизированное.
+
+\begin{figure}
+  \begin{minted}{rust}
+pub fn ground_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterGrounding<'a>> {
+    let num_params = action.parameters().len();
+    let prefix = action.precondition().prefix();
+    action
+        .precondition()
+        .matrix()
+        .clauses
+        .iter()
+        .filter_map(|clause| self.handle_clause(clause))
+        .filter(|r| {
+            r.iter()
+                .filter(|(k, v)| {
+                    matches!(k, LiftedValue::ActionParameter(_, _)) && !v.is_empty()
+                })
+                .count()
+                == num_params
+        })
+        .filter(|clause_map| eval_dnf_clause_with_quantifier_prefix(prefix, clause_map))
+        .map(|map| {
+            map.into_iter()
+                .filter_map(|(k, v)| match k {
+                    LiftedValue::ActionParameter(_, ap) => Some((ap, v)),
+                    LiftedValue::BoundVariable(_, _) => None,
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .map(ParameterGrounding)
+        .collect::<BTreeSet<_>>()
+}
+  \end{minted}
+  \captionof{listing}{Конкретизация предусловия действия}
+  \label{code:groundaction}
+\end{figure}
+
+\begin{figure}
+  \begin{minted}{rust}
+fn handle_clause<'a>(
+    &'a self,
+    and: &'a BTreeSet<Primitives<LiftedPredicate>>,
+) -> Option<BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>>> {
+    let o = and
+        .iter()
+        .fold(BTreeMap::default(), |mut acc: BTreeMap<_, _>, p| {
+            self.handle_primitives(p).into_iter().for_each(|(k, v)| {
+                acc.entry(k)
+                    .and_modify(|s: &mut BTreeSet<_>| {
+                        *s = s.intersection(&v).cloned().collect()
+                    })
+                    .or_insert_with(|| v.clone());
+            });
+            acc
+        });
+    if o.is_empty() { None } else { Some(o) }
+}
+  \end{minted}
+  \captionof{listing}{Обработка отдельной клаузы ДНФ}
+  \label{code:handleclause}
+\end{figure}
+
+
+\begin{figure}
+  \begin{minted}{rust}
+fn ground_predicate<'a>(
+    &'a self,
+    predicate: &'a LiftedPredicate,
+) -> BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>> {
+    let keys = predicate.lifted_values();
+    let acc = || {
+        keys.iter()
+            .map(|&k| (k, BTreeSet::new()))
+            .collect::<BTreeMap<_, _>>()
+    };
+    self.predicates
+        .get(&predicate.into())
+        .map(|preds| {
+            preds
+                .iter()
+                .filter(|rp| rp.is_ground_form(predicate))
+                .flat_map(|rp| {
+                    keys.iter()
+                        .zip(keys.iter().map(|k| rp.values()[k.idx()].dupe()))
+                        .collect_vec()
+                })
+                .fold(acc(), |mut acc, (lv, v)| {
+                    acc.entry(*lv)
+                        .and_modify(|s: &mut BTreeSet<_>| {
+                            let _ = s.insert(v.dupe());
+                        })
+                        .or_insert_with(|| BTreeSet::from([v]));
+                    acc
+                })
+        })
+        .unwrap_or_else(acc)
+}
+  \end{minted}
+  \captionof{listing}{Конкретизация предиката}
+  \label{code:groundpredicate}
+\end{figure}
+
+
+\begin{figure}
+  \begin{minted}{rust}
+pub fn eval_dnf_clause_with_quantifier_prefix(
+    prefix: &[QuantifierSymbol],
+    clause_map: &BTreeMap<LiftedValue<'_>, BTreeSet<ObjectHandle>>,
+) -> bool {
+    fn eval(
+        prefix: &[QuantifierSymbol],
+        clause_map: &BTreeMap<LiftedValue<'_>, BTreeSet<ObjectHandle>>,
+        var_assignment: &mut BTreeMap<BoundVariable, ObjectHandle>,
+    ) -> bool {
+        let Some((head, tail)) = prefix.split_first() else {
+            return clause_map.iter().all(|(k, v)| match k {
+                LiftedValue::ActionParameter(_, _) => true,
+                LiftedValue::BoundVariable(_, bv) => v.contains(
+                    var_assignment
+                        .get(bv)
+                        .expect("BoundVariable is being used without a quantifier."),
+                ),
+            });
+        };
+
+        match head {
+            QuantifierSymbol::ForAll(variables) => variables
+                .iter()
+                .map(|v| v.r#type.get_objects().into_iter().map(|e| (v.dupe(), e)))
+                .multi_cartesian_product()
+                .all(|v| with_var_assignment(var_assignment, v, |x| eval(tail, clause_map, x))),
+            QuantifierSymbol::Exists(variables) => variables
+                .iter()
+                .map(|v| v.r#type.get_objects().into_iter().map(|e| (v.dupe(), e)))
+                .multi_cartesian_product()
+                .any(|v| with_var_assignment(var_assignment, v, |x| eval(tail, clause_map, x))),
+        }
+    }
+    eval(prefix, clause_map, &mut BTreeMap::new())
+}
+  \end{minted}
+  \captionof{listing}{Проверка префикса}
+  \label{code:evalprefix}
+\end{figure}
+
+\subsubsection{Применение эффектов}
+
+Метод \texttt{Action::ground\_effect} (листинг~\ref{code:groundeffect}) принимает на вход возможные варианты конкретизации предусловия,
+полученные на предыдущем этапе, и применяет соответствие, чтобы получить несколько версий эффекта действия.
+Внутри него для каждого <<параллельного>> решения осуществляется обход рекурсивной структуры \texttt{ActionEffect}.
+Когда достигается \texttt{LiftedPredicate}, он преобразуется в набор \texttt{GroundPredicate} ---
+по всем комбинациям параметров действия и связанных переменных, присутствующих в предикате.
+Затем предикаты оборачиваются в перечисление \texttt{ModifyState}, которое лучше передаёт наше намерение изменить состояние.
+Если в эффекте присутствует условие \textit{when},
+более сложное логическое выражение преобразуется в его конкретную версию и затем оценивается в текущем состоянии,
+чтобы определить, следует ли применять соответствующий эффект.
+Если да --- алгоритм переходит глубже в выражение \textit{when},
+если нет --- соответствующая ветка рекурсии завершает выполнение.
+В результате алгоритма формируется множество множеств \texttt{ModifyState}.
+С помощью эвристики можно выбрать одно из них,
+если необходимо применить это действие среди нескольких,
+предусловия которых выполняются в текущем состоянии.
+
+\begin{figure}
+  \begin{minted}{rust}
+pub fn ground_effect<'a>(
+    &'a self,
+    parameter_groundings: &'a BTreeSet<ParameterGrounding<'a>>,
+    state: &impl EvaluationContext<GroundPredicate>,
+) -> Result<BTreeSet<BTreeSet<ModifyState>>, PredicateError> {
+    fn ground_effect_flat(
+        effect: &ActionEffect,
+        grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
+        state: &impl EvaluationContext<GroundPredicate>,
+    ) -> Result<BTreeSet<ModifyState>, PredicateError> {
+        match effect {
+            ActionEffect::And(effects) => effects
+                .iter()
+                .map(|e| ground_effect_flat(e, grounding, state))
+                .try_fold(BTreeSet::new(), |mut acc, el| {
+                    el.map(|e| {
+                        acc.extend(e);
+                        acc
+                    })
+                }),
+            ActionEffect::ForAll(forall) => {
+                ground_effect_flat(forall.expression(), grounding, state)
+            }
+            ActionEffect::When { condition, effect } => {
+                condition.into_scoped(grounding).and_then(|condition| {
+                    if condition.eval(state) {
+                        ground_effect_flat(effect, grounding, state)
+                    } else {
+                        Ok(BTreeSet::new())
+                    }
+                })
+            }
+            ActionEffect::Primitives(p) => match p {
+                Primitives::Pred(pred) => pred
+                    .as_ground(grounding)
+                    .map(|r| r.into_iter().map(ModifyState::Add).collect::<BTreeSet<_>>()),
+                Primitives::Not(not) => not
+                    .as_ground(grounding)
+                    .map(|r| r.into_iter().map(ModifyState::Del).collect::<BTreeSet<_>>()),
+            },
+        }
+    }
+
+    parameter_groundings
+        .iter()
+        .flat_map(|grounding| {
+            grounding
+                .as_simple()
+                .map(|grounding| ground_effect_flat(&self.effect, &grounding, state))
+        })
+        .collect::<Result<BTreeSet<_>, _>>()
+}
+  \end{minted}
+  \captionof{listing}{Конкретизация эффекта}
+  \label{code:groundeffect}
+\end{figure}
+
+\subsection{Решение задачи}
+
+Для решения задач планирования, определённых в терминах типизированных обобщенных представлений,
+реализован вариант алгоритма поиска A*, адаптированный для работы с конкретизацией параметризованных действий в контексте текущего состояния.
+Каждый узел поиска представлен структурой \texttt{Node} (листинг~\ref{code:node}) содержащей в себе:
+
+\begin{itemize}
+    \item \texttt{state} --- текущее конкретизированное состояние (набор известных предикатов).
+    \item \texttt{cost} --- накопленная стоимость (например, длина пути) до данного состояния.
+    \item \texttt{estimated\_total} --- сумма фактической стоимости и эвристической оценки ($f = g + h$).
+    \item \texttt{path} --- последовательность действий и соответствующих подстановок параметров, приведшая к данному состоянию.
+\end{itemize}
+Очередь поиска поддерживается в виде приоритетной очереди, упорядоченной по значению \texttt{estimated\_total}.
+
+\begin{figure}
+  \begin{minted}{rust}
+struct Node {
+    state: State,
+    cost: usize,
+    estimated_total: usize,
+    path: Vec<(InternerSymbol, ParameterGrounding)>,
+}
+  \end{minted}
+  \captionof{listing}{Узел}
+  \label{code:node}
+\end{figure}
+
+
+Основу алгоритма составляет функция \texttt{astar\_search} (листинг~\ref{code:search}).
+Функция принимает на вход объект \texttt{Problem} и эвристику для поиска.
+Функция осуществляет поиск от начального состояния до состояния, удовлетворяющего цели, через конкретизацию и применение действий.
+
+Алгоритм поддерживает следующие структуры:
+\begin{itemize}
+    \item Приоритетную очередь (\texttt{open}) с узлами, упорядоченными по предполагаемой общей стоимости.
+    \item Множество посещённых состояний (\texttt{visited}).
+    \item Отображение стоимости (\texttt{cost\_so\_far}), хранящее наименьшую известную стоимость достижения каждого состояния.
+\end{itemize}
+
+На каждой итерации извлекается наиболее перспективный узел. Если цель выполнена (\texttt{problem.goal.eval(state)} возвращает \texttt{true}), то возвращается накопленный путь.
+
+В противном случае:
+\begin{enumerate}
+    \item Перебираются все действия из домена.
+    \item Для каждого действия выполняется конкретизация параметров в контексте текущего состояния с помощью \texttt{state.ground\_action(action)}.
+    \item Рассчитываются эффекты конкретизированного действия с помощью \\
+      \texttt{action.ground\_effect(...)} и применяются к состоянию через \\
+      \texttt{state.apply\_modification(...)}.
+    \item Новые состояния добавляются в очередь, если они ещё не были посещены.
+\end{enumerate}
+
+\begin{figure}
+  \begin{minted}{rust}
+pub fn astar_search<H>(problem: &Problem, heuristic: H)
+  -> Option<Vec<(InternerSymbol, ParameterGrounding)>> 
+where
+    H: Fn(&State) -> usize
+{
+    // ..
+}
+  \end{minted}
+  \captionof{listing}{Функция поиска}
+  \label{code:search}
+\end{figure}
+
+\begin{verbatim}
+\end{verbatim}
+
+\subsubsection{Эвристическая функция}
+
+В текущей реализации используется заглушка для эвристики (листинг~\ref{code:heuristic}).
+Таким образом, поиск A* эквивалентен поиску с равной стоимостью (алгоритм Дейкстры).
+В перспективе эвристическая функция может быть дополнена доменно-специфическими оценками,
+такими как количество неудовлетворённых подцелей или использование расслабленного графа планирования.
+
+\begin{figure}
+  \begin{minted}{rust}
+fn heuristic(_state: &State) -> usize {
+    0
+}
+  \end{minted}
+  \captionof{listing}{Эвристика}
+  \label{code:heuristic}
+\end{figure}
+
+\subsubsection{Интеграция с планировщиком}
+
+Поиск осуществляется над объектом \texttt{Problem} (листинг~\ref{code:problem}).
+
+Алгоритм предполагает, что планировщик поддерживает:
+\begin{itemize}
+    \item Управление сущностями и типами через \texttt{EntityStorage},
+    \item Конкретизацию и применение действий через \texttt{Action::ground\_action}\\
+      и \texttt{Action::ground\_effect},
+    \item Переход между состояниями с помощью \texttt{State::apply\_modification}.
+\end{itemize}
+
+Результатом выполнения поиска является план в виде последовательности пар \texttt{(действие, подстановка параметров)},
+который переводит начальное состояние в состояние, удовлетворяющее целевой формуле.
+
+\section{Дальнейшая работа}
+
+В текущей реализации планировщика использован алгоритм A* для поиска решения задач планирования, описанных в формате PDDL.
+Несмотря на преимущества Rust в области управления памятью и безопасности, производительность нашего планировщика оставляет желать лучшего.
+Основной причиной является субоптимальность подхода, связанная с использованием перебора для нахождения соответствующих значений для переменных в действиях.
+
+Большим недостатком текущего подхода является перебор всех значений для валидации префикса предусловия.
+Это приемлимо в большинстве задач, так как кванторы встречаются достаточно редко, но это может быть проблемным в дальнейшем.
+Одним из способов оптимизации может быть удаление кванторов \textit{exists} из префикса,
+либо путем сколемизации, либо раскрытием их в выражение \textit{or}, что может значительно увеличить размер выражения.
+
+Внедрение более сложных эвристических функций, основанных на релаксации задачи~\cite{stolba2014relaxation},
+может существенно улучшить направленность поиска и уменьшить количество исследуемых состояний.
+А использование методов, таких как эвристика \texttt{hmax} или \texttt{hadd},
+которые учитывают минимальное количество шагов до достижения цели, может повысить эффективность поиска.
+
+\section{Заключение}
+
+В данной работе была представлена реализация планировщика,
+использующего язык Rust и основанного на формализме PDDL.
+Мы рассмотрели основные аспекты и компоненты планировщиков,
+включая начальные состояния, целевые состояния, действия и их предусловия и эффекты.
+Также была предоставлена детальная имплементация алгоритма A* для поиска решений задач планирования.
+
+Реализация планировщика на Rust показала хорошие базовые возможности 
+и продемонстрировала потенциал для дальнейшего развития.
+Применение предложенных улучшений позволит значительно повысить производительность
+и применимость планировщика для решения более сложных задач планирования.
+В будущей работе мы будем стремиться к реализации этих улучшений
+и проведению тестов на сложных и разнообразных задачах,
+что позволит оценить эффективность предложенных методов и подходов.
+
+\newpage
+
+\section{Список литературы}
+\printbibliography [heading=none]
+
+\end{document}
