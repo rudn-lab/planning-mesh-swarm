@@ -13,7 +13,6 @@ pub mod entity;
 pub mod parser;
 pub mod problem;
 pub mod state;
-pub mod truth_table;
 mod util;
 
 use core::sync::atomic::{AtomicUsize, Ordering};

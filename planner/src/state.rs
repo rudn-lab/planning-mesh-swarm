@@ -1,10 +1,10 @@
 use crate::{
     action::{Action, ActionParameter},
     calculus::{
-        evaluation::{Evaluable, EvaluationContext},
         first_order::{BoundVariable, QuantifierSymbol},
         predicate::{GroundedPredicate, LiftedPredicate, LiftedValue},
-        propositional::{DnfClause, Primitives},
+        propositional::Primitives,
+        EvaluationContext,
     },
     entity::ObjectHandle,
     InternerSymbol,
@@ -17,7 +17,7 @@ use gazebo::dupe::Dupe;
 use itertools::Itertools;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct PredicateKey(InternerSymbol, usize);
+pub struct PredicateKey(InternerSymbol, usize);
 
 impl From<&LiftedPredicate> for PredicateKey {
     fn from(value: &LiftedPredicate) -> Self {
@@ -233,7 +233,7 @@ impl State {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    fn handle_and<'a>(
+    fn handle_clause<'a>(
         &'a self,
         and: &'a BTreeSet<Primitives<LiftedPredicate>>,
     ) -> Option<BTreeMap<LiftedValue<'a>, BTreeSet<ObjectHandle>>> {
@@ -275,21 +275,21 @@ impl State {
             // Filter out clauses that don't contain all of the action parameters
             .filter(|clause| {
                 clause
-                    .predicates()
+                    .iter()
+                    .map(|p| p.inner())
                     .flat_map(|p| p.action_parameters())
                     .sorted()
                     .dedup()
                     .count()
                     == num_params
             })
-            .filter_map(|clause| match clause {
+            .filter_map(|clause| 
                 // Because DNF used "or" only as a top most operation
                 // it means that we only need one clause to evaluate to true
                 // in order to evaluate the whole DNF to true.
                 // This allows us to treat all clauses in isolation
-                DnfClause::And(and) => self.handle_and(and),
-                DnfClause::Prim(p) => Some(self.handle_primitives(p)),
-            })
+                self.handle_clause(clause),
+            )
             // Filter out those groundings that didn't ground all of the action parameters
             .filter(|r| {
                 r.iter()
@@ -345,11 +345,8 @@ impl State {
 }
 
 impl EvaluationContext<GroundedPredicate> for State {
-    fn eval(&self, predicate: &GroundedPredicate) -> bool {
-        self.predicates
-            .get(&predicate.into())
-            .map(|preds| preds.iter().any(|v| v == predicate))
-            .unwrap_or(false)
+    fn matching_predicates(&self, key: &PredicateKey) -> Option<&BTreeSet<GroundedPredicate>> {
+        self.predicates.get(key)
     }
 }
 
@@ -372,7 +369,7 @@ mod tests {
         calculus::{
             first_order::{QuantifiedFormula as F, QuantifierBuilder},
             predicate::*,
-            propositional::{Dnf, DnfClause, Primitives as Pr},
+            propositional::{Dnf, Primitives as Pr},
         },
         entity::*,
     };
@@ -877,7 +874,7 @@ mod tests {
             .precondition(|params| {
                 Ok(Dnf {
                     clauses: BTreeSet::from([
-                        DnfClause::And(BTreeSet::from([
+                        BTreeSet::from([
                             Pr::Pred(
                                 p1.values(vec![Value::param(&params[0]), Value::object(&x2)])
                                     .build()
@@ -888,8 +885,8 @@ mod tests {
                                     .build()
                                     .unwrap(),
                             ),
-                        ])),
-                        DnfClause::And(BTreeSet::from([
+                        ]),
+                        BTreeSet::from([
                             Pr::Not(
                                 p1.values(vec![Value::object(&x2), Value::param(&params[0])])
                                     .build()
@@ -900,8 +897,8 @@ mod tests {
                                     .build()
                                     .unwrap(),
                             ),
-                        ])),
-                        DnfClause::And(BTreeSet::new()),
+                        ]),
+                        BTreeSet::new(),
                     ]),
                 })
             })
@@ -1007,23 +1004,25 @@ mod tests {
             .precondition(|params| {
                 Ok(Dnf {
                     clauses: BTreeSet::from([
-                        DnfClause::And(BTreeSet::from([
+                        BTreeSet::from([
                             Pr::Pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
                             Pr::Pred(pp1.values(vec![Value::param(&params[1])]).build().unwrap()),
                             Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
-                        ])),
-                        DnfClause::And(BTreeSet::from([
+                        ]),
+                        BTreeSet::from([
                             Pr::Pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
                             Pr::Pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
                             Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
-                        ])),
-                        // These won't get grounded as they are missing the other params
-                        DnfClause::Prim(Pr::Pred(
+                        ]),
+                        // These won't get grounded as they are missing the other params.
+                        // Strictly speaking this should never happen, as [DNF] is full dnf,
+                        // but we're doing this just for the test's sake.
+                        BTreeSet::from([Pr::Pred(
                             pp1.values(vec![Value::param(&params[1])]).build().unwrap(),
-                        )),
-                        DnfClause::Prim(Pr::Pred(
+                        )]),
+                        BTreeSet::from([Pr::Pred(
                             p2.values(vec![Value::param(&params[2])]).build().unwrap(),
-                        )),
+                        )]),
                     ]),
                 })
             })

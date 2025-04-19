@@ -1,24 +1,26 @@
-use crate::{
-    calculus::{
-        evaluation::{Evaluable, EvaluationContext},
-        predicate::IsPredicate,
-    },
-    truth_table::TruthTable,
+use crate::calculus::{
+    predicate::IsPredicate, truth_table::TruthTable, Evaluable, EvaluationContext,
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, vec::*};
 use getset::Getters;
 use itertools::Itertools;
 
+use super::predicate::GroundedPredicate;
+
+pub trait Propositional<P: IsPredicate> {
+    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Formula<P: IsPredicate<P>> {
+pub(crate) enum Formula<P: IsPredicate> {
     And(Vec<Formula<P>>),
     Or(Vec<Formula<P>>),
     Not(Box<Formula<P>>),
     Pred(P),
 }
 
-impl<P: IsPredicate<P>> Formula<P> {
+impl<P: IsPredicate> Formula<P> {
     pub fn and(operands: Vec<Formula<P>>) -> Self {
         Self::And(operands)
     }
@@ -37,16 +39,18 @@ impl<P: IsPredicate<P>> Formula<P> {
     }
 }
 
-impl<P: IsPredicate<P>> Evaluable<P, P> for Formula<P> {
-    fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
+impl Evaluable<GroundedPredicate> for Formula<GroundedPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
         match self {
-            Formula::And(and) => and.iter().all(|f| f.eval(context)),
-            Formula::Or(or) => or.iter().any(|f| f.eval(context)),
-            Formula::Not(not) => !not.eval(context),
+            Formula::And(and) => and.iter().all(|f| Evaluable::eval(f, context)),
+            Formula::Or(or) => or.iter().any(|f| Evaluable::eval(f, context)),
+            Formula::Not(not) => !Evaluable::eval(&**not, context),
             Formula::Pred(p) => p.eval(context),
         }
     }
+}
 
+impl<P: IsPredicate> Propositional<P> for Formula<P> {
     fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         Box::new(
             match self {
@@ -66,55 +70,26 @@ impl<P: IsPredicate<P>> Evaluable<P, P> for Formula<P> {
 }
 
 /// Predicate or negated predicate.
-///
-/// Appears in many normal forms.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Primitives<P: IsPredicate<P>> {
+pub enum Primitives<P: IsPredicate> {
     Pred(P),
     Not(P),
 }
 
-impl<P: IsPredicate<P>> Evaluable<P, P> for Primitives<P> {
-    fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
+impl<P: IsPredicate> Primitives<P> {
+    pub fn inner(&self) -> &P {
         match self {
-            Self::Pred(p) => p.eval(context),
-            Self::Not(not) => !not.eval(context),
-        }
-    }
-
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
-        match self {
-            Self::Pred(p) => Box::new(core::iter::once(p)) as Box<dyn Iterator<Item = _>>,
-            Self::Not(not) => not.predicates(),
+            Primitives::Pred(p) | Primitives::Not(p) => p,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum DnfClause<P: IsPredicate<P>> {
-    And(BTreeSet<Primitives<P>>),
-    #[allow(dead_code, reason = "This is used in tests.")]
-    Prim(Primitives<P>),
-}
-
-impl<P: IsPredicate<P>> Evaluable<P, P> for DnfClause<P> {
-    fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
+impl Evaluable<GroundedPredicate> for Primitives<GroundedPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
         match self {
-            Self::And(and) => and.iter().all(|p| p.eval(context)),
-            Self::Prim(p) => p.eval(context),
+            Primitives::Pred(p) => p.eval(context),
+            Primitives::Not(not) => !not.eval(context),
         }
-    }
-
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
-        Box::new(match self {
-            Self::And(and) => Box::new(
-                and.iter()
-                    .flat_map(Primitives::predicates)
-                    .sorted()
-                    .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
-            ) as Box<dyn Iterator<Item = _>>,
-            Self::Prim(p) => p.predicates(),
-        })
     }
 }
 
@@ -122,29 +97,33 @@ impl<P: IsPredicate<P>> Evaluable<P, P> for DnfClause<P> {
 ///
 /// In this DNF all predicates appear in each clause either as is or negated.
 #[derive(Debug, Clone, PartialEq, Eq, Getters)]
-pub(crate) struct Dnf<P: IsPredicate<P>> {
-    pub(crate) clauses: BTreeSet<DnfClause<P>>,
+pub(crate) struct Dnf<P: IsPredicate> {
+    pub(crate) clauses: BTreeSet<BTreeSet<Primitives<P>>>,
 }
 
-impl<P: IsPredicate<P>> Evaluable<P, P> for Dnf<P> {
-    fn eval(&self, context: &impl EvaluationContext<P>) -> bool {
-        self.clauses.iter().any(|c| c.eval(context))
+impl Evaluable<GroundedPredicate> for Dnf<GroundedPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+        self.clauses
+            .iter()
+            .any(|c| c.iter().all(|p| p.eval(context)))
     }
+}
 
+impl<P: IsPredicate> Propositional<P> for Dnf<P> {
     fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         Box::new(
             self.clauses
                 .iter()
-                .flat_map(|c| c.predicates())
+                .flat_map(|c| c.iter().map(|p| p.inner()))
                 .sorted()
                 .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
         )
     }
 }
 
-impl<P: IsPredicate<P>> From<Formula<P>> for Dnf<P> {
+impl<P: IsPredicate> From<Formula<P>> for Dnf<P> {
     fn from(value: Formula<P>) -> Self {
-        let tt = TruthTable::new(&value);
+        let tt = TruthTable::new(value);
 
         let predicates = tt
             .columns()
@@ -155,23 +134,42 @@ impl<P: IsPredicate<P>> From<Formula<P>> for Dnf<P> {
         let clauses = tt
             .only_true_rows()
             .map(|i| {
-                DnfClause::And(
-                    predicates
-                        .iter()
-                        .enumerate()
-                        .map(|(n, p)| {
-                            if ((i >> n) & 1) == 1 {
-                                Primitives::Pred(p.clone())
-                            } else {
-                                Primitives::Not(p.clone())
-                            }
-                        })
-                        .collect::<BTreeSet<_>>(),
-                )
+                predicates
+                    .iter()
+                    .enumerate()
+                    .map(|(n, p)| {
+                        if ((i >> n) & 1) == 1 {
+                            Primitives::Pred(p.clone())
+                        } else {
+                            Primitives::Not(p.clone())
+                        }
+                    })
+                    .collect::<BTreeSet<_>>()
             })
             .collect::<BTreeSet<_>>();
 
         Dnf { clauses }
+    }
+}
+
+impl<P: IsPredicate> From<Dnf<P>> for Formula<P> {
+    fn from(value: Dnf<P>) -> Self {
+        Formula::Or(
+            value
+                .clauses
+                .into_iter()
+                .map(|c| {
+                    Formula::And(
+                        c.into_iter()
+                            .map(|p| match p {
+                                Primitives::Pred(p) => Formula::Pred(p),
+                                Primitives::Not(not) => Formula::Not(Box::new(Formula::Pred(not))),
+                            })
+                            .collect_vec(),
+                    )
+                })
+                .collect_vec(),
+        )
     }
 }
 
@@ -184,10 +182,8 @@ mod tests {
         entity::{EntityStorage, ObjectStorage, TypeStorage},
         state::State,
     };
-    use alloc::vec::Vec;
     use gazebo::dupe::Dupe;
 
-    use DnfClause as D;
     use Formula as F;
     use Primitives as NF;
 
@@ -311,9 +307,10 @@ mod tests {
 
         let dnf = Dnf {
             clauses: BTreeSet::from([
-                D::And(BTreeSet::from([NF::Pred(t.clone()), NF::Pred(f.clone())])),
-                D::And(BTreeSet::from([NF::Not(f.clone()), NF::Pred(t.clone())])),
-                D::Prim(NF::Pred(f.clone())),
+                BTreeSet::from([NF::Pred(t.clone()), NF::Pred(f.clone())]),
+                BTreeSet::from([NF::Not(f.clone()), NF::Pred(t.clone())]),
+                // Strictly speaking, this is incorrect as [Dnf] should be a full dnf
+                BTreeSet::from([NF::Pred(f.clone())]),
             ]),
         };
 
@@ -445,11 +442,75 @@ mod tests {
             ])),
         ]);
 
-        let tt = TruthTable::new(&formula).collect::<Vec<_>>();
-
         let test_dnf: Dnf<_> = formula.into();
-        let test_tt = TruthTable::new(&test_dnf).collect::<Vec<_>>();
+        let correct_dnf = Dnf {
+            clauses: BTreeSet::from([
+                BTreeSet::from([
+                    Primitives::Pred(p.clone()),
+                    Primitives::Pred(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Pred(p3.clone()),
+                    Primitives::Pred(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Pred(p.clone()),
+                    Primitives::Pred(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Not(p3.clone()),
+                    Primitives::Pred(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Pred(p.clone()),
+                    Primitives::Pred(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Not(p3.clone()),
+                    Primitives::Not(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Pred(p.clone()),
+                    Primitives::Not(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Pred(p3.clone()),
+                    Primitives::Pred(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Pred(p.clone()),
+                    Primitives::Not(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Not(p3.clone()),
+                    Primitives::Pred(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Pred(p.clone()),
+                    Primitives::Not(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Not(p3.clone()),
+                    Primitives::Not(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Not(p.clone()),
+                    Primitives::Not(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Pred(p3.clone()),
+                    Primitives::Pred(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Not(p.clone()),
+                    Primitives::Not(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Not(p3.clone()),
+                    Primitives::Pred(p4.clone()),
+                ]),
+                BTreeSet::from([
+                    Primitives::Not(p.clone()),
+                    Primitives::Not(p1.clone()),
+                    Primitives::Pred(p2.clone()),
+                    Primitives::Not(p3.clone()),
+                    Primitives::Not(p4.clone()),
+                ]),
+            ]),
+        };
 
-        assert_eq!(tt, test_tt);
+        assert_eq!(test_dnf, correct_dnf);
     }
 }

@@ -1,8 +1,8 @@
 use crate::{
     calculus::{
-        evaluation::{Evaluable, EvaluationContext},
-        predicate::IsPredicate,
+        predicate::{GoalPredicate, GroundedPredicate, IsPredicate},
         propositional::*,
+        Evaluable, EvaluationContext,
     },
     entity::{ObjectHandle, TypeHandle},
     problem::BuildError,
@@ -13,8 +13,6 @@ use core::marker::PhantomData;
 use gazebo::dupe::Dupe;
 use getset::Getters;
 use itertools::Itertools;
-
-use super::predicate::{GoalPredicate, GroundedPredicate};
 
 #[derive(Debug, Clone, Dupe, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BoundVariable {
@@ -40,16 +38,16 @@ impl Sealed for ExistsQuantifier {}
 pub trait FOExpression: PartialEq {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Quantifiers<E: FOExpression, P: IsPredicate<P>> {
+pub enum Quantifiers<E: FOExpression, P: IsPredicate> {
     ForAll(ForAll<E, P>),
     Exists(Exists<E, P>),
 }
 
-pub type ForAll<E: FOExpression, P: IsPredicate<P>> = Quantifier<E, P, ForAllQuantifier>;
-pub type Exists<E: FOExpression, P: IsPredicate<P>> = Quantifier<E, P, ExistsQuantifier>;
+pub type ForAll<E: FOExpression, P: IsPredicate> = Quantifier<E, P, ForAllQuantifier>;
+pub type Exists<E: FOExpression, P: IsPredicate> = Quantifier<E, P, ExistsQuantifier>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Getters)]
-pub struct Quantifier<E: FOExpression, P: IsPredicate<P>, T: QuantifierType> {
+pub struct Quantifier<E: FOExpression, P: IsPredicate, T: QuantifierType> {
     #[getset(get = "pub")]
     variables: Vec<BoundVariable>,
     #[getset(get = "pub")]
@@ -58,7 +56,7 @@ pub struct Quantifier<E: FOExpression, P: IsPredicate<P>, T: QuantifierType> {
     t: PhantomData<T>,
 }
 
-impl<E: FOExpression, P: IsPredicate<P>> ForAll<E, P> {
+impl<E: FOExpression, P: IsPredicate> ForAll<E, P> {
     fn negated<F: Fn(E) -> E>(self, negator: F) -> Exists<E, P> {
         Exists {
             variables: self.variables,
@@ -69,7 +67,7 @@ impl<E: FOExpression, P: IsPredicate<P>> ForAll<E, P> {
     }
 }
 
-impl<E: FOExpression, P: IsPredicate<P>> Exists<E, P> {
+impl<E: FOExpression, P: IsPredicate> Exists<E, P> {
     fn negated<F: Fn(E) -> E>(self, negator: F) -> ForAll<E, P> {
         ForAll {
             variables: self.variables,
@@ -80,7 +78,7 @@ impl<E: FOExpression, P: IsPredicate<P>> Exists<E, P> {
     }
 }
 
-impl<P: IsPredicate<P>, T: QuantifierType> From<Quantifier<QuantifiedFormula<P>, P, T>>
+impl<P: IsPredicate, T: QuantifierType> From<Quantifier<QuantifiedFormula<P>, P, T>>
     for Quantifier<Nnf<P>, P, T>
 {
     fn from(value: Quantifier<QuantifiedFormula<P>, P, T>) -> Self {
@@ -116,7 +114,7 @@ pub struct QuantifierBuilder<E, R, P, T, S>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
     T: QuantifierType,
     S: QuantifierBuilderState,
 {
@@ -131,7 +129,7 @@ impl<E, R, P> QuantifierBuilder<E, R, P, ForAllQuantifier, New>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
 {
     pub fn forall(
         parameters: Vec<TypeHandle>,
@@ -150,7 +148,7 @@ impl<E, R, P> QuantifierBuilder<E, R, P, ExistsQuantifier, New>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
 {
     pub fn exists(
         parameters: Vec<TypeHandle>,
@@ -168,7 +166,7 @@ impl<E, R, P, T> QuantifierBuilder<E, R, P, T, New>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
     T: QuantifierType,
 {
     fn params(parameters: Vec<TypeHandle>) -> Vec<BoundVariable> {
@@ -187,7 +185,7 @@ impl<E, R, P, T> QuantifierBuilder<E, R, P, T, HasParameters>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
     T: QuantifierType,
 {
     pub fn expression(self, add_expression: E) -> QuantifierBuilder<E, R, P, T, HasExpression> {
@@ -205,7 +203,7 @@ impl<E, R, P> QuantifierBuilder<E, R, P, ForAllQuantifier, HasExpression>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
 {
     pub fn build(self) -> Result<ForAll<R, P>, BuildError> {
         self.add_expression.unwrap()(self.parameters.as_ref().unwrap()).map(|exp| ForAll {
@@ -221,7 +219,7 @@ impl<E, R, P> QuantifierBuilder<E, R, P, ExistsQuantifier, HasExpression>
 where
     E: FnMut(&[BoundVariable]) -> Result<R, BuildError>,
     R: FOExpression,
-    P: IsPredicate<P>,
+    P: IsPredicate,
 {
     pub fn build(self) -> Result<Exists<R, P>, BuildError> {
         self.add_expression.unwrap()(self.parameters.as_ref().unwrap()).map(|exp| Exists {
@@ -234,7 +232,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QuantifiedFormula<P: IsPredicate<P>> {
+pub enum QuantifiedFormula<P: IsPredicate> {
     Quantifier(Quantifiers<QuantifiedFormula<P>, P>),
     And(Vec<QuantifiedFormula<P>>),
     Or(Vec<QuantifiedFormula<P>>),
@@ -242,9 +240,9 @@ pub enum QuantifiedFormula<P: IsPredicate<P>> {
     Pred(P),
 }
 
-impl<P: IsPredicate<P>> FOExpression for QuantifiedFormula<P> {}
+impl<P: IsPredicate> FOExpression for QuantifiedFormula<P> {}
 
-impl<P: IsPredicate<P>> QuantifiedFormula<P> {
+impl<P: IsPredicate> QuantifiedFormula<P> {
     pub fn forall(operand: ForAll<QuantifiedFormula<P>, P>) -> Self {
         Self::Quantifier(Quantifiers::ForAll(operand))
     }
@@ -273,16 +271,16 @@ impl<P: IsPredicate<P>> QuantifiedFormula<P> {
 
 /// Negation Normal Form, where all negations are applied only to predicates
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Nnf<P: IsPredicate<P>> {
+pub enum Nnf<P: IsPredicate> {
     Quantifier(Quantifiers<Nnf<P>, P>),
     And(Vec<Nnf<P>>),
     Or(Vec<Nnf<P>>),
     Prim(Primitives<P>),
 }
 
-impl<P: IsPredicate<P>> FOExpression for Nnf<P> {}
+impl<P: IsPredicate> FOExpression for Nnf<P> {}
 
-impl<P: IsPredicate<P>> Nnf<P> {
+impl<P: IsPredicate> Nnf<P> {
     pub fn forall(operand: ForAll<Nnf<P>, P>) -> Self {
         Self::Quantifier(Quantifiers::ForAll(operand))
     }
@@ -308,7 +306,7 @@ impl<P: IsPredicate<P>> Nnf<P> {
     }
 }
 
-impl<P: IsPredicate<P>> From<QuantifiedFormula<P>> for Nnf<P> {
+impl<P: IsPredicate> From<QuantifiedFormula<P>> for Nnf<P> {
     fn from(value: QuantifiedFormula<P>) -> Self {
         use QuantifiedFormula as QF;
         use Quantifiers as Q;
@@ -343,16 +341,16 @@ pub enum QuantifierSymbol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Getters)]
-pub struct Pdnf<P: IsPredicate<P>> {
+pub struct Pdnf<P: IsPredicate> {
     #[getset(get = "pub")]
     prefix: Vec<QuantifierSymbol>,
     #[getset(get = "pub")]
     matrix: Dnf<P>,
 }
 
-impl<P: IsPredicate<P>> FOExpression for Pdnf<P> {}
+impl<P: IsPredicate> FOExpression for Pdnf<P> {}
 
-impl Evaluable<GoalPredicate, GroundedPredicate> for Pdnf<GoalPredicate> {
+impl Evaluable<GroundedPredicate> for Pdnf<GoalPredicate> {
     fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
         fn eval_with_prefix(
             prefix: &[QuantifierSymbol],
@@ -362,7 +360,7 @@ impl Evaluable<GoalPredicate, GroundedPredicate> for Pdnf<GoalPredicate> {
         ) -> bool {
             let handle_predicate = |p: &GoalPredicate| -> bool {
                 p.remove_bound(var_assignment)
-                    .map(|rp| context.eval(&rp))
+                    .map(|gp| gp.eval(context))
                     .unwrap_or(false)
             };
 
@@ -375,10 +373,10 @@ impl Evaluable<GoalPredicate, GroundedPredicate> for Pdnf<GoalPredicate> {
 
             let Some((head, tail)) = prefix.split_first() else {
                 // All of the prefix is applied.
-                return matrix.clauses.iter().any(|clause| match clause {
-                    DnfClause::And(and) => and.iter().all(handle_primitives),
-                    DnfClause::Prim(p) => handle_primitives(p),
-                });
+                return matrix
+                    .clauses
+                    .iter()
+                    .any(|clause| clause.iter().all(handle_primitives));
             };
 
             fn with_var_assignment<F>(
@@ -423,15 +421,11 @@ impl Evaluable<GoalPredicate, GroundedPredicate> for Pdnf<GoalPredicate> {
 
         eval_with_prefix(&self.prefix, &mut BTreeMap::new(), &self.matrix, context)
     }
-
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a GoalPredicate> + 'a> {
-        self.matrix.predicates()
-    }
 }
 
-impl<P: IsPredicate<P>> From<Nnf<P>> for Pdnf<P> {
+impl<P: IsPredicate> From<Nnf<P>> for Pdnf<P> {
     fn from(value: Nnf<P>) -> Self {
-        fn collect_quantifiers<P: IsPredicate<P>>(
+        fn collect_quantifiers<P: IsPredicate>(
             value: Nnf<P>,
             prefix: &mut Vec<QuantifierSymbol>,
         ) -> Formula<P> {
@@ -478,14 +472,14 @@ impl<P: IsPredicate<P>> From<Nnf<P>> for Pdnf<P> {
     }
 }
 
-impl<P: IsPredicate<P>> From<QuantifiedFormula<P>> for Pdnf<P> {
+impl<P: IsPredicate> From<QuantifiedFormula<P>> for Pdnf<P> {
     fn from(value: QuantifiedFormula<P>) -> Self {
         let nnf: Nnf<_> = value.into();
         nnf.into()
     }
 }
 
-impl<P: IsPredicate<P>, T: Into<Dnf<P>>> From<T> for Pdnf<P> {
+impl<P: IsPredicate, T: Into<Dnf<P>>> From<T> for Pdnf<P> {
     fn from(value: T) -> Self {
         Self {
             prefix: Vec::new(),
@@ -502,10 +496,10 @@ mod test {
         calculus::{
             predicate::{GoalValue, PredicateBuilder, Value},
             propositional::Formula as F,
+            truth_table::TruthTable,
         },
         entity::{EntityStorage, ObjectStorage, TypeStorage},
         state::State,
-        truth_table::TruthTable,
     };
 
     #[test]
@@ -749,8 +743,8 @@ mod test {
         let correct_prefix = vec![QuantifierSymbol::Exists(exists.variables)];
 
         assert_eq!(pdnf.prefix, correct_prefix);
-        let pdnf_matrix_tt = TruthTable::new(&pdnf.matrix).collect::<Vec<_>>();
-        let correct_pdnf_matrix_tt = TruthTable::new(&quantifierless_formula).collect::<Vec<_>>();
+        let pdnf_matrix_tt = TruthTable::new(pdnf.matrix).collect::<Vec<_>>();
+        let correct_pdnf_matrix_tt = TruthTable::new(quantifierless_formula).collect::<Vec<_>>();
         assert_eq!(pdnf_matrix_tt, correct_pdnf_matrix_tt);
     }
 
@@ -807,8 +801,8 @@ mod test {
         ];
 
         assert_eq!(pdnf.prefix, correct_prefix);
-        let pdnf_matrix_tt = TruthTable::new(&pdnf.matrix).collect::<Vec<_>>();
-        let correct_pdnf_matrix_tt = TruthTable::new(&quantifierless_formula).collect::<Vec<_>>();
+        let pdnf_matrix_tt = TruthTable::new(pdnf.matrix).collect::<Vec<_>>();
+        let correct_pdnf_matrix_tt = TruthTable::new(quantifierless_formula).collect::<Vec<_>>();
         assert_eq!(pdnf_matrix_tt, correct_pdnf_matrix_tt);
     }
 
@@ -872,8 +866,8 @@ mod test {
         ];
 
         assert_eq!(pdnf.prefix, correct_prefix);
-        let pdnf_matrix_tt = TruthTable::new(&pdnf.matrix).collect::<Vec<_>>();
-        let correct_pdnf_matrix_tt = TruthTable::new(&quantifierless_formula).collect::<Vec<_>>();
+        let pdnf_matrix_tt = TruthTable::new(pdnf.matrix).collect::<Vec<_>>();
+        let correct_pdnf_matrix_tt = TruthTable::new(quantifierless_formula).collect::<Vec<_>>();
         assert_eq!(pdnf_matrix_tt, correct_pdnf_matrix_tt);
     }
 
@@ -948,8 +942,8 @@ mod test {
         ];
 
         assert_eq!(pdnf.prefix, correct_prefix);
-        let pdnf_matrix_tt = TruthTable::new(&pdnf.matrix).collect::<Vec<_>>();
-        let correct_pdnf_matrix_tt = TruthTable::new(&quantifierless_formula).collect::<Vec<_>>();
+        let pdnf_matrix_tt = TruthTable::new(pdnf.matrix).collect::<Vec<_>>();
+        let correct_pdnf_matrix_tt = TruthTable::new(quantifierless_formula).collect::<Vec<_>>();
         assert_eq!(pdnf_matrix_tt, correct_pdnf_matrix_tt);
     }
 

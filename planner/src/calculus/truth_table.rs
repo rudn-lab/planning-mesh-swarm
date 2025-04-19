@@ -1,11 +1,54 @@
 use crate::calculus::{
-    evaluation::{Evaluable, EvaluationContext},
     predicate::IsPredicate,
+    propositional::{Formula, Propositional},
 };
 use alloc::vec::Vec;
 
-impl<E: Evaluable<P, P>, P: IsPredicate<P>> EvaluationContext<P> for TruthTable<'_, E, P> {
-    fn eval(&self, predicate: &P) -> bool {
+#[derive(Debug, Clone)]
+pub(super) struct TruthTable<P>
+where
+    P: IsPredicate,
+{
+    curr_row: usize,
+    formula: Formula<P>,
+    size: usize,
+}
+
+impl<P> TruthTable<P>
+where
+    P: IsPredicate,
+{
+    pub fn new<F: Into<Formula<P>>>(formula: F) -> Self {
+        let formula: Formula<P> = formula.into();
+        let predicates = formula.predicates().collect::<Vec<_>>();
+
+        let num_predicates = predicates.len();
+
+        Self {
+            curr_row: 0,
+            formula,
+            size: 2usize.checked_pow(num_predicates as u32).unwrap(),
+        }
+    }
+
+    pub fn only_true_rows(self) -> FilteredTruthTable<P, true> {
+        FilteredTruthTable { inner_iter: self }
+    }
+
+    #[allow(dead_code, reason = "Might be useful later.")]
+    pub fn only_false_rows(self) -> FilteredTruthTable<P, false> {
+        FilteredTruthTable { inner_iter: self }
+    }
+
+    pub fn curr_row(&self) -> usize {
+        self.curr_row
+    }
+
+    pub fn columns(&self) -> Vec<&P> {
+        self.formula.predicates().collect()
+    }
+
+    fn eval_predicate(&self, predicate: &P) -> bool {
         self.columns()
             .iter()
             .enumerate()
@@ -17,53 +60,26 @@ impl<E: Evaluable<P, P>, P: IsPredicate<P>> EvaluationContext<P> for TruthTable<
             .filter(|(i, _)| ((self.curr_row() >> i) & 1) == 1)
             .any(|(_, &p)| p == predicate)
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct TruthTable<'a, E: Evaluable<P, P>, P: IsPredicate<P>> {
-    curr_row: usize,
-    formula: &'a E,
-    predicates: Vec<&'a P>,
-    size: usize,
-}
-
-impl<'a, E: Evaluable<P, P>, P: IsPredicate<P>> TruthTable<'a, E, P> {
-    pub fn new(formula: &'a E) -> Self {
-        let predicates = formula.predicates().collect::<Vec<_>>();
-
-        let num_predicates = predicates.len();
-
-        Self {
-            curr_row: 0,
-            formula,
-            predicates,
-            size: 2usize.checked_pow(num_predicates as u32).unwrap(),
+    fn eval_formula(&self, formula: &Formula<P>) -> bool {
+        match formula {
+            Formula::And(and) => and.iter().all(|e| self.eval_formula(e)),
+            Formula::Or(or) => or.iter().any(|e| self.eval_formula(e)),
+            Formula::Not(not) => !self.eval_formula(not),
+            Formula::Pred(p) => self.eval_predicate(p),
         }
     }
-
-    pub fn only_true_rows(self) -> FilteredTruthTable<'a, E, P, true> {
-        FilteredTruthTable { inner_iter: self }
-    }
-
-    pub fn only_false_rows(self) -> FilteredTruthTable<'a, E, P, false> {
-        FilteredTruthTable { inner_iter: self }
-    }
-
-    pub fn curr_row(&self) -> usize {
-        self.curr_row
-    }
-
-    pub fn columns(&self) -> &[&P] {
-        &self.predicates
-    }
 }
 
-impl<E: Evaluable<P, P>, P: IsPredicate<P>> Iterator for TruthTable<'_, E, P> {
+impl<P> Iterator for TruthTable<P>
+where
+    P: IsPredicate,
+{
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr_row < self.size {
-            let ret = self.formula.eval(self);
+            let ret = self.eval_formula(&self.formula);
             self.curr_row += 1;
             Some(ret)
         } else {
@@ -73,12 +89,16 @@ impl<E: Evaluable<P, P>, P: IsPredicate<P>> Iterator for TruthTable<'_, E, P> {
 }
 
 #[derive(Debug, Clone)]
-pub struct FilteredTruthTable<'a, E: Evaluable<P, P>, P: IsPredicate<P>, const F: bool> {
-    inner_iter: TruthTable<'a, E, P>,
+pub struct FilteredTruthTable<P, const F: bool>
+where
+    P: IsPredicate,
+{
+    inner_iter: TruthTable<P>,
 }
 
-impl<E: Evaluable<P, P>, P: IsPredicate<P>, const F: bool> Iterator
-    for FilteredTruthTable<'_, E, P, F>
+impl<P, const F: bool> Iterator for FilteredTruthTable<P, F>
+where
+    P: IsPredicate,
 {
     type Item = usize;
 
@@ -128,9 +148,9 @@ mod tests {
             .build()
             .unwrap();
         let f: F<LiftedPredicate> = F::and(vec![F::pred(p.clone()), F::pred(p)]);
-        let tt = TruthTable::new(&f);
+        let tt = TruthTable::new(f);
 
-        assert_eq!(1, tt.predicates.len());
+        assert_eq!(1, tt.columns().len());
         assert_eq!(2, tt.count());
 
         // Two predicats with arguments
@@ -145,9 +165,9 @@ mod tests {
             .build()
             .unwrap();
         let f = F::and(vec![F::pred(p), F::pred(p1)]);
-        let tt = TruthTable::new(&f);
+        let tt = TruthTable::new(f);
 
-        assert_eq!(2, tt.predicates.len());
+        assert_eq!(2, tt.columns().len());
         assert_eq!(4, tt.count());
 
         // Same as above, but more variables, which doesn't matter
@@ -162,9 +182,9 @@ mod tests {
             .build()
             .unwrap();
         let f = F::and(vec![F::pred(p), F::pred(p1)]);
-        let tt = TruthTable::new(&f);
+        let tt = TruthTable::new(f);
 
-        assert_eq!(2, tt.predicates.len());
+        assert_eq!(2, tt.columns().len());
         assert_eq!(4, tt.count());
 
         // One predicate with 2 variables, another with 1, another without
@@ -184,9 +204,9 @@ mod tests {
             .build()
             .unwrap();
         let f = F::and(vec![F::pred(p), F::pred(p1), F::pred(p2)]);
-        let tt = TruthTable::new(&f);
+        let tt = TruthTable::new(f);
 
-        assert_eq!(3, tt.predicates.len());
+        assert_eq!(3, tt.columns().len());
         assert_eq!(8, tt.count());
     }
 
@@ -210,22 +230,22 @@ mod tests {
             .unwrap();
 
         let f = F::and(vec![F::pred(p.clone()), F::pred(p1.clone())]);
-        let tt = TruthTable::new(&f).collect::<Vec<_>>();
+        let tt = TruthTable::new(f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, false, false, true], tt);
 
         let f = F::and(vec![F::pred(p.clone()), F::not(F::pred(p1.clone()))]);
-        let tt = TruthTable::new(&f).collect::<Vec<_>>();
+        let tt = TruthTable::new(f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, true, false, false], tt);
 
         let f = F::and(vec![F::not(F::pred(p.clone())), F::pred(p1.clone())]);
-        let tt = TruthTable::new(&f).collect::<Vec<_>>();
+        let tt = TruthTable::new(f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, false, true, false], tt);
 
         let f = F::or(vec![F::pred(p), F::pred(p1)]);
-        let tt = TruthTable::new(&f).collect::<Vec<_>>();
+        let tt = TruthTable::new(f).collect::<Vec<_>>();
 
         assert_eq!(vec![false, true, true, true], tt);
     }
@@ -250,7 +270,7 @@ mod tests {
             .unwrap();
 
         let f = F::and(vec![F::pred(p), F::pred(p1)]);
-        let tt = TruthTable::new(&f).only_true_rows().collect::<Vec<_>>();
+        let tt = TruthTable::new(f).only_true_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![3], tt);
     }
@@ -275,17 +295,17 @@ mod tests {
             .unwrap();
 
         let f = F::and(vec![F::pred(p.clone()), F::pred(p1.clone())]);
-        let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
+        let tt = TruthTable::new(f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0, 1, 2], tt);
 
         let f = F::and(vec![F::pred(p.clone()), F::not(F::pred(p1.clone()))]);
-        let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
+        let tt = TruthTable::new(f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0, 2, 3], tt);
 
         let f = F::or(vec![F::pred(p), F::pred(p1)]);
-        let tt = TruthTable::new(&f).only_false_rows().collect::<Vec<_>>();
+        let tt = TruthTable::new(f).only_false_rows().collect::<Vec<_>>();
 
         assert_eq!(vec![0], tt);
     }

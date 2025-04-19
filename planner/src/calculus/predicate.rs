@@ -1,16 +1,12 @@
 use crate::{
     action::ActionParameter,
-    calculus::{
-        evaluation::{Evaluable, EvaluationContext},
-        first_order::BoundVariable,
-    },
+    calculus::{first_order::BoundVariable, Evaluable, EvaluationContext},
     entity::{ObjectHandle, TypeHandle},
     sealed::Sealed,
     util::named::Named,
     InternerSymbol, Marker, INTERNER,
 };
 use alloc::{
-    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     vec,
     vec::Vec,
@@ -29,10 +25,7 @@ pub enum PredicateError {
 }
 
 #[allow(private_bounds)]
-pub trait IsPredicate<P: IsPredicate<P>>:
-    Debug + Eq + Ord + Clone + Evaluable<P, P> + Sealed
-{
-    fn arguments(&self) -> &Vec<TypeHandle>;
+pub trait IsPredicate: Debug + Eq + Ord + Clone + Sealed {
     fn unique_marker(&self) -> Marker;
 }
 
@@ -96,21 +89,16 @@ pub struct Predicate<V: PredicateValue> {
     unique_marker: Marker,
 }
 
-impl<V: PredicateValue> Evaluable<Predicate<V>, Predicate<V>> for Predicate<V> {
-    fn eval(&self, context: &impl EvaluationContext<Predicate<V>>) -> bool {
-        context.eval(self)
-    }
-
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Predicate<V>> + 'a> {
-        Box::new(core::iter::once(self))
+impl Evaluable<GroundedPredicate> for GroundedPredicate {
+    fn eval(&self, context: &impl EvaluationContext<GroundedPredicate>) -> bool {
+        context
+            .matching_predicates(&self.into())
+            .map(|preds| preds.iter().any(|v| v == self))
+            .unwrap_or(false)
     }
 }
 
-impl<V: PredicateValue> IsPredicate<Predicate<V>> for Predicate<V> {
-    default fn arguments(&self) -> &Vec<TypeHandle> {
-        &self.arguments
-    }
-
+impl<V: PredicateValue> IsPredicate for Predicate<V> {
     default fn unique_marker(&self) -> Marker {
         self.unique_marker
     }
