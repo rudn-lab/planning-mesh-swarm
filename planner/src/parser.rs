@@ -10,20 +10,23 @@ use crate::{
     entity::{ObjectStorage, TypeHandle, TypeStorage},
     problem::{
         BadDefinition as BD, BuildError as BE, Domain, DomainBuilder, Problem,
-        UnsupportedFeature as UF, SUPPORTED_REQUIREMENTS,
+        UnsupportedFeature as UF,
     },
     util::named::NamedStorage,
     INTERNER,
 };
-use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    string::ToString,
+    vec::Vec,
+};
 use core::ops::Deref;
 use gazebo::dupe::Dupe;
-use itertools::Itertools;
 use nom::Err;
 use pddl::{
     self, AtomicFormula, CEffect, ConditionalEffect, ForallCEffect, GoalDefinition, Name, PEffect,
-    Parser, PreconditionGoalDefinition, PreferenceGD, PrimitiveType, StructureDef, Term, Type,
-    TypedList, TypedNames, Variable,
+    Parser, PreconditionGoalDefinition, PreferenceGD, PrimitiveType, Requirement, StructureDef,
+    Term, Type, TypedList, TypedNames, Variable,
 };
 
 #[derive(Debug)]
@@ -66,14 +69,21 @@ fn parse_predicate<V: PredicateValue, F>(
     pred: &AtomicFormula<Term>,
     predicates: &NamedStorage<PredicateDefinition>,
     parse_term: F,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<Predicate<V>, BE>
 where
     F: Fn(&Term) -> Result<V, BE>,
 {
     match pred {
-        AtomicFormula::Equality(eq) => parse_term(eq.first()).and_then(|first| {
-            parse_term(eq.second()).map(|second| PredicateBuilder::equality(first, second))
-        }),
+        AtomicFormula::Equality(eq) => {
+            if requirements.contains(&Requirement::Equality) {
+                parse_term(eq.first()).and_then(|first| {
+                    parse_term(eq.second()).map(|second| PredicateBuilder::equality(first, second))
+                })
+            } else {
+                Err(BE::Requires(Requirement::Equality))
+            }
+        }
         AtomicFormula::Predicate(pred) => predicates
             .get(pred.predicate())
             .ok_or(BE::BadDefinition(BD::UnknownPredicate(
@@ -97,6 +107,7 @@ fn parse_full_predicate(
     bound_vars: &BTreeMap<&str, BoundVariable>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<LiftedPredicate, BE> {
     let parse_term = |term: &Term| match term {
         Term::Name(name) => objects
@@ -119,7 +130,7 @@ fn parse_full_predicate(
         Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
     };
 
-    parse_predicate(pred, predicates, parse_term)
+    parse_predicate(pred, predicates, parse_term, requirements)
 }
 
 /// Parses predicates in problem's goal,
@@ -129,6 +140,7 @@ fn parse_goal_predicate(
     bound_vars: &BTreeMap<&str, BoundVariable>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<ScopedPredicate, BE> {
     let parse_term = |term: &Term| match term {
         Term::Name(name) => objects
@@ -142,7 +154,7 @@ fn parse_goal_predicate(
         Term::Function(_) => Err(BE::UnsupportedFeature(UF::Function)),
     };
 
-    parse_predicate(pred, predicates, parse_term)
+    parse_predicate(pred, predicates, parse_term, requirements)
 }
 
 /// Parses predicates in problem's init,
@@ -176,6 +188,7 @@ fn parse_ground_predicate(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_goal<V, F>(
     goal: &GoalDefinition,
     action_params: &BTreeMap<&str, ActionParameter>,
@@ -184,6 +197,7 @@ fn parse_goal<V, F>(
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
     parse_pred: &F,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<QuantifiedFormula<Predicate<V>>, BE>
 where
     V: PredicateValue,
@@ -206,6 +220,7 @@ where
             objects,
             predicates,
             parse_pred,
+            requirements,
         )
     };
     match goal {
@@ -218,58 +233,91 @@ where
             .map(parse_gd)
             .collect::<Result<Vec<_>, _>>()
             .map(|g| maybe_and(g, F::And)),
-        Or(goals) => goals
-            .iter()
-            .map(parse_gd)
-            .collect::<Result<Vec<_>, _>>()
-            .map(F::or),
-        Not(goal) => parse_gd(goal).map(F::not),
-        Imply(goal_ant, goal_con) => parse_gd(goal_ant)
-            .and_then(|goal_ant| parse_gd(goal_con).map(|goal_con| F::imply(goal_ant, goal_con))),
-        Exists(vars, goal) => parse_arguments(vars, types)
-            .and_then(|(param_names, param_types)| {
-                QuantifierBuilder::exists(param_types)
-                    .expression(|params| {
-                        let bound_vars = bound_vars
-                            .clone()
-                            .into_iter()
-                            .chain(param_names.iter().copied().zip(params.to_vec()))
-                            .collect::<BTreeMap<&str, BoundVariable>>();
-                        parse_goal(
-                            goal,
-                            action_params,
-                            &bound_vars,
-                            types,
-                            objects,
-                            predicates,
-                            parse_pred,
-                        )
+        Or(goals) => {
+            if requirements.contains(&Requirement::DisjunctivePreconditions) {
+                goals
+                    .iter()
+                    .map(parse_gd)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(F::or)
+            } else {
+                Err(BE::Requires(Requirement::DisjunctivePreconditions))
+            }
+        }
+        Not(goal) => {
+            if requirements.contains(&Requirement::NegativePreconditions) {
+                parse_gd(goal).map(F::not)
+            } else {
+                Err(BE::Requires(Requirement::NegativePreconditions))
+            }
+        }
+        Imply(goal_ant, goal_con) => {
+            if requirements.contains(&Requirement::DisjunctivePreconditions) {
+                parse_gd(goal_ant).and_then(|goal_ant| {
+                    parse_gd(goal_con).map(|goal_con| F::imply(goal_ant, goal_con))
+                })
+            } else {
+                Err(BE::Requires(Requirement::DisjunctivePreconditions))
+            }
+        }
+        Exists(vars, goal) => {
+            if requirements.contains(&Requirement::ExistentialPreconditions) {
+                parse_arguments(vars, types)
+                    .and_then(|(param_names, param_types)| {
+                        QuantifierBuilder::exists(param_types)
+                            .expression(|params| {
+                                let bound_vars = bound_vars
+                                    .clone()
+                                    .into_iter()
+                                    .chain(param_names.iter().copied().zip(params.to_vec()))
+                                    .collect::<BTreeMap<&str, BoundVariable>>();
+                                parse_goal(
+                                    goal,
+                                    action_params,
+                                    &bound_vars,
+                                    types,
+                                    objects,
+                                    predicates,
+                                    parse_pred,
+                                    requirements,
+                                )
+                            })
+                            .build()
                     })
-                    .build()
-            })
-            .map(F::exists),
-        ForAll(vars, goal) => parse_arguments(vars, types)
-            .and_then(|(param_names, param_types)| {
-                QuantifierBuilder::forall(param_types)
-                    .expression(|params| {
-                        let bound_vars = bound_vars
-                            .clone()
-                            .into_iter()
-                            .chain(param_names.iter().copied().zip(params.to_vec()))
-                            .collect::<BTreeMap<&str, BoundVariable>>();
-                        parse_goal(
-                            goal,
-                            action_params,
-                            &bound_vars,
-                            types,
-                            objects,
-                            predicates,
-                            parse_pred,
-                        )
+                    .map(F::exists)
+            } else {
+                Err(BE::Requires(Requirement::ExistentialPreconditions))
+            }
+        }
+        ForAll(vars, goal) => {
+            if requirements.contains(&Requirement::UniversalPreconditions) {
+                parse_arguments(vars, types)
+                    .and_then(|(param_names, param_types)| {
+                        QuantifierBuilder::forall(param_types)
+                            .expression(|params| {
+                                let bound_vars = bound_vars
+                                    .clone()
+                                    .into_iter()
+                                    .chain(param_names.iter().copied().zip(params.to_vec()))
+                                    .collect::<BTreeMap<&str, BoundVariable>>();
+                                parse_goal(
+                                    goal,
+                                    action_params,
+                                    &bound_vars,
+                                    types,
+                                    objects,
+                                    predicates,
+                                    parse_pred,
+                                    requirements,
+                                )
+                            })
+                            .build()
                     })
-                    .build()
-            })
-            .map(F::forall),
+                    .map(F::forall)
+            } else {
+                Err(BE::Requires(Requirement::UniversalPreconditions))
+            }
+        }
         FComp(_) => Err(BE::UnsupportedFeature(UF::NumericFluent)),
     }
 }
@@ -282,6 +330,7 @@ fn maybe_and<T, F: Fn(Vec<T>) -> T>(val: Vec<T>, and: F) -> T {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_precondition_goal_definition<V, F>(
     goal: &PreconditionGoalDefinition,
     action_params: &BTreeMap<&str, ActionParameter>,
@@ -290,6 +339,7 @@ fn parse_precondition_goal_definition<V, F>(
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
     parse_pred: &F,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<QuantifiedFormula<Predicate<V>>, BE>
 where
     V: PredicateValue,
@@ -310,38 +360,46 @@ where
             objects,
             predicates,
             parse_pred,
+            requirements,
         ),
         PreconditionGoalDefinition::Preference(PreferenceGD::Preference(_)) => {
             Err(BE::UnsupportedFeature(UF::Preference))
         }
-        PreconditionGoalDefinition::Forall(vars, goals) => parse_arguments(vars, types)
-            .and_then(|(param_names, param_types)| {
-                QuantifierBuilder::forall(param_types)
-                    .expression(|params| {
-                        let bound_vars = bound_vars
-                            .clone()
-                            .into_iter()
-                            .chain(param_names.iter().copied().zip(params.to_vec()))
-                            .collect::<BTreeMap<&str, BoundVariable>>();
-                        goals
-                            .iter()
-                            .map(|precondition_goal_definition| {
-                                parse_precondition_goal_definition(
-                                    precondition_goal_definition,
-                                    action_params,
-                                    &bound_vars,
-                                    types,
-                                    objects,
-                                    predicates,
-                                    parse_pred,
-                                )
+        PreconditionGoalDefinition::Forall(vars, goals) => {
+            if requirements.contains(&Requirement::UniversalPreconditions) {
+                parse_arguments(vars, types)
+                    .and_then(|(param_names, param_types)| {
+                        QuantifierBuilder::forall(param_types)
+                            .expression(|params| {
+                                let bound_vars = bound_vars
+                                    .clone()
+                                    .into_iter()
+                                    .chain(param_names.iter().copied().zip(params.to_vec()))
+                                    .collect::<BTreeMap<&str, BoundVariable>>();
+                                goals
+                                    .iter()
+                                    .map(|precondition_goal_definition| {
+                                        parse_precondition_goal_definition(
+                                            precondition_goal_definition,
+                                            action_params,
+                                            &bound_vars,
+                                            types,
+                                            objects,
+                                            predicates,
+                                            parse_pred,
+                                            requirements,
+                                        )
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()
+                                    .map(|g| maybe_and(g, QuantifiedFormula::And))
                             })
-                            .collect::<Result<Vec<_>, _>>()
-                            .map(|g| maybe_and(g, QuantifiedFormula::And))
+                            .build()
                     })
-                    .build()
-            })
-            .map(QuantifiedFormula::forall),
+                    .map(QuantifiedFormula::forall)
+            } else {
+                Err(BE::Requires(Requirement::UniversalPreconditions))
+            }
+        }
     }
 }
 
@@ -351,16 +409,27 @@ fn parse_effect(
     bound_vars: &BTreeMap<&str, BoundVariable>,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<ActionEffect, BE> {
     match effect {
-        PEffect::AtomicFormula(pred) => {
-            parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
-                .map(ActionEffect::pred)
-        }
-        PEffect::NotAtomicFormula(pred) => {
-            parse_full_predicate(pred, action_params, bound_vars, objects, predicates)
-                .map(ActionEffect::npred)
-        }
+        PEffect::AtomicFormula(pred) => parse_full_predicate(
+            pred,
+            action_params,
+            bound_vars,
+            objects,
+            predicates,
+            requirements,
+        )
+        .map(ActionEffect::pred),
+        PEffect::NotAtomicFormula(pred) => parse_full_predicate(
+            pred,
+            action_params,
+            bound_vars,
+            objects,
+            predicates,
+            requirements,
+        )
+        .map(ActionEffect::npred),
         PEffect::AssignNumericFluent(_, _, _) => Err(BE::UnsupportedFeature(UF::NumericFluent)),
         PEffect::AssignObjectFluent(_, _) => Err(BE::UnsupportedFeature(UF::ObjectFluent)),
     }
@@ -373,60 +442,95 @@ fn parse_effects(
     types: &dyn TypeStorage,
     objects: &dyn ObjectStorage,
     predicates: &NamedStorage<PredicateDefinition>,
+    requirements: &BTreeSet<Requirement>,
 ) -> Result<ActionEffect, BE> {
     match effect {
-        CEffect::Effect(effect) => {
-            parse_effect(effect, action_params, bound_vars, objects, predicates)
+        CEffect::Effect(effect) => parse_effect(
+            effect,
+            action_params,
+            bound_vars,
+            objects,
+            predicates,
+            requirements,
+        ),
+        CEffect::Forall(ForallCEffect { variables, effects }) => {
+            if requirements.contains(&Requirement::UniversalPreconditions) {
+                parse_arguments(variables, types)
+                    .and_then(|(param_names, param_types)| {
+                        QuantifierBuilder::forall(param_types)
+                            .expression(|params| {
+                                let bound_vars = bound_vars
+                                    .clone()
+                                    .into_iter()
+                                    .chain(param_names.iter().copied().zip(params.to_vec()))
+                                    .collect::<BTreeMap<&str, BoundVariable>>();
+                                effects
+                                    .iter()
+                                    .map(|effect| {
+                                        parse_effects(
+                                            effect,
+                                            action_params,
+                                            &bound_vars,
+                                            types,
+                                            objects,
+                                            predicates,
+                                            requirements,
+                                        )
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()
+                                    .map(|e| maybe_and(e, ActionEffect::And))
+                            })
+                            .build()
+                    })
+                    .map(ActionEffect::ForAll)
+            } else {
+                Err(BE::Requires(Requirement::UniversalPreconditions))
+            }
         }
-        CEffect::Forall(ForallCEffect { variables, effects }) => parse_arguments(variables, types)
-            .and_then(|(param_names, param_types)| {
-                QuantifierBuilder::forall(param_types)
-                    .expression(|params| {
-                        let bound_vars = bound_vars
-                            .clone()
-                            .into_iter()
-                            .chain(param_names.iter().copied().zip(params.to_vec()))
-                            .collect::<BTreeMap<&str, BoundVariable>>();
-                        effects
+
+        CEffect::When(when) => {
+            if requirements.contains(&Requirement::ConditionalEffects) {
+                parse_goal(
+                    &when.condition,
+                    action_params,
+                    bound_vars,
+                    types,
+                    objects,
+                    predicates,
+                    &|p, ap, bv, o, ps| parse_full_predicate(p, ap, bv, o, ps, requirements),
+                    requirements,
+                )
+                .and_then(|condition| {
+                    match &when.effect {
+                        ConditionalEffect::Single(effect) => parse_effect(
+                            effect,
+                            action_params,
+                            bound_vars,
+                            objects,
+                            predicates,
+                            requirements,
+                        ),
+                        ConditionalEffect::All(effects) => effects
                             .iter()
-                            .map(|effect| {
-                                parse_effects(
-                                    effect,
+                            .map(|e| {
+                                parse_effect(
+                                    e,
                                     action_params,
-                                    &bound_vars,
-                                    types,
+                                    bound_vars,
                                     objects,
                                     predicates,
+                                    requirements,
                                 )
                             })
                             .collect::<Result<Vec<_>, _>>()
-                            .map(|e| maybe_and(e, ActionEffect::And))
-                    })
-                    .build()
-            })
-            .map(ActionEffect::ForAll),
-        CEffect::When(when) => parse_goal(
-            &when.condition,
-            action_params,
-            bound_vars,
-            types,
-            objects,
-            predicates,
-            &|p, ap, bv, o, ps| parse_full_predicate(p, ap, bv, o, ps),
-        )
-        .and_then(|condition| {
-            match &when.effect {
-                ConditionalEffect::Single(effect) => {
-                    parse_effect(effect, action_params, bound_vars, objects, predicates)
-                }
-                ConditionalEffect::All(effects) => effects
-                    .iter()
-                    .map(|e| parse_effect(e, action_params, bound_vars, objects, predicates))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(|e| maybe_and(e, ActionEffect::And)),
+                            .map(|e| maybe_and(e, ActionEffect::And)),
+                    }
+                    .map(|effect| ActionEffect::when(condition, effect))
+                })
+            } else {
+                Err(BE::Requires(Requirement::ConditionalEffects))
             }
-            .map(|effect| ActionEffect::when(condition, effect))
-        }),
+        }
     }
 }
 
@@ -460,21 +564,9 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
         )));
     }
 
-    let unsupported_requirements = domain
-        .requirements()
-        .iter()
-        .filter(|r| !SUPPORTED_REQUIREMENTS.contains(r))
-        .cloned()
-        .collect_vec();
-
-    if !unsupported_requirements.is_empty() {
-        return Err(ParseError::BuildError(BE::UnsupportedRequirements(
-            unsupported_requirements,
-        )));
-    }
-
     DomainBuilder::new_domain(domain.name())
-        .types(|types| {
+        .requirements(domain.requirements().iter().cloned().collect())
+        .types(|_, types| {
             domain
                 .types()
                 .iter()
@@ -488,8 +580,8 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                 .collect::<Result<Vec<()>, _>>()
                 .map(|_| ())
         })
-        .consts(|types, objects| add_objects(domain.constants(), types, objects))
-        .predicate_definitions(|types, predicates| {
+        .consts(|_, types, objects| add_objects(domain.constants(), types, objects))
+        .predicate_definitions(|_, types, predicates| {
             domain
                 .predicates()
                 .iter()
@@ -502,7 +594,7 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                 .collect::<Result<Vec<()>, _>>()
                 .map(|_| ())
         })
-        .actions(|types, objects, predicates, actions| {
+        .actions(|requirements, types, objects, predicates, actions| {
             domain
                 .structure()
                 .iter()
@@ -529,8 +621,16 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                                                 objects,
                                                 predicates,
                                                 &|p, ap, bv, o, ps| {
-                                                    parse_full_predicate(p, ap, bv, o, ps)
+                                                    parse_full_predicate(
+                                                        p,
+                                                        ap,
+                                                        bv,
+                                                        o,
+                                                        ps,
+                                                        requirements,
+                                                    )
                                                 },
+                                                requirements,
                                             )
                                         })
                                         .collect::<Result<Vec<_>, _>>()
@@ -556,6 +656,7 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                                                         types,
                                                         objects,
                                                         predicates,
+                                                        requirements,
                                                     )
                                                 })
                                                 .collect::<Result<Vec<_>, _>>()
@@ -623,8 +724,8 @@ pub fn parse_problem<'a>(
 
     domain
         .new_problem(problem.name())
-        .objects(|types, objects| add_objects(problem.objects(), types, objects))
-        .init(|objects, predicates, init| {
+        .objects(|_, types, objects| add_objects(problem.objects(), types, objects))
+        .init(|_, objects, predicates, init| {
             problem
                 .init()
                 .iter()
@@ -651,7 +752,7 @@ pub fn parse_problem<'a>(
                 .collect::<Result<Vec<()>, _>>()
                 .map(|_| ())
         })
-        .goal(|types, objects, predicates| {
+        .goal(|requirements, types, objects, predicates| {
             problem
                 .goals()
                 .iter()
@@ -663,7 +764,8 @@ pub fn parse_problem<'a>(
                         types,
                         objects,
                         predicates,
-                        &|p, _, bv, o, ps| parse_goal_predicate(p, bv, o, ps),
+                        &|p, _, bv, o, ps| parse_goal_predicate(p, bv, o, ps, requirements),
+                        requirements,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -676,16 +778,20 @@ pub fn parse_problem<'a>(
 #[cfg(test)]
 #[coverage(off)]
 mod tests {
+    use pddl::Requirement;
+
     use super::*;
     use crate::{
         action::ActionEffect as E,
         calculus::{first_order::QuantifiedFormula as F, predicate::ScopedValue},
+        problem::BuildError,
     };
+    use alloc::collections::BTreeSet;
 
     const SIMPLE_DOMAIN: &str = r#"
 (define
     (domain construction)
-    (:requirements :strips :typing)
+    (:requirements :strips :typing :negative-preconditions)
     (:types
         site material - object
         bricks cables windows - material
@@ -745,11 +851,17 @@ mod tests {
     fn test_simple_problem() {
         let domain = parse_domain(SIMPLE_DOMAIN);
 
+        println!("{:?}", domain);
         assert!(domain.is_ok());
         let domain = domain.unwrap();
 
         let correct_domain = DomainBuilder::new_domain("construction")
-            .types(|types| {
+            .requirements(BTreeSet::from([
+                Requirement::Strips,
+                Requirement::Typing,
+                Requirement::NegativePreconditions,
+            ]))
+            .types(|_, types| {
                 let site = types.get_or_create_type("site");
                 let object = types.get_or_create_type("object");
                 let material = types.get_or_create_type("material");
@@ -765,13 +877,13 @@ mod tests {
 
                 Ok(())
             })
-            .consts(|types, objects| {
+            .consts(|_, types, objects| {
                 let site = types.get_type("site").unwrap();
                 let _ = objects.get_or_create_object("mainsite", &site);
 
                 Ok(())
             })
-            .predicate_definitions(|types, predicates| {
+            .predicate_definitions(|_, types, predicates| {
                 let site = types.get_type("site").unwrap();
                 let material = types.get_type("material").unwrap();
 
@@ -792,7 +904,7 @@ mod tests {
                 );
                 Ok(())
             })
-            .actions(|types, _object, predicates, actions| {
+            .actions(|_, types, _object, predicates, actions| {
                 let site = types.get_type("site").unwrap();
                 let bricks = types.get_type("bricks").unwrap();
 
@@ -866,7 +978,7 @@ mod tests {
 
         let correct_problem = domain
             .new_problem("buildingahouse")
-            .objects(|types, objects| {
+            .objects(|_, types, objects| {
                 let site = types.get_type("site").unwrap();
                 let bricks = types.get_type("bricks").unwrap();
                 let windows = types.get_type("windows").unwrap();
@@ -879,7 +991,7 @@ mod tests {
 
                 Ok(())
             })
-            .init(|objects, predicates, init| {
+            .init(|_, objects, predicates, init| {
                 let s1 = objects.get_object("s1").unwrap();
                 let b = objects.get_object("b").unwrap();
                 let w = objects.get_object("w").unwrap();
@@ -893,7 +1005,7 @@ mod tests {
 
                 Ok(())
             })
-            .goal(|_types, objects, predicates| {
+            .goal(|_, _types, objects, predicates| {
                 let s1 = objects.get_object("s1").unwrap();
 
                 let walls_built = predicates.get("walls-built").unwrap();
@@ -929,7 +1041,7 @@ mod tests {
 
     const MEDIUM_DOMAIN_NO_EQ: &str = r#"
 (define (domain box-moving)
-  (:requirements :typing :quantified-preconditions)
+  (:requirements :adl)
 
   (:types
     box location)
@@ -1015,7 +1127,8 @@ mod tests {
         let domain = domain.unwrap();
 
         let correct_domain = DomainBuilder::new_domain("box-moving")
-            .types(|types| {
+            .requirements(BTreeSet::from([Requirement::Adl]))
+            .types(|_, types| {
                 let r#box = types.get_or_create_type("box");
                 // NOTE: parser automaticlaly adds object type even if
                 // it wasn't defined in the domain
@@ -1027,8 +1140,8 @@ mod tests {
 
                 Ok(())
             })
-            .consts(|_, _| Ok(()))
-            .predicate_definitions(|types, predicates| {
+            .consts(|_, _, _| Ok(()))
+            .predicate_definitions(|_, types, predicates| {
                 let r#box = types.get_type("box").unwrap();
                 let location = types.get_type("location").unwrap();
 
@@ -1045,7 +1158,7 @@ mod tests {
 
                 Ok(())
             })
-            .actions(|types, _object, predicates, actions| {
+            .actions(|_, types, _object, predicates, actions| {
                 let r#box = types.get_type("box").unwrap();
                 let location = types.get_type("location").unwrap();
 
@@ -1311,7 +1424,7 @@ mod tests {
 
         let correct_problem = domain
             .new_problem("move-a-big-box")
-            .objects(|types, objects| {
+            .objects(|_, types, objects| {
                 let r#box = types.get_type("box").unwrap();
                 let location = types.get_type("location").unwrap();
 
@@ -1323,7 +1436,7 @@ mod tests {
 
                 Ok(())
             })
-            .init(|objects, predicates, init| {
+            .init(|_, objects, predicates, init| {
                 let box1 = objects.get_object("box1").unwrap();
                 let box2 = objects.get_object("box2").unwrap();
                 let box3 = objects.get_object("box3").unwrap();
@@ -1357,7 +1470,7 @@ mod tests {
 
                 Ok(())
             })
-            .goal(|types, objects, predicates| {
+            .goal(|_, types, objects, predicates| {
                 let r#box = types.get_type("box").unwrap();
 
                 let loc2 = &objects.get_object("loc2").unwrap();
@@ -1415,5 +1528,333 @@ mod tests {
         assert_eq!(problem.actions, correct_problem.actions);
         assert_eq!(problem.init, correct_problem.init);
         assert_eq!(problem.goal, correct_problem.goal);
+    }
+
+    #[test]
+    fn test_basic_strips_typing() {
+        let domain = r#"
+    (define (domain strips-typing)
+      (:requirements :strips :typing)
+      (:types robot location)
+      (:predicates (at ?r - robot ?l - location))
+      (:action move
+        :parameters (?r - robot ?from - location ?to - location)
+        :precondition (at ?r ?from)
+        :effect (and (not (at ?r ?from)) (at ?r ?to))
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mandatory_requirements_missing() {
+        let domain = r#"
+    (define (domain strips-typing)
+      (:requirements :negative-preconditions)
+      (:types robot location)
+      (:predicates (at ?r - robot ?l - location))
+      (:action move
+        :parameters (?r - robot ?from - location ?to - location)
+        :precondition (at ?r ?from)
+        :effect (and (not (at ?r ?from)) (at ?r ?to))
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        if let Err(ParseError::BuildError(BuildError::MissingRequirements(missing))) = result {
+            assert_eq!(missing, vec![Requirement::Strips, Requirement::Typing]);
+        } else {
+            println!("{:?}", result);
+            panic!("Not error.")
+        }
+    }
+
+    #[test]
+    fn test_missing_equality_requirement() {
+        let domain = r#"
+    (define (domain missing-equality)
+      (:requirements :strips :typing)
+      (:types object)
+      (:predicates (eqtest ?x - object ?y - object))
+      (:action test-eq
+        :parameters (?x - object ?y - object)
+        :precondition (= ?x ?y)
+        :effect (eqtest ?x ?y)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(matches!(
+            result,
+            Err(ParseError::BuildError(BuildError::Requires(
+                Requirement::Equality
+            )))
+        ));
+    }
+
+    #[test]
+    fn test_disjunctive_preconditions_ok() {
+        let domain = r#"
+    (define (domain disj-precond)
+      (:requirements :strips :typing :disjunctive-preconditions)
+      (:types object)
+      (:predicates (p ?x - object) (q ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (or (p ?x) (q ?x))
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_disjunctive_preconditions_missing() {
+        let domain = r#"
+    (define (domain disj-precond-missing)
+      (:requirements :strips :typing)
+      (:types object)
+      (:predicates (p ?x - object) (q ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (or (p ?x) (q ?x))
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(matches!(
+            result,
+            Err(ParseError::BuildError(BuildError::Requires(
+                Requirement::DisjunctivePreconditions
+            )))
+        ));
+    }
+
+    #[test]
+    fn test_quantified_preconditions_ok() {
+        let domain = r#"
+    (define (domain quantified-precond)
+      (:requirements :strips :typing :quantified-preconditions)
+      (:types robot location)
+      (:predicates
+        (at ?r - robot ?l - location)
+        (do-stuff ?r - robot)
+      )
+      (:action test
+        :parameters (?r - robot)
+        :precondition (forall (?l - location) (at ?r ?l))
+        :effect (do-stuff ?r)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_universal_preconditions_missing() {
+        let domain = r#"
+    (define (domain universal-precond-missing)
+      (:requirements :strips :typing)
+      (:types robot location)
+      (:predicates (at ?r - robot ?l - location))
+      (:action test
+        :parameters (?r - robot)
+        :precondition (forall (?l - location) (at ?r ?l))
+        :effect (at ?r ?l)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(matches!(
+            result,
+            Err(ParseError::BuildError(BuildError::Requires(
+                Requirement::UniversalPreconditions
+            )))
+        ));
+    }
+
+    #[test]
+    fn test_adl_with_all_features() {
+        let domain = r#"
+    (define (domain adl-full)
+      (:requirements :adl)
+      (:types object)
+      (:predicates (p ?x - object) (q ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (and (not (p ?x)) (or (p ?x) (= ?x ?x)))
+        :effect (when (exists (?y - object) (p ?y)) (q ?x))
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_conditional_effects_missing() {
+        let domain = r#"
+    (define (domain cond-effect-missing)
+      (:requirements :strips :typing)
+      (:types object)
+      (:predicates (p ?x - object) (q ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :effect (when (p ?x) (q ?x))
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(matches!(
+            result,
+            Err(ParseError::BuildError(BuildError::Requires(
+                Requirement::ConditionalEffects
+            )))
+        ));
+    }
+
+    #[test]
+    fn test_conditional_effects_with_adl() {
+        let domain = r#"
+    (define (domain cond-effect-adl)
+      (:requirements :adl)
+      (:types object)
+      (:predicates (p ?x - object) (q ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :effect (when (p ?x) (q ?x))
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_negative_preconditions_missing() {
+        let domain = r#"
+    (define (domain missing-neg)
+      (:requirements :strips :typing)
+      (:types object)
+      (:predicates (p ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (not (p ?x))
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(matches!(
+            result,
+            Err(ParseError::BuildError(BuildError::Requires(
+                Requirement::NegativePreconditions
+            )))
+        ));
+    }
+
+    #[test]
+    fn test_quantified_expanded() {
+        let domain = r#"
+    (define (domain quantified-expanded)
+      (:requirements :strips :typing :quantified-preconditions)
+      (:types object)
+      (:predicates (p ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (and (forall (?y - object) (p ?y)) (exists (?z - object) (p ?z)))
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_exists_missing_with_only_universal() {
+        let domain = r#"
+    (define (domain exists-missing)
+      (:requirements :strips :typing :universal-preconditions)
+      (:types object)
+      (:predicates (p ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (exists (?y - object) (p ?y))
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(matches!(
+            result,
+            Err(ParseError::BuildError(BuildError::Requires(
+                Requirement::ExistentialPreconditions
+            )))
+        ));
+    }
+
+    #[test]
+    fn test_quantified_preconditions_with_only_forall() {
+        let domain = r#"
+    (define (domain only-universal)
+      (:requirements :strips :typing :quantified-preconditions)
+      (:types object)
+      (:predicates (p ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (forall (?y - object) (p ?y))
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_unsupported_requirement() {
+        let domain = r#"
+    (define (domain unsupported-req)
+      (:requirements :strips :typing :durative-actions)
+      (:types object)
+      (:predicates (p ?x - object))
+      (:action test
+        :parameters (?x - object)
+        :precondition (p ?x)
+        :effect (p ?x)
+      )
+    )
+    "#;
+
+        let result = parse_domain(domain);
+
+        if let Err(ParseError::BuildError(BuildError::UnsupportedRequirements(reqs))) = result {
+            assert_eq!(reqs, vec![Requirement::DurativeActions])
+        } else {
+            println!("{:?}", result);
+            panic!("Not error!")
+        }
     }
 }

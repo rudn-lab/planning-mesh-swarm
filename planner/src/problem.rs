@@ -10,14 +10,16 @@ use crate::{
     util::{deep_clone::DeepClone, named::NamedStorage},
     InternerSymbol, INTERNER,
 };
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeSet, string::String, vec::Vec};
 use core::marker::PhantomData;
+use itertools::Itertools;
 
 pub use pddl::Requirement;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Domain {
     pub name: InternerSymbol,
+    pub requirements: BTreeSet<Requirement>,
     pub entities: EntityStorage,
     pub predicate_definitions: NamedStorage<PredicateDefinition>,
     pub actions: NamedStorage<Action>,
@@ -26,13 +28,19 @@ pub struct Domain {
 impl Domain {
     pub fn new_problem<O, I, G>(&self, name: &str) -> ProblemBuilder<O, I, G, New>
     where
-        O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+        O: FnMut(
+            &BTreeSet<Requirement>,
+            &dyn TypeStorage,
+            &mut dyn ObjectStorage,
+        ) -> Result<(), BuildError>,
         I: FnMut(
+            &BTreeSet<Requirement>,
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
             &mut NamedStorage<GroundPredicate>,
         ) -> Result<(), BuildError>,
         G: Fn(
+            &BTreeSet<Requirement>,
             &dyn TypeStorage,
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
@@ -53,6 +61,7 @@ impl DeepClone for Domain {
     fn deep_clone(&self) -> Self {
         Self {
             name: self.name,
+            requirements: self.requirements.clone(),
             entities: self.entities.deep_clone(),
             predicate_definitions: self.predicate_definitions.clone(),
             actions: self.actions.clone(),
@@ -82,19 +91,26 @@ pub const SUPPORTED_REQUIREMENTS: [Requirement; 9] = [
     Requirement::Adl,
 ];
 
+pub const REQUIRED_REQUIREMENTS: [Requirement; 2] = [Requirement::Strips, Requirement::Typing];
+
 #[derive(Debug)]
 pub enum BuildError {
     /// These requirements are unsupported by this parser.
     UnsupportedRequirements(Vec<Requirement>),
+    /// These requirements are necessary for the parser.
+    MissingRequirements(Vec<Requirement>),
+    /// This [Requirement] is necessary
+    /// to parse the [Domain] or [Problem].
+    Requires(Requirement),
     /// This operation is unsupported by this planner.
     UnsupportedFeature(UnsupportedFeature),
     /// This operation is forbidden by the enabled requirements.
     ForbiddenOperation,
-    /// Bad domain or problemt definition
+    /// Bad [Domain] or [Problem] definition
     /// like having an undeclared predicate in action's precondition
     /// or a reference to a variable that doesn't exist.
     BadDefinition(BadDefinition),
-    /// Error when constructing a predicate
+    /// Error when constructing a [Predicate](crate::calculus::predicate::Predicate).
     PredicateError(PredicateError),
 }
 
@@ -134,6 +150,7 @@ pub trait DomainBuilderState: Sealed {}
 
 pub struct New;
 pub struct HasName;
+pub struct HasRequirements;
 pub struct HasTypes;
 pub struct HasConsts;
 pub struct HasPredicateDefinitions;
@@ -141,6 +158,7 @@ pub struct HasActions;
 
 impl DomainBuilderState for New {}
 impl DomainBuilderState for HasName {}
+impl DomainBuilderState for HasRequirements {}
 impl DomainBuilderState for HasTypes {}
 impl DomainBuilderState for HasConsts {}
 impl DomainBuilderState for HasPredicateDefinitions {}
@@ -148,6 +166,7 @@ impl DomainBuilderState for HasActions {}
 
 impl Sealed for New {}
 impl Sealed for HasName {}
+impl Sealed for HasRequirements {}
 impl Sealed for HasTypes {}
 impl Sealed for HasConsts {}
 impl Sealed for HasPredicateDefinitions {}
@@ -155,18 +174,27 @@ impl Sealed for HasActions {}
 
 pub struct DomainBuilder<T, C, P, A, S>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<Action>,
     ) -> Result<(), BuildError>,
-    S: DomainBuilderState,
 {
     name: InternerSymbol,
+    requirements: BTreeSet<Requirement>,
     add_types: Option<Box<T>>,
     add_consts: Option<Box<C>>,
     add_predicate_defnitions: Option<Box<P>>,
@@ -176,10 +204,19 @@ where
 
 impl<T, C, P, A> DomainBuilder<T, C, P, A, New>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -189,6 +226,7 @@ where
     pub fn new_domain(name: &str) -> DomainBuilder<T, C, P, A, HasName> {
         DomainBuilder {
             name: INTERNER.lock().get_or_intern(name),
+            requirements: BTreeSet::new(),
             add_types: None,
             add_consts: None,
             add_predicate_defnitions: None,
@@ -200,10 +238,56 @@ where
 
 impl<T, C, P, A> DomainBuilder<T, C, P, A, HasName>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &dyn ObjectStorage,
+        &NamedStorage<PredicateDefinition>,
+        &mut NamedStorage<Action>,
+    ) -> Result<(), BuildError>,
+{
+    pub fn requirements(
+        self,
+        requirements: BTreeSet<Requirement>,
+    ) -> DomainBuilder<T, C, P, A, HasRequirements> {
+        DomainBuilder {
+            name: self.name,
+            requirements,
+            add_types: self.add_types,
+            add_consts: self.add_consts,
+            add_predicate_defnitions: self.add_predicate_defnitions,
+            add_actions: self.add_actions,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<T, C, P, A> DomainBuilder<T, C, P, A, HasRequirements>
+where
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
+    A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -213,6 +297,7 @@ where
     pub fn types(self, add_types: T) -> DomainBuilder<T, C, P, A, HasTypes> {
         DomainBuilder {
             name: self.name,
+            requirements: self.requirements,
             add_types: Some(Box::new(add_types)),
             add_consts: self.add_consts,
             add_predicate_defnitions: self.add_predicate_defnitions,
@@ -224,10 +309,19 @@ where
 
 impl<T, C, P, A> DomainBuilder<T, C, P, A, HasTypes>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -237,6 +331,7 @@ where
     pub fn consts(self, add_consts: C) -> DomainBuilder<T, C, P, A, HasConsts> {
         DomainBuilder {
             name: self.name,
+            requirements: self.requirements,
             add_types: self.add_types,
             add_consts: Some(Box::new(add_consts)),
             add_predicate_defnitions: self.add_predicate_defnitions,
@@ -248,10 +343,19 @@ where
 
 impl<T, C, P, A> DomainBuilder<T, C, P, A, HasConsts>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -264,6 +368,7 @@ where
     ) -> DomainBuilder<T, C, P, A, HasPredicateDefinitions> {
         DomainBuilder {
             name: self.name,
+            requirements: self.requirements,
             add_types: self.add_types,
             add_consts: self.add_consts,
             add_predicate_defnitions: Some(Box::new(add_predicate_definitions)),
@@ -275,10 +380,19 @@ where
 
 impl<T, C, P, A> DomainBuilder<T, C, P, A, HasPredicateDefinitions>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -288,6 +402,7 @@ where
     pub fn actions(self, add_actions: A) -> DomainBuilder<T, C, P, A, HasActions> {
         DomainBuilder {
             name: self.name,
+            requirements: self.requirements,
             add_types: self.add_types,
             add_consts: self.add_consts,
             add_predicate_defnitions: self.add_predicate_defnitions,
@@ -299,10 +414,19 @@ where
 
 impl<T, C, P, A> DomainBuilder<T, C, P, A, HasActions>
 where
-    T: FnMut(&mut dyn TypeStorage) -> Result<(), BuildError>,
-    C: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
-    P: Fn(&dyn TypeStorage, &mut NamedStorage<PredicateDefinition>) -> Result<(), BuildError>,
+    T: FnMut(&BTreeSet<Requirement>, &mut dyn TypeStorage) -> Result<(), BuildError>,
+    C: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
+    P: Fn(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut NamedStorage<PredicateDefinition>,
+    ) -> Result<(), BuildError>,
     A: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -310,15 +434,55 @@ where
     ) -> Result<(), BuildError>,
 {
     pub fn build(self) -> Result<Domain, BuildError> {
+        let (requirements, unsupported_requirements): (Vec<_>, Vec<_>) = self
+            .requirements
+            .iter()
+            .partition(|r| SUPPORTED_REQUIREMENTS.contains(r));
+
+        let mut requirements = requirements.into_iter().collect::<BTreeSet<_>>();
+        if requirements.contains(&Requirement::Adl) {
+            requirements.insert(Requirement::Strips);
+            requirements.insert(Requirement::Typing);
+            requirements.insert(Requirement::NegativePreconditions);
+            requirements.insert(Requirement::DisjunctivePreconditions);
+            requirements.insert(Requirement::Equality);
+            requirements.insert(Requirement::QuantifiedPreconditions);
+            requirements.insert(Requirement::ConditionalEffects);
+        }
+        if requirements.contains(&Requirement::QuantifiedPreconditions) {
+            requirements.insert(Requirement::UniversalPreconditions);
+            requirements.insert(Requirement::ExistentialPreconditions);
+        }
+
+        if !unsupported_requirements.is_empty() {
+            return Err(BuildError::UnsupportedRequirements(
+                unsupported_requirements,
+            ));
+        }
+
+        let missing_requirements = REQUIRED_REQUIREMENTS
+            .iter()
+            .filter(|&r| !requirements.contains(r))
+            .cloned()
+            .collect_vec();
+        if !missing_requirements.is_empty() {
+            return Err(BuildError::MissingRequirements(missing_requirements));
+        }
+
         let mut entities = EntityStorage::default();
         let mut predicate_definitions = NamedStorage::default();
         let mut actions = NamedStorage::default();
-
-        self.add_types.unwrap()(&mut entities).and_then(|_| {
-            self.add_consts.unwrap()(&entities.clone(), &mut entities).and_then(|_| {
-                self.add_predicate_defnitions.unwrap()(&entities, &mut predicate_definitions)
+        self.add_types.unwrap()(&requirements, &mut entities).and_then(|_| {
+            self.add_consts.unwrap()(&requirements, &entities.clone(), &mut entities).and_then(
+                |_| {
+                    self.add_predicate_defnitions.unwrap()(
+                        &requirements,
+                        &entities,
+                        &mut predicate_definitions,
+                    )
                     .and_then(|_| {
                         self.add_actions.unwrap()(
+                            &requirements,
                             &entities,
                             &entities,
                             &predicate_definitions,
@@ -327,11 +491,13 @@ where
                     })
                     .map(|_| Domain {
                         name: self.name,
+                        requirements,
                         entities,
                         predicate_definitions,
                         actions,
                     })
-            })
+                },
+            )
         })
     }
 }
@@ -354,13 +520,19 @@ impl Sealed for HasGoal {}
 
 pub struct ProblemBuilder<O, I, G, S>
 where
-    O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+    O: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
     I: FnMut(
+        &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -377,13 +549,19 @@ where
 
 impl<O, I, G> ProblemBuilder<O, I, G, New>
 where
-    O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+    O: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
     I: FnMut(
+        &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -403,13 +581,19 @@ where
 
 impl<O, I, G> ProblemBuilder<O, I, G, HasObjects>
 where
-    O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+    O: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
     I: FnMut(
+        &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -429,13 +613,19 @@ where
 
 impl<O, I, G> ProblemBuilder<O, I, G, HasInit>
 where
-    O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+    O: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
     I: FnMut(
+        &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -455,13 +645,19 @@ where
 
 impl<O, I, G> ProblemBuilder<O, I, G, HasGoal>
 where
-    O: FnMut(&dyn TypeStorage, &mut dyn ObjectStorage) -> Result<(), BuildError>,
+    O: FnMut(
+        &BTreeSet<Requirement>,
+        &dyn TypeStorage,
+        &mut dyn ObjectStorage,
+    ) -> Result<(), BuildError>,
     I: FnMut(
+        &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
         &mut NamedStorage<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
+        &BTreeSet<Requirement>,
         &dyn TypeStorage,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
@@ -471,21 +667,27 @@ where
         let mut entities = self.domain.entities;
         let mut init = NamedStorage::default();
         let predicate_definitions = self.domain.predicate_definitions;
+        let requirements = self.domain.requirements;
 
-        self.add_objects.unwrap()(&entities.clone(), &mut entities).and_then(|_| {
-            self.add_init.unwrap()(&entities, &predicate_definitions, &mut init).and_then(|_| {
-                let init = State::default().with_predicates(init.as_vec());
-                self.add_goal.unwrap()(&entities, &entities, &predicate_definitions).map(|goal| {
-                    Problem {
+        self.add_objects.unwrap()(&requirements, &entities.clone(), &mut entities).and_then(|_| {
+            self.add_init.unwrap()(&requirements, &entities, &predicate_definitions, &mut init)
+                .and_then(|_| {
+                    let init = State::default().with_predicates(init.as_vec());
+                    self.add_goal.unwrap()(
+                        &requirements,
+                        &entities,
+                        &entities,
+                        &predicate_definitions,
+                    )
+                    .map(|goal| Problem {
                         name: self.problem_name,
                         domain_name: self.domain.name,
                         entities,
                         actions: self.domain.actions,
                         init,
                         goal,
-                    }
+                    })
                 })
-            })
         })
     }
 }
@@ -507,20 +709,21 @@ mod tests {
     #[test]
     fn test_objects_different_between_problems_for_same_domain() {
         let domain = DomainBuilder::new_domain("Sample Domain")
-            .types(|types| {
+            .requirements(BTreeSet::from([Requirement::Strips, Requirement::Typing]))
+            .types(|_, types| {
                 let t1 = types.get_or_create_type("t1");
                 let t2 = types.get_or_create_type("t2");
                 let _ = types.create_inheritance(&t2, &t1);
 
                 Ok(())
             })
-            .consts(|types, objects| {
+            .consts(|_, types, objects| {
                 let _ = objects.get_or_create_object("A", &types.get_type("t1").unwrap());
                 let _ = objects.get_or_create_object("B", &types.get_type("t2").unwrap());
 
                 Ok(())
             })
-            .predicate_definitions(|types, predicates| {
+            .predicate_definitions(|_, types, predicates| {
                 let t1 = types.get_type("t1").unwrap();
                 let t2 = types.get_type("t2").unwrap();
                 predicates.insert(PredicateBuilder::new("foo").arguments(vec![t1.dupe()]));
@@ -529,7 +732,7 @@ mod tests {
 
                 Ok(())
             })
-            .actions(|types, objects, predicates, actions| {
+            .actions(|_, types, objects, predicates, actions| {
                 let t1 = types.get_type("t1").unwrap();
                 let t2 = types.get_type("t2").unwrap();
                 let p1 = predicates.get("foo").unwrap();
@@ -565,13 +768,13 @@ mod tests {
 
         let problem1 = domain
             .new_problem("Sample Problem 1")
-            .objects(|types, objects| {
+            .objects(|_, types, objects| {
                 let _ = objects.get_or_create_object("a", &types.get_type("t1").unwrap());
                 let _ = objects.get_or_create_object("b", &types.get_type("t2").unwrap());
 
                 Ok(())
             })
-            .init(|objects, predicates, init| {
+            .init(|_, objects, predicates, init| {
                 let o1 = objects.get_object("a").unwrap();
                 init.insert(
                     predicates
@@ -584,7 +787,7 @@ mod tests {
 
                 Ok(())
             })
-            .goal(|_types, objects, predicates| {
+            .goal(|_, _types, objects, predicates| {
                 let c1 = objects.get_object("A").unwrap();
                 let o2 = objects.get_object("b").unwrap();
                 let p2 = predicates.get("bar").unwrap();
@@ -599,13 +802,13 @@ mod tests {
 
         let problem2 = domain
             .new_problem("Sample Problem 2")
-            .objects(|types, objects| {
+            .objects(|_, types, objects| {
                 let _ = objects.get_or_create_object("c", &types.get_type("t1").unwrap());
                 let _ = objects.get_or_create_object("d", &types.get_type("t2").unwrap());
 
                 Ok(())
             })
-            .init(|objects, predicates, init| {
+            .init(|_, objects, predicates, init| {
                 let o3 = objects.get_object("c").unwrap();
                 init.insert(
                     predicates
@@ -618,7 +821,7 @@ mod tests {
 
                 Ok(())
             })
-            .goal(|_types, objects, predicates| {
+            .goal(|_, _types, objects, predicates| {
                 let c1 = objects.get_object("A").unwrap();
                 let o4 = objects.get_object("d").unwrap();
                 let p2 = predicates.get("bar").unwrap();
