@@ -1,0 +1,18 @@
+\xpg@aux {spelling=modern}{russian}
+\xpg@aux {}{russian}
+\contentsline {section}{\numberline {1}Введение}{2}{}%
+\contentsline {subsection}{\numberline {1.1}Меш-сети}{2}{}%
+\contentsline {subsection}{\numberline {1.2}Мультиагентное планирование}{3}{}%
+\contentsline {section}{\numberline {2}Разработка}{4}{}%
+\contentsline {subsection}{\numberline {2.1}Беспроводное оборудование}{4}{}%
+\contentsline {subsection}{\numberline {2.2}Геометрия симулятора}{6}{}%
+\contentsline {subsection}{\numberline {2.3}API для пользовательского кода}{8}{}%
+\contentsline {subsection}{\numberline {2.4}Ограничение памяти в микроконтроллерах}{9}{}%
+\contentsline {subsection}{\numberline {2.5}Архитектура симулятора}{12}{}%
+\contentsline {subsection}{\numberline {2.6}Сущность: Робот}{12}{}%
+\contentsline {subsection}{\numberline {2.7}Сущность: Интерфейс}{13}{}%
+\contentsline {subsection}{\numberline {2.8}Сущность: Сообщение}{13}{}%
+\contentsline {section}{\numberline {3}Алгоритмы маршрутизации}{13}{}%
+\contentsline {section}{\numberline {4}Заключение}{15}{}%
+\contentsline {subsection}{\numberline {4.1}Дальнейшая работа}{15}{}%
+\contentsline {section}{\numberline {5}Список литературы}{16}{}%

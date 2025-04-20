@@ -1,0 +1,493 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{nty/global//global/global/global}
+    \entry{esp8266}{manual}{}{}
+      \list{organization}{1}{%
+        {Espressif Systems}%
+      }
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labeltitlesource}{title}
+      \field{note}{Version 7.0}
+      \field{number}{ESP8266EX}
+      \field{title}{32-bit MCU-based SoC with integrated 2.4GHz Wi-Fi transciever}
+      \field{year}{2023}
+    \endentry
+    \entry{9181563}{article}{}{}
+      \name{author}{4}{}{%
+        {{hash=b4532f264fb8e8d508318a5c17fee425}{%
+           family={Bautista},
+           familyi={B\bibinitperiod},
+           given={Pablo\bibnamedelimb Andr\'{e}s\bibnamedelima Barbecho},
+           giveni={P\bibinitperiod\bibinitdelim A\bibinitperiod\bibinitdelim B\bibinitperiod}}}%
+        {{hash=75a953ce4ddf9d858573709e65ecbd48}{%
+           family={Urquiza-Aguiar},
+           familyi={U\bibinithyphendelim A\bibinitperiod},
+           given={Luis\bibnamedelima Felipe},
+           giveni={L\bibinitperiod\bibinitdelim F\bibinitperiod}}}%
+        {{hash=317c3333d99ceb3ac0cc479156845d90}{%
+           family={C\'{a}rdenas},
+           familyi={C\bibinitperiod},
+           given={Leticia\bibnamedelima Lemus},
+           giveni={L\bibinitperiod\bibinitdelim L\bibinitperiod}}}%
+        {{hash=6c91cbc55028bf5884b45d5753334576}{%
+           family={Igartua},
+           familyi={I\bibinitperiod},
+           given={M\'{o}nica\bibnamedelima Aguilar},
+           giveni={M\bibinitperiod\bibinitdelim A\bibinitperiod}}}%
+      }
+      \strng{namehash}{3cda56af0495cfc3d85e79d5a84f041d}
+      \strng{fullhash}{615b94266a3d4410c581f2f07a649c48}
+      \strng{fullhashraw}{615b94266a3d4410c581f2f07a649c48}
+      \strng{bibnamehash}{3cda56af0495cfc3d85e79d5a84f041d}
+      \strng{authorbibnamehash}{3cda56af0495cfc3d85e79d5a84f041d}
+      \strng{authornamehash}{3cda56af0495cfc3d85e79d5a84f041d}
+      \strng{authorfullhash}{615b94266a3d4410c581f2f07a649c48}
+      \strng{authorfullhashraw}{615b94266a3d4410c581f2f07a649c48}
+      \field{sortinit}{B}
+      \field{sortinithash}{d7095fff47cda75ca2589920aae98399}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Access}
+      \field{title}{Large-Scale Simulations Manager Tool for OMNeT++: Expediting Simulations and Post-Processing Analysis}
+      \field{volume}{8}
+      \field{year}{2020}
+      \field{pages}{159291\bibrangedash 159306}
+      \range{pages}{16}
+      \verb{doi}
+      \verb 10.1109/ACCESS.2020.3020745
+      \endverb
+      \keyw{Tools;Analytical models;Data models;Python;Adaptation models;Computational modeling;Writing;Large-scale simulations;OMNeT++;results post-processing}
+    \endentry
+    \entry{rfc3561}{misc}{}{}
+      \name{author}{3}{}{%
+        {{hash=37d1c27f9a3cdabbeea1597dba548d2f}{%
+           family={Das},
+           familyi={D\bibinitperiod},
+           given={Samir\bibnamedelima R.},
+           giveni={S\bibinitperiod\bibinitdelim R\bibinitperiod}}}%
+        {{hash=840eed67d8abcafb5611ff11046c42ee}{%
+           family={Perkins},
+           familyi={P\bibinitperiod},
+           given={Charles\bibnamedelima E.},
+           giveni={C\bibinitperiod\bibinitdelim E\bibinitperiod}}}%
+        {{hash=dcd2aa5e79d50adfb14f6e061a2084cf}{%
+           family={Belding-Royer},
+           familyi={B\bibinithyphendelim R\bibinitperiod},
+           given={Elizabeth\bibnamedelima M.},
+           giveni={E\bibinitperiod\bibinitdelim M\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {RFC Editor}%
+      }
+      \strng{namehash}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{fullhash}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{fullhashraw}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{bibnamehash}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{authorbibnamehash}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{authornamehash}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{authorfullhash}{ce04e40599a08f94a53222c5d98de97c}
+      \strng{authorfullhashraw}{ce04e40599a08f94a53222c5d98de97c}
+      \field{sortinit}{D}
+      \field{sortinithash}{6f385f66841fb5e82009dc833c761848}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{abstract}{The Ad hoc On-Demand Distance Vector (AODV) routing protocol is intended for use by mobile nodes in an ad hoc network. It offers quick adaptation to dynamic link conditions, low processing and memory overhead, low network utilization, and determines unicast routes to destinations within the ad hoc network. It uses destination sequence numbers to ensure loop freedom at all times (even in the face of anomalous delivery of routing control messages), avoiding problems (such as "counting to infinity") associated with classical distance vector protocols. This memo defines an Experimental Protocol for the Internet community.}
+      \field{howpublished}{RFC 3561}
+      \field{month}{7}
+      \field{number}{3561}
+      \field{pagetotal}{37}
+      \field{series}{Request for Comments}
+      \field{title}{{Ad hoc On-Demand Distance Vector (AODV) Routing}}
+      \field{year}{2003}
+      \verb{doi}
+      \verb 10.17487/RFC3561
+      \endverb
+      \verb{urlraw}
+      \verb https://www.rfc-editor.org/info/rfc3561
+      \endverb
+      \verb{url}
+      \verb https://www.rfc-editor.org/info/rfc3561
+      \endverb
+      \warn{\item Datamodel: misc entry 'rfc3561' (main.bib): Invalid field 'number' for entrytype 'misc'}
+      \warn{\item Datamodel: misc entry 'rfc3561' (main.bib): Invalid field 'pagetotal' for entrytype 'misc'}
+      \warn{\item Datamodel: misc entry 'rfc3561' (main.bib): Invalid field 'publisher' for entrytype 'misc'}
+      \warn{\item Datamodel: misc entry 'rfc3561' (main.bib): Invalid field 'series' for entrytype 'misc'}
+    \endentry
+    \entry{10.1145/2663171.2663188}{inproceedings}{}{}
+      \name{author}{2}{}{%
+        {{hash=b9ab334450ee042b091f8f30fe01d877}{%
+           family={Matsakis},
+           familyi={M\bibinitperiod},
+           given={Nicholas\bibnamedelima D.},
+           giveni={N\bibinitperiod\bibinitdelim D\bibinitperiod}}}%
+        {{hash=6feb88497518ddaf6a77915bf7ad8ea8}{%
+           family={Klock},
+           familyi={K\bibinitperiod},
+           given={Felix\bibnamedelima S.},
+           giveni={F\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+      }
+      \list{location}{1}{%
+        {Portland, Oregon, USA}%
+      }
+      \list{publisher}{1}{%
+        {Association for Computing Machinery}%
+      }
+      \strng{namehash}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{fullhash}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{fullhashraw}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{bibnamehash}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{authorbibnamehash}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{authornamehash}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{authorfullhash}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \strng{authorfullhashraw}{f9252f0169f4af867d643bb0f2cfc0dd}
+      \field{sortinit}{M}
+      \field{sortinithash}{4625c616857f13d17ce56f7d4f97d451}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{abstract}{Rust is a new programming language for developing reliable and efficient systems. It is designed to support concurrency and parallelism in building applications and libraries that take full advantage of modern hardware. Rust's static type system is safe1 and expressive and provides strong guarantees about isolation, concurrency, and memory safety.Rust also offers a clear performance model, making it easier to predict and reason about program efficiency. One important way it accomplishes this is by allowing fine-grained control over memory representations, with direct support for stack allocation and contiguous record storage. The language balances such controls with the absolute requirement for safety: Rust's type system and runtime guarantee the absence of data races, buffer overflows, stack overflows, and accesses to uninitialized or deallocated memory.}
+      \field{booktitle}{Proceedings of the 2014 ACM SIGAda Annual Conference on High Integrity Language Technology}
+      \field{isbn}{9781450332170}
+      \field{series}{HILT '14}
+      \field{title}{The rust language}
+      \field{year}{2014}
+      \field{pages}{103\bibrangedash 104}
+      \range{pages}{2}
+      \verb{doi}
+      \verb 10.1145/2663171.2663188
+      \endverb
+      \verb{urlraw}
+      \verb https://doi.org/10.1145/2663171.2663188
+      \endverb
+      \verb{url}
+      \verb https://doi.org/10.1145/2663171.2663188
+      \endverb
+      \keyw{affine type systems,memory management,rust,systems programming}
+      \warn{\item Datamodel: inproceedings entry '10.1145/2663171.2663188' (main.bib): Field 'address' invalid in data model - ignoring}
+      \warn{\item Datamodel: inproceedings entry '10.1145/2663171.2663188' (main.bib): Field 'numpages' invalid in data model - ignoring}
+    \endentry
+    \entry{rfc5614}{misc}{}{}
+      \name{author}{2}{}{%
+        {{hash=67ac438e686d798e7c702a0170b5a77c}{%
+           family={Ogier},
+           familyi={O\bibinitperiod},
+           given={Richard},
+           giveni={R\bibinitperiod}}}%
+        {{hash=153a0f00dc0318ccb6459ab9b156fed2}{%
+           family={Spagnolo},
+           familyi={S\bibinitperiod},
+           given={Phil},
+           giveni={P\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {RFC Editor}%
+      }
+      \strng{namehash}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{fullhash}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{fullhashraw}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{bibnamehash}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{authorbibnamehash}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{authornamehash}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{authorfullhash}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \strng{authorfullhashraw}{5ca3fca85e413bcdf3e32f2c82dce9a5}
+      \field{sortinit}{O}
+      \field{sortinithash}{2cd7140a07aea5341f9e2771efe90aae}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{abstract}{This document specifies an extension of OSPFv3 to support mobile ad hoc networks (MANETs). The extension, called OSPF-MDR, is designed as a new OSPF interface type for MANETs. OSPF-MDR is based on the selection of a subset of MANET routers, consisting of MANET Designated Routers (MDRs) and Backup MDRs. The MDRs form a connected dominating set (CDS), and the MDRs and Backup MDRs together form a biconnected CDS for robustness. This CDS is exploited in two ways. First, to reduce flooding overhead, an optimized flooding procedure is used in which only (Backup) MDRs flood new link state advertisements (LSAs) back out the receiving interface; reliable flooding is ensured by retransmitting LSAs along adjacencies. Second, adjacencies are formed only between (Backup) MDRs and a subset of their neighbors, allowing for much better scaling in dense networks. The CDS is constructed using 2-hop neighbor information provided in a Hello protocol extension. The Hello protocol is further optimized by allowing differential Hellos that report only changes in neighbor states. Options are specified for originating router-LSAs that provide full or partial topology information, allowing overhead to be reduced by advertising less topology information. This memo defines an Experimental Protocol for the Internet community.}
+      \field{howpublished}{RFC 5614}
+      \field{month}{8}
+      \field{number}{5614}
+      \field{pagetotal}{71}
+      \field{series}{Request for Comments}
+      \field{title}{{Mobile Ad Hoc Network (MANET) Extension of OSPF Using Connected Dominating Set (CDS) Flooding}}
+      \field{year}{2009}
+      \verb{doi}
+      \verb 10.17487/RFC5614
+      \endverb
+      \verb{urlraw}
+      \verb https://www.rfc-editor.org/info/rfc5614
+      \endverb
+      \verb{url}
+      \verb https://www.rfc-editor.org/info/rfc5614
+      \endverb
+      \warn{\item Datamodel: misc entry 'rfc5614' (main.bib): Invalid field 'number' for entrytype 'misc'}
+      \warn{\item Datamodel: misc entry 'rfc5614' (main.bib): Invalid field 'pagetotal' for entrytype 'misc'}
+      \warn{\item Datamodel: misc entry 'rfc5614' (main.bib): Invalid field 'publisher' for entrytype 'misc'}
+      \warn{\item Datamodel: misc entry 'rfc5614' (main.bib): Invalid field 'series' for entrytype 'misc'}
+    \endentry
+    \entry{kartoffels}{misc}{}{}
+      \name{author}{1}{}{%
+        {{hash=3ba980e61c5f4e97699983bcd404ed58}{%
+           family={Patryk27},
+           familyi={P\bibinitperiod}}}%
+      }
+      \strng{namehash}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{fullhash}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{fullhashraw}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{bibnamehash}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{authorbibnamehash}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{authornamehash}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{authorfullhash}{3ba980e61c5f4e97699983bcd404ed58}
+      \strng{authorfullhashraw}{3ba980e61c5f4e97699983bcd404ed58}
+      \field{sortinit}{P}
+      \field{sortinithash}{ff3bcf24f47321b42cb156c2cc8a8422}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{A game where you're given a potato and your job is to implement a firmware for it.}
+      \field{title}{kartoffels}
+      \verb{urlraw}
+      \verb https://github.com/Patryk27/kartoffels/
+      \endverb
+      \verb{url}
+      \verb https://github.com/Patryk27/kartoffels/
+      \endverb
+      \warn{\item Datamodel: misc entry 'kartoffels' (main.bib): Invalid value of field 'year' must be datatype 'datepart' - ignoring field}
+    \endentry
+    \entry{perkins1999aodv}{article}{}{}
+      \name{author}{2}{}{%
+        {{hash=8372026cae71f91a3379c498f60329c8}{%
+           family={Perkins},
+           familyi={P\bibinitperiod},
+           given={Charles},
+           giveni={C\bibinitperiod}}}%
+        {{hash=b2d8fc9347ab0215058bc87ac170cf26}{%
+           family={Royer},
+           familyi={R\bibinitperiod},
+           given={Elizabeth},
+           giveni={E\bibinitperiod}}}%
+      }
+      \strng{namehash}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{fullhash}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{fullhashraw}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{bibnamehash}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{authorbibnamehash}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{authornamehash}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{authorfullhash}{238d44dfe98587d14882f58339a3b8e1}
+      \strng{authorfullhashraw}{238d44dfe98587d14882f58339a3b8e1}
+      \field{sortinit}{P}
+      \field{sortinithash}{ff3bcf24f47321b42cb156c2cc8a8422}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{PDF}
+      \field{title}{Ad hoc On Demand Distance Vector (AODV) Routing}
+      \field{year}{1999}
+      \verb{urlraw}
+      \verb https://ebelding.cs.ucsb.edu/sites/default/files/publications/wmcsa99.pdf
+      \endverb
+      \verb{url}
+      \verb https://ebelding.cs.ucsb.edu/sites/default/files/publications/wmcsa99.pdf
+      \endverb
+      \warn{\item Datamodel: article entry 'perkins1999aodv' (main.bib): Missing mandatory field 'journaltitle'}
+    \endentry
+    \entry{rahman2004controlled}{inproceedings}{}{}
+      \name{author}{3}{}{%
+        {{hash=1153940308b1083f537810d734a3949e}{%
+           family={Rahman},
+           familyi={R\bibinitperiod},
+           given={Ashikur},
+           giveni={A\bibinitperiod}}}%
+        {{hash=f0196a2d9c1105e4df8fe7efa690da60}{%
+           family={Olesinski},
+           familyi={O\bibinitperiod},
+           given={Wlodek},
+           giveni={W\bibinitperiod}}}%
+        {{hash=e31795d659f63d38eea90efcff911421}{%
+           family={Gburzynski},
+           familyi={G\bibinitperiod},
+           given={Pawel},
+           giveni={P\bibinitperiod}}}%
+      }
+      \list{location}{1}{%
+        {Edmonton, Alberta, Canada}%
+      }
+      \list{publisher}{1}{%
+        {University of Alberta, Department of Computing Science}%
+      }
+      \strng{namehash}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{fullhash}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{fullhashraw}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{bibnamehash}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{authorbibnamehash}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{authornamehash}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{authorfullhash}{2ba26a47d8e54e84d3241e8f85042d65}
+      \strng{authorfullhashraw}{2ba26a47d8e54e84d3241e8f85042d65}
+      \field{sortinit}{R}
+      \field{sortinithash}{5e1c39a9d46ffb6bebd8f801023a9486}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Proceedings of the International Workshop on Wireless Ad-Hoc Networks}
+      \field{title}{Controlled Flooding in Wireless Ad-hoc Networks}
+      \field{year}{2004}
+    \endentry
+    \entry{raspberrypi2021}{manual}{}{}
+      \name{author}{1}{}{%
+        {{hash=0dac029e46904a2d35a186cfa0c1303c}{%
+           family={{Raspberry Pi Foundation}},
+           familyi={R\bibinitperiod}}}%
+      }
+      \strng{namehash}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{fullhash}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{fullhashraw}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{bibnamehash}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{authorbibnamehash}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{authornamehash}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{authorfullhash}{0dac029e46904a2d35a186cfa0c1303c}
+      \strng{authorfullhashraw}{0dac029e46904a2d35a186cfa0c1303c}
+      \field{sortinit}{R}
+      \field{sortinithash}{5e1c39a9d46ffb6bebd8f801023a9486}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{title}{Raspberry Pi Pico Datasheet - An RP2040-based microcontroller board}
+      \field{year}{2024}
+      \verb{urlraw}
+      \verb https://datasheets.raspberrypi.com/pico/pico-datasheet.pdf
+      \endverb
+      \verb{url}
+      \verb https://datasheets.raspberrypi.com/pico/pico-datasheet.pdf
+      \endverb
+    \endentry
+    \entry{DBLP:journals/corr/abs-1901-02298}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=17e5deb31809aea1176faf280b6d9958}{%
+           family={Sliwa},
+           familyi={S\bibinitperiod},
+           given={Benjamin},
+           giveni={B\bibinitperiod}}}%
+        {{hash=acdb5ad09757e72214140153a72b3cda}{%
+           family={Falten},
+           familyi={F\bibinitperiod},
+           given={Stefan},
+           giveni={S\bibinitperiod}}}%
+        {{hash=3e545b37dcb0f6accfff1f6c5f8ca320}{%
+           family={Wietfeld},
+           familyi={W\bibinitperiod},
+           given={Christian},
+           giveni={C\bibinitperiod}}}%
+      }
+      \strng{namehash}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{fullhash}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{fullhashraw}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{bibnamehash}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{authorbibnamehash}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{authornamehash}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{authorfullhash}{4236cc1e589b5d1a488d5304fba849f8}
+      \strng{authorfullhashraw}{4236cc1e589b5d1a488d5304fba849f8}
+      \field{sortinit}{S}
+      \field{sortinithash}{b164b07b29984b41daf1e85279fbc5ab}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprinttype}{arXiv}
+      \field{journaltitle}{CoRR}
+      \field{title}{Performance Evaluation and Optimization of {B.A.T.M.A.N.} {V} Routing for Aerial and Ground-based Mobile Ad-hoc Networks}
+      \field{year}{2019}
+      \verb{eprint}
+      \verb 1901.02298
+      \endverb
+      \verb{urlraw}
+      \verb http://arxiv.org/abs/1901.02298
+      \endverb
+      \verb{url}
+      \verb http://arxiv.org/abs/1901.02298
+      \endverb
+      \warn{\item Datamodel: article entry 'DBLP:journals/corr/abs-1901-02298' (main.bib): Invalid value of field 'volume' must be datatype 'integer' - ignoring field}
+    \endentry
+    \entry{unity}{software}{}{}
+      \name{author}{1}{}{%
+        {{hash=3f56ad8f8e05fcad24de3fcf878fb50b}{%
+           family={{Unity Technologies}},
+           familyi={U\bibinitperiod}}}%
+      }
+      \strng{namehash}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{fullhash}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{fullhashraw}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{bibnamehash}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{authorbibnamehash}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{authornamehash}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{authorfullhash}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \strng{authorfullhashraw}{3f56ad8f8e05fcad24de3fcf878fb50b}
+      \field{sortinit}{U}
+      \field{sortinithash}{6901a00e45705986ee5e7ca9fd39adca}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Game development platform}
+      \field{title}{Unity}
+      \field{version}{2023.2.3}
+      \field{year}{2023}
+      \verb{urlraw}
+      \verb https://unity.com/
+      \endverb
+      \verb{url}
+      \verb https://unity.com/
+      \endverb
+    \endentry
+    \entry{doi:10.3233/MGS-2009-0133}{article}{}{}
+      \name{author}{2}{}{%
+        {{hash=080b8cb105c6fc7d8c4aadcf0162c114}{%
+           family={Weerdt},
+           familyi={W\bibinitperiod},
+           given={Mathijs},
+           giveni={M\bibinitperiod},
+           prefix={de},
+           prefixi={d\bibinitperiod}}}%
+        {{hash=7ed45900384102a8850188afea21ee4d}{%
+           family={Clement},
+           familyi={C\bibinitperiod},
+           given={Brad},
+           giveni={B\bibinitperiod}}}%
+      }
+      \strng{namehash}{176026be36fcab55b0296da7813cad81}
+      \strng{fullhash}{176026be36fcab55b0296da7813cad81}
+      \strng{fullhashraw}{176026be36fcab55b0296da7813cad81}
+      \strng{bibnamehash}{176026be36fcab55b0296da7813cad81}
+      \strng{authorbibnamehash}{176026be36fcab55b0296da7813cad81}
+      \strng{authornamehash}{176026be36fcab55b0296da7813cad81}
+      \strng{authorfullhash}{176026be36fcab55b0296da7813cad81}
+      \strng{authorfullhashraw}{176026be36fcab55b0296da7813cad81}
+      \field{sortinit}{W}
+      \field{sortinithash}{4315d78024d0cea9b57a0c6f0e35ed0d}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{abstract}{In most multiagent systems planning on forehand can help to seriously improve the efficiency of executing actions. The main difference between centrally creating a plan and constructing a plan for a system of agents lies in the fact that in the latter coordination plays the main part. This introduces a number of additional difficulties. This special issue discusses some of these difficulties in detail. To place these in a context, this introduction gives a brief overview of multiagent planning problems, and most multiagent planning techniques.}
+      \field{journaltitle}{Multiagent and Grid Systems}
+      \field{number}{4}
+      \field{title}{Introduction to planning in multiagent systems}
+      \field{volume}{5}
+      \field{year}{2009}
+      \field{pages}{345\bibrangedash 355}
+      \range{pages}{11}
+      \verb{doi}
+      \verb 10.3233/MGS-2009-0133
+      \endverb
+      \verb{eprint}
+      \verb https://journals.sagepub.com/doi/pdf/10.3233/MGS-2009-0133
+      \endverb
+      \verb{urlraw}
+      \verb https://journals.sagepub.com/doi/abs/10.3233/MGS-2009-0133
+      \endverb
+      \verb{url}
+      \verb https://journals.sagepub.com/doi/abs/10.3233/MGS-2009-0133
+      \endverb
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+
