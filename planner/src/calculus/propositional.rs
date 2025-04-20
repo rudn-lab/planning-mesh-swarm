@@ -18,10 +18,6 @@ use alloc::{
 use getset::Getters;
 use itertools::Itertools;
 
-pub trait Propositional<P: IsPredicate> {
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a>;
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Formula<P: IsPredicate> {
     And(Vec<Formula<P>>),
@@ -47,21 +43,8 @@ impl<P: IsPredicate> Formula<P> {
     pub fn pred(pred: P) -> Self {
         Self::Pred(pred)
     }
-}
 
-impl Evaluable<GroundPredicate> for Formula<GroundPredicate> {
-    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
-        match self {
-            Formula::And(and) => and.iter().all(|f| Evaluable::eval(f, context)),
-            Formula::Or(or) => or.iter().any(|f| Evaluable::eval(f, context)),
-            Formula::Not(not) => !Evaluable::eval(&**not, context),
-            Formula::Pred(p) => p.eval(context),
-        }
-    }
-}
-
-impl<P: IsPredicate> Propositional<P> for Formula<P> {
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
+    pub fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
         Box::new(
             match self {
                 Formula::And(and) => {
@@ -76,6 +59,17 @@ impl<P: IsPredicate> Propositional<P> for Formula<P> {
             .sorted()
             .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
         )
+    }
+}
+
+impl Evaluable<GroundPredicate> for Formula<GroundPredicate> {
+    fn eval(&self, context: &impl EvaluationContext<GroundPredicate>) -> bool {
+        match self {
+            Formula::And(and) => and.iter().all(|f| Evaluable::eval(f, context)),
+            Formula::Or(or) => or.iter().any(|f| Evaluable::eval(f, context)),
+            Formula::Not(not) => !Evaluable::eval(&**not, context),
+            Formula::Pred(p) => p.eval(context),
+        }
     }
 }
 
@@ -120,7 +114,8 @@ impl Evaluable<GroundPredicate> for Primitives<GroundPredicate> {
 /// In this DNF all predicates appear in each clause either as is or negated.
 #[derive(Debug, Clone, PartialEq, Eq, Getters)]
 pub(crate) struct Dnf<P: IsPredicate> {
-    pub(crate) clauses: BTreeSet<BTreeSet<Primitives<P>>>,
+    #[getset(get = "pub")]
+    pub(super) clauses: BTreeSet<BTreeSet<Primitives<P>>>,
 }
 
 impl Dnf<LiftedPredicate> {
@@ -145,18 +140,6 @@ impl Evaluable<GroundPredicate> for Dnf<GroundPredicate> {
         self.clauses
             .iter()
             .any(|c| c.iter().all(|p| p.eval(context)))
-    }
-}
-
-impl<P: IsPredicate> Propositional<P> for Dnf<P> {
-    fn predicates<'a>(&'a self) -> Box<dyn Iterator<Item = &'a P> + 'a> {
-        Box::new(
-            self.clauses
-                .iter()
-                .flat_map(|c| c.iter().map(|p| p.inner()))
-                .sorted()
-                .dedup_by(|x, y| x.unique_marker() == y.unique_marker()),
-        )
     }
 }
 

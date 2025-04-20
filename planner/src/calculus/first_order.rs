@@ -262,6 +262,10 @@ impl<P: IsPredicate> QuantifiedFormula<P> {
         Self::Or(operands)
     }
 
+    pub fn imply(antedecent: Self, consequent: Self) -> Self {
+        Self::Or(Vec::from([Self::not(antedecent), consequent]))
+    }
+
     #[allow(clippy::should_implement_trait)]
     pub fn not(operand: Self) -> Self {
         Self::Not(Box::new(operand))

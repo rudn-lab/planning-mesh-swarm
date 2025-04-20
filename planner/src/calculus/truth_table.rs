@@ -1,7 +1,4 @@
-use crate::calculus::{
-    predicate::IsPredicate,
-    propositional::{Formula, Propositional},
-};
+use crate::calculus::{predicate::IsPredicate, propositional::Formula};
 use alloc::vec::Vec;
 
 #[derive(Debug, Clone)]

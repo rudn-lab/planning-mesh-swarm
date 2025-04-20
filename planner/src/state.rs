@@ -253,7 +253,11 @@ impl State {
                 acc
             });
 
-        if o.is_empty() {
+        // Filter out empty action parameter groundings
+        if o.iter().all(|(k, v)| match k {
+            LiftedValue::ActionParameter(_, _) => v.is_empty(),
+            LiftedValue::BoundVariable(_, _) => true,
+        }) {
             None
         } else {
             Some(o)
@@ -265,39 +269,41 @@ impl State {
         reason = "See SmartHandle Hash and Ord impls."
     )]
     pub fn ground_action<'a>(&'a self, action: &'a Action) -> BTreeSet<ParameterGrounding<'a>> {
-        let num_params = action.parameters().len();
         let prefix = action.precondition().prefix();
+        let params_in_effect = action.effect().action_parameters();
         action
             .precondition()
             .matrix()
-            .clauses
+            .clauses()
             .iter()
-            // Filter out clauses that don't contain all of the action parameters
-            .filter(|clause| {
-                clause
-                    .iter()
-                    .map(|p| p.inner())
-                    .flat_map(|p| p.action_parameters())
-                    .sorted()
-                    .dedup()
-                    .count()
-                    == num_params
-            })
-            .filter_map(|clause| 
+            // We don't need to filter clauses by action parameters first
+            // because our DNF is a full DNF, which means all predicates
+            // and therefore all action parameters appear in each clause.
+            .filter_map(|clause|
                 // Because DNF used "or" only as a top most operation
                 // it means that we only need one clause to evaluate to true
                 // in order to evaluate the whole DNF to true.
                 // This allows us to treat all clauses in isolation
-                self.handle_clause(clause),
-            )
-            // Filter out those groundings that didn't ground all of the action parameters
-            .filter(|r| {
-                r.iter()
-                    .filter(|(k, v)| {
-                        matches!(k, LiftedValue::ActionParameter(_, _)) && !v.is_empty()
+                self.handle_clause(clause))
+            // Filter out those groundings that didn't ground
+            // all of the action parameters
+            // that appear in the effect.
+            // This means that not all action parametes
+            // need to be present in the grounding.
+            .filter(|g| {
+                g.iter()
+                    .filter_map(|(&k, v)| {
+                        if v.is_empty() {
+                            None
+                        } else {
+                            match k {
+                                LiftedValue::ActionParameter(_, ap) => Some(ap),
+                                LiftedValue::BoundVariable(_, _) => None,
+                            }
+                        }
                     })
-                    .count()
-                    == num_params
+                    .collect::<BTreeSet<_>>()
+                    .is_superset(&params_in_effect)
             })
             // For each clause check if it is satisfactory under the prefix.
             // We can do this for each clause because our [DNF] is full,
@@ -369,7 +375,6 @@ mod tests {
         calculus::{
             first_order::{QuantifiedFormula as F, QuantifierBuilder},
             predicate::*,
-            propositional::{Dnf, Primitives as Pr},
         },
         entity::*,
     };
@@ -693,6 +698,39 @@ mod tests {
     pub fn test_impossible_action_grounding() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
+
+        let x1 = entities.get_or_create_object("x1", &t1);
+        let _ = entities.get_or_create_object("x2", &t1);
+
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(vec![t1.dupe()])
+            .precondition(|params| {
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::not(F::pred(
+                        p1.values(vec![Value::param(&params[0])]).build().unwrap(),
+                    )),
+                ]))
+            })
+            .effect(|_params| Ok(E::and(vec![])))
+            .build()
+            .unwrap();
+
+        let gp11 = p1.values(vec![x1.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp11]);
+
+        let res = state.ground_action(&action);
+        // This one is empty because precondition contradicts itself
+        println!("{:?}", res);
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    pub fn test_partial_action_grounding() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
         let t2 = entities.get_or_create_type("t2");
 
         let x1 = entities.get_or_create_object("x1", &t1);
@@ -855,132 +893,6 @@ mod tests {
     }
 
     #[test]
-    pub fn test_with_mixed_dnf() {
-        let mut entities = EntityStorage::default();
-        let t1 = entities.get_or_create_type("t1");
-        let t2 = entities.get_or_create_type("t2");
-
-        let x1 = entities.get_or_create_object("x1", &t1);
-        let x2 = entities.get_or_create_object("x2", &t1);
-        let y1 = entities.get_or_create_object("y1", &t2);
-        let y2 = entities.get_or_create_object("y2", &t2);
-        let y3 = entities.get_or_create_object("y3", &t2);
-
-        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe(), t1.dupe()]);
-        let p2 = PredicateBuilder::new("p2").arguments(vec![t2.dupe(), t2.dupe()]);
-
-        let action = ActionBuilder::new("action")
-            .parameters(vec![t1.dupe(), t2.dupe()])
-            .precondition(|params| {
-                Ok(Dnf {
-                    clauses: BTreeSet::from([
-                        BTreeSet::from([
-                            Pr::Pred(
-                                p1.values(vec![Value::param(&params[0]), Value::object(&x2)])
-                                    .build()
-                                    .unwrap(),
-                            ),
-                            Pr::Not(
-                                p2.values(vec![Value::object(&y1), Value::param(&params[1])])
-                                    .build()
-                                    .unwrap(),
-                            ),
-                        ]),
-                        BTreeSet::from([
-                            Pr::Not(
-                                p1.values(vec![Value::object(&x2), Value::param(&params[0])])
-                                    .build()
-                                    .unwrap(),
-                            ),
-                            Pr::Pred(
-                                p2.values(vec![Value::param(&params[1]), Value::object(&y2)])
-                                    .build()
-                                    .unwrap(),
-                            ),
-                        ]),
-                        BTreeSet::new(),
-                    ]),
-                })
-            })
-            .effect(|params| {
-                Ok(E::and(vec![
-                    E::npred(
-                        p1.values(vec![Value::object(&x2), Value::param(&params[0])])
-                            .build()
-                            .unwrap(),
-                    ),
-                    E::pred(
-                        p2.values(vec![Value::param(&params[1]), Value::object(&y1)])
-                            .build()
-                            .unwrap(),
-                    ),
-                ]))
-            })
-            .build()
-            .unwrap();
-
-        let gp1 = p1.values(vec![x1.dupe(), x2.dupe()]).build().unwrap();
-        let gp2 = p2.values(vec![y1.dupe(), y2.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![gp1, gp2]);
-
-        let action_params = action.parameters();
-        let res = state.ground_action(&action);
-        assert!(!res.is_empty());
-
-        let correct_grounding = BTreeSet::from([
-            ParameterGrounding(BTreeMap::from([
-                (&action_params[0], BTreeSet::from([x1.dupe()])),
-                (&action_params[1], BTreeSet::from([y1.dupe(), y3.dupe()])),
-            ])),
-            ParameterGrounding(BTreeMap::from([
-                // Both `x1` and `x2` here, because the initial pred already doesn't
-                // ground because of the Object as the first parameter
-                (&action_params[0], BTreeSet::from([x1.dupe(), x2.dupe()])),
-                (&action_params[1], BTreeSet::from([y1.dupe()])),
-            ])),
-        ]);
-
-        assert_eq!(res, correct_grounding);
-
-        let effects = action.ground_effect(&res, &state).unwrap();
-        let correct_effects = BTreeSet::from([
-            BTreeSet::from([
-                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
-            ]),
-            BTreeSet::from([
-                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.values(vec![y3.dupe(), y1.dupe()]).build().unwrap()),
-            ]),
-            // The same as the first one, will be re&moved by the set
-            BTreeSet::from([
-                ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
-            ]),
-            BTreeSet::from([
-                ModifyState::Del(p1.values(vec![x2.dupe(), x2.dupe()]).build().unwrap()),
-                ModifyState::Add(p2.values(vec![y1.dupe(), y1.dupe()]).build().unwrap()),
-            ]),
-        ]);
-
-        assert_eq!(effects, correct_effects);
-
-        assert!(effects
-            .into_iter()
-            .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
-                (st, modifications)
-            })
-            .all(|(st, modifications)| {
-                modifications.iter().all(|m| match m {
-                    ModifyState::Add(rp) => st.predicates.values().flatten().contains(rp),
-                    ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
-                })
-            }));
-    }
-
-    #[test]
     pub fn test_action_grounding_with_subtypes() {
         let mut entities = EntityStorage::default();
         let t1 = entities.get_or_create_type("t1");
@@ -1002,29 +914,11 @@ mod tests {
         let action = ActionBuilder::new("action")
             .parameters(vec![t1.dupe(), tt1.clone(), t2.dupe()])
             .precondition(|params| {
-                Ok(Dnf {
-                    clauses: BTreeSet::from([
-                        BTreeSet::from([
-                            Pr::Pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
-                            Pr::Pred(pp1.values(vec![Value::param(&params[1])]).build().unwrap()),
-                            Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
-                        ]),
-                        BTreeSet::from([
-                            Pr::Pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
-                            Pr::Pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
-                            Pr::Pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
-                        ]),
-                        // These won't get ground as they are missing the other params.
-                        // Strictly speaking this should never happen, as [DNF] is full dnf,
-                        // but we're doing this just for the test's sake.
-                        BTreeSet::from([Pr::Pred(
-                            pp1.values(vec![Value::param(&params[1])]).build().unwrap(),
-                        )]),
-                        BTreeSet::from([Pr::Pred(
-                            p2.values(vec![Value::param(&params[2])]).build().unwrap(),
-                        )]),
-                    ]),
-                })
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::pred(pp1.values(vec![Value::param(&params[1])]).build().unwrap()),
+                    F::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
+                ]))
             })
             .effect(|params| {
                 Ok(E::and(vec![
@@ -1053,37 +947,22 @@ mod tests {
         let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_grounding = BTreeSet::from([
-            ParameterGrounding(BTreeMap::from([
-                // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
-                // and the predicate is declared with `t1` which is a supertype of `tt1`
-                (
-                    &action_params[0],
-                    BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
-                ),
-                // This predicate is defined with type `tt1`, which has no subentities,
-                // so only values of this type will be ground
-                (
-                    &action_params[1],
-                    BTreeSet::from([xx1.clone(), xx2.clone()]),
-                ),
-                // Same as above, no subentities
-                (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
-            ])),
-            ParameterGrounding(BTreeMap::from([
-                (
-                    &action_params[0],
-                    BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
-                ),
-                // This predicate is defined with `t1`, but it was turned into a specific
-                // with `tt1`, so it should only ground with `tt1`
-                (
-                    &action_params[1],
-                    BTreeSet::from([xx1.clone(), xx2.clone()]),
-                ),
-                (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
-            ])),
-        ]);
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
+            // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
+            // and the predicate is declared with `t1` which is a supertype of `tt1`
+            (
+                &action_params[0],
+                BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
+            ),
+            // This predicate is defined with type `tt1`, which has no subentities,
+            // so only values of this type will be ground
+            (
+                &action_params[1],
+                BTreeSet::from([xx1.clone(), xx2.clone()]),
+            ),
+            // Same as above, no subentities
+            (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
+        ]))]);
 
         assert_eq!(res, correct_grounding);
 
@@ -1138,6 +1017,43 @@ mod tests {
                     ModifyState::Del(rp) => !st.predicates.values().flatten().contains(rp),
                 })
             }));
+
+        let action = ActionBuilder::new("action")
+            .parameters(vec![t1.dupe(), tt1.clone(), t2.dupe()])
+            .precondition(|params| {
+                Ok(F::and(vec![
+                    F::pred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    F::pred(p1.values(vec![Value::param(&params[1])]).build().unwrap()),
+                    F::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
+                ]))
+            })
+            .effect(|params| {
+                Ok(E::and(vec![
+                    E::npred(p1.values(vec![Value::param(&params[0])]).build().unwrap()),
+                    E::pred(p2.values(vec![Value::param(&params[2])]).build().unwrap()),
+                ]))
+            })
+            .build()
+            .unwrap();
+
+        let res = state.ground_action(&action);
+        assert!(!res.is_empty());
+
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
+            (
+                &action_params[0],
+                BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
+            ),
+            // This predicate is defined with `t1`, but it was turned into a specific
+            // with `tt1`, so it should only ground with `tt1`
+            (
+                &action_params[1],
+                BTreeSet::from([xx1.clone(), xx2.clone()]),
+            ),
+            (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
+        ]))]);
+
+        assert_eq!(res, correct_grounding);
     }
 
     #[test]
@@ -1306,8 +1222,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let rs = s.values(vec![x.dupe(), y.dupe()]).build().unwrap();
-        let state = State::default().with_predicates(vec![rs]);
+        let gs = s.values(vec![x.dupe(), y.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gs]);
 
         let res = state.ground_action(&action);
         let expected = BTreeSet::from([ParameterGrounding(BTreeMap::from([(

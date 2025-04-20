@@ -10,8 +10,8 @@ pub trait Named {
 pub struct NamedStorage<T: Named + Clone>(BTreeMap<InternerSymbol, T>);
 
 impl<T: Named + Clone> NamedStorage<T> {
-    pub fn insert(&mut self, predicate: T) {
-        let _ = self.0.insert(predicate.name(), predicate);
+    pub fn insert(&mut self, object: T) {
+        let _ = self.0.insert(object.name(), object);
     }
 
     pub fn get(&self, name: &str) -> Option<&T> {

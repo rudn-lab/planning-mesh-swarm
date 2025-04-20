@@ -74,6 +74,21 @@ impl ActionEffect {
     pub fn npred(operand: LiftedPredicate) -> Self {
         Self::Primitives(Primitives::Not(operand))
     }
+
+    /// Returns all action parameters that are used in this effect.
+    pub fn action_parameters(&self) -> BTreeSet<&ActionParameter> {
+        match self {
+            ActionEffect::And(and) => and.iter().flat_map(|e| e.action_parameters()).collect(),
+            ActionEffect::ForAll(forall) => forall.expression().action_parameters(),
+            ActionEffect::When {
+                condition: _,
+                effect,
+            } => effect.action_parameters(),
+            ActionEffect::Primitives(p) => match p {
+                Primitives::Pred(p) | Primitives::Not(p) => p.action_parameters(),
+            },
+        }
+    }
 }
 
 impl FOExpression for ActionEffect {}
@@ -279,6 +294,7 @@ where
 mod tests {
     use crate::{
         calculus::{
+            first_order::QuantifierBuilder,
             predicate::{PredicateBuilder, Value},
             propositional::{Formula as F, Primitives as Pr},
         },
@@ -383,6 +399,71 @@ mod tests {
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
             ModifyState::Del(p3.values(vec![y.dupe()]).build().unwrap()),
+        ])]);
+
+        assert_eq!(effects, correct_effects);
+    }
+
+    #[test]
+    fn test_forall_effect() {
+        let mut entities = EntityStorage::default();
+        let t1 = entities.get_or_create_type("t1");
+        let t2 = entities.get_or_create_type("t2");
+
+        let x = entities.get_or_create_object("x", &t1);
+        let y1 = entities.get_or_create_object("y1", &t2);
+        let y2 = entities.get_or_create_object("y2", &t2);
+        let y3 = entities.get_or_create_object("y2", &t2);
+
+        let p1 = PredicateBuilder::new("p1").arguments(vec![t1.dupe()]);
+        let p2 = PredicateBuilder::new("p2").arguments(vec![t1.dupe(), t2.dupe()]);
+
+        let action = ActionBuilder::new("action")
+            .parameters(vec![t1.dupe()])
+            .precondition(|params| {
+                Ok(F::pred(
+                    p1.values(vec![Value::param(&params[0])]).build().unwrap(),
+                ))
+            })
+            .effect(|params| {
+                Ok(E::forall(
+                    QuantifierBuilder::forall(vec![t2.dupe()])
+                        .expression(|fa_params| {
+                            Ok(E::pred(
+                                p2.values(vec![
+                                    Value::param(&params[0]),
+                                    Value::bound(&fa_params[0]),
+                                ])
+                                .build()
+                                .unwrap(),
+                            ))
+                        })
+                        .build()
+                        .unwrap(),
+                ))
+            })
+            .build()
+            .unwrap();
+
+        let gp1 = p1.values(vec![x.dupe()]).build().unwrap();
+        let state = State::default().with_predicates(vec![gp1.clone()]);
+
+        let action_params = action.parameters();
+        let res = state.ground_action(&action);
+        assert!(!res.is_empty());
+
+        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
+            &action_params[0],
+            BTreeSet::from([x.clone()]),
+        )]))]);
+
+        assert_eq!(res, correct_grounding);
+
+        let effects = action.ground_effect(&res, &state).unwrap();
+        let correct_effects = BTreeSet::from([BTreeSet::from([
+            ModifyState::Add(p2.values(vec![x.dupe(), y1.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.values(vec![x.dupe(), y2.dupe()]).build().unwrap()),
+            ModifyState::Add(p2.values(vec![x.dupe(), y3.dupe()]).build().unwrap()),
         ])]);
 
         assert_eq!(effects, correct_effects);

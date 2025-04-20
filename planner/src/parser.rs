@@ -15,7 +15,7 @@ use crate::{
     util::named::NamedStorage,
     INTERNER,
 };
-use alloc::{collections::BTreeMap, string::ToString, vec, vec::Vec};
+use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
 use core::ops::Deref;
 use gazebo::dupe::Dupe;
 use itertools::Itertools;
@@ -217,20 +217,15 @@ where
             .iter()
             .map(parse_gd)
             .collect::<Result<Vec<_>, _>>()
-            .map(F::and),
+            .map(|g| maybe_and(g, F::And)),
         Or(goals) => goals
             .iter()
             .map(parse_gd)
             .collect::<Result<Vec<_>, _>>()
             .map(F::or),
         Not(goal) => parse_gd(goal).map(F::not),
-        Imply(goal_ant, goal_con) => {
-            parse_gd(goal_ant).and_then(|goal_ant| {
-                parse_gd(goal_con)
-                    // Transform implication into disjunction at this step
-                    .map(|goal_con| F::or(vec![F::not(goal_ant), goal_con]))
-            })
-        }
+        Imply(goal_ant, goal_con) => parse_gd(goal_ant)
+            .and_then(|goal_ant| parse_gd(goal_con).map(|goal_con| F::imply(goal_ant, goal_con))),
         Exists(vars, goal) => parse_arguments(vars, types)
             .and_then(|(param_names, param_types)| {
                 QuantifierBuilder::exists(param_types)
@@ -539,7 +534,7 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                                             )
                                         })
                                         .collect::<Result<Vec<_>, _>>()
-                                        .map(QuantifiedFormula::and)
+                                        .map(|p| maybe_and(p, QuantifiedFormula::And))
                                 })
                                 .effect(|params| {
                                     let params = param_names
@@ -942,7 +937,8 @@ mod tests {
   (:predicates
     (at ?b - box ?l - location)
     (size-smaller ?b1 - box ?b2 - box)
-    (collected ?b - box))
+    (collected ?b - box)
+    (isolated ?l - location))
 
   (:action move-largest
     :parameters (?b - box ?from - location ?to - location)
@@ -967,7 +963,23 @@ mod tests {
             (size-smaller ?b ?other)))))
     :effect (forall (?b - box)
       (when (at ?b ?l)
-        (collected ?b)))))
+        (collected ?b))))
+
+    (:action isolate-largest
+        :parameters (?l - location ?ref - box)
+        :precondition (or
+          ;; All boxes at location are collected
+          (forall (?b - box)
+            (imply (at ?b ?l)
+                   (collected ?b))
+          )
+          ;; All boxes at location are smaller than the reference box
+          (forall (?b - box)
+            (imply (at ?b ?l)
+                   (size-smaller ?b ?ref))
+          )
+        )
+        :effect (isolated ?l)))
 "#;
 
     const MEDIUM_PROBLEM_NO_EQ: &str = r#"
@@ -982,16 +994,18 @@ mod tests {
     (at box1 loc1)
     (at box2 loc1)
     (at box3 loc1)
-    ;; box3 is the biggest
+
     (size-smaller box1 box2)
     (size-smaller box1 box3)
     (size-smaller box2 box3))
   
   (:goal
-    (forall (?b - box)
-      (imply (at ?b loc2)
-             (collected ?b)))))
-    "#;
+      (and
+        (forall (?b - box)
+          (imply (and (at ?b loc2) (not (= ?b box3)))
+                 (collected ?b)))
+        (isolated loc2))))
+"#;
 
     #[test]
     fn test_medium_problem() {
@@ -1026,6 +1040,8 @@ mod tests {
                         .arguments(vec![r#box.dupe(), r#box.dupe()]),
                 );
                 predicates.insert(PredicateBuilder::new("collected").arguments(vec![r#box.dupe()]));
+                predicates
+                    .insert(PredicateBuilder::new("isolated").arguments(vec![location.dupe()]));
 
                 Ok(())
             })
@@ -1036,6 +1052,7 @@ mod tests {
                 let at = predicates.get("at").unwrap();
                 let size_smaller = predicates.get("size-smaller").unwrap();
                 let collected = predicates.get("collected").unwrap();
+                let isolated = predicates.get("isolated").unwrap();
 
                 actions.insert(
                     ActionBuilder::new("move-largest")
@@ -1058,8 +1075,8 @@ mod tests {
                                     QuantifierBuilder::forall(vec![r#box.dupe()])
                                         .expression(|q_params| {
                                             let other = &q_params[0];
-                                            Ok(F::or(vec![
-                                                F::not(F::and(vec![
+                                            Ok(F::imply(
+                                                F::and(vec![
                                                     F::not(F::pred(PredicateBuilder::equality(
                                                         Value::bound(other),
                                                         Value::param(b),
@@ -1072,7 +1089,7 @@ mod tests {
                                                         .build()
                                                         .unwrap(),
                                                     ),
-                                                ])),
+                                                ]),
                                                 F::pred(
                                                     size_smaller
                                                         .values(vec![
@@ -1082,7 +1099,7 @@ mod tests {
                                                         .build()
                                                         .unwrap(),
                                                 ),
-                                            ]))
+                                            ))
                                         })
                                         .build()
                                         .unwrap(),
@@ -1119,12 +1136,12 @@ mod tests {
                                 QuantifierBuilder::forall(vec![r#box.dupe()])
                                     .expression(|fa_params| {
                                         let b = &fa_params[0];
-                                        Ok(F::or(vec![
-                                            F::not(F::pred(
+                                        Ok(F::imply(
+                                            F::pred(
                                                 at.values(vec![Value::bound(b), Value::param(l)])
                                                     .build()
                                                     .unwrap(),
-                                            )),
+                                            ),
                                             F::exists(
                                                 QuantifierBuilder::exists(vec![r#box.dupe()])
                                                     .expression(|ex_params| {
@@ -1158,7 +1175,7 @@ mod tests {
                                                     .build()
                                                     .unwrap(),
                                             ),
-                                        ]))
+                                        ))
                                     })
                                     .build()
                                     .unwrap(),
@@ -1192,6 +1209,76 @@ mod tests {
                         .unwrap(),
                 );
 
+                actions.insert(
+                    ActionBuilder::new("isolate-largest")
+                        .parameters(vec![location.dupe(), r#box.dupe()])
+                        .precondition(|params| {
+                            let l = &params[0];
+                            let r#ref = &params[1];
+                            Ok(F::or(vec![
+                                F::forall(
+                                    QuantifierBuilder::forall(vec![r#box.dupe()])
+                                        .expression(|fa_params| {
+                                            let b = &fa_params[0];
+                                            Ok(F::imply(
+                                                F::pred(
+                                                    at.values(vec![
+                                                        Value::bound(b),
+                                                        Value::param(l),
+                                                    ])
+                                                    .build()
+                                                    .unwrap(),
+                                                ),
+                                                F::pred(
+                                                    collected
+                                                        .values(vec![Value::bound(b)])
+                                                        .build()
+                                                        .unwrap(),
+                                                ),
+                                            ))
+                                        })
+                                        .build()
+                                        .unwrap(),
+                                ),
+                                F::forall(
+                                    QuantifierBuilder::forall(vec![r#box.dupe()])
+                                        .expression(|fa_params| {
+                                            let b = &fa_params[0];
+                                            Ok(F::imply(
+                                                F::pred(
+                                                    at.values(vec![
+                                                        Value::bound(b),
+                                                        Value::param(l),
+                                                    ])
+                                                    .build()
+                                                    .unwrap(),
+                                                ),
+                                                F::pred(
+                                                    size_smaller
+                                                        .values(vec![
+                                                            Value::bound(b),
+                                                            Value::param(r#ref),
+                                                        ])
+                                                        .build()
+                                                        .unwrap(),
+                                                ),
+                                            ))
+                                        })
+                                        .build()
+                                        .unwrap(),
+                                ),
+                            ]))
+                        })
+                        .effect(|params| {
+                            let l = &params[0];
+                            Ok(E::pred(
+                                isolated.values(vec![Value::param(l)]).build().unwrap(),
+                            ))
+                        })
+                        .build()
+                        .unwrap(),
+                );
+
                 Ok(())
             })
             .build()
@@ -1211,6 +1298,10 @@ mod tests {
         assert_eq!(
             domain.actions.get("collect-largest").unwrap(),
             correct_domain.actions.get("collect-largest").unwrap()
+        );
+        assert_eq!(
+            domain.actions.get("isolate-largest").unwrap(),
+            correct_domain.actions.get("isolate-largest").unwrap()
         );
 
         let problem = parse_problem(MEDIUM_PROBLEM_NO_EQ, &domain);
@@ -1269,35 +1360,51 @@ mod tests {
             .goal(|types, objects, predicates| {
                 let r#box = types.get_type("box").unwrap();
 
-                let loc2 = objects.get_object("loc2").unwrap();
+                let loc2 = &objects.get_object("loc2").unwrap();
+                let box3 = &objects.get_object("box3").unwrap();
 
                 let at = predicates.get("at").unwrap();
                 let collected = predicates.get("collected").unwrap();
+                let isolated = predicates.get("isolated").unwrap();
 
-                Ok(F::forall(
-                    QuantifierBuilder::forall(vec![r#box.dupe()])
-                        .expression(|params| {
-                            let b = &params[0];
-                            Ok(F::or(vec![
-                                F::not(F::pred(
-                                    at.values(vec![
-                                        ScopedValue::bound(b),
-                                        ScopedValue::object(&loc2),
-                                    ])
-                                    .build()
-                                    .unwrap(),
-                                )),
-                                F::pred(
-                                    collected
-                                        .values(vec![ScopedValue::bound(b)])
-                                        .build()
-                                        .unwrap(),
-                                ),
-                            ]))
-                        })
-                        .build()
-                        .unwrap(),
-                ))
+                Ok(F::and(vec![
+                    F::forall(
+                        QuantifierBuilder::forall(vec![r#box.dupe()])
+                            .expression(|params| {
+                                let b = &params[0];
+                                Ok(F::imply(
+                                    F::and(vec![
+                                        F::pred(
+                                            at.values(vec![
+                                                ScopedValue::bound(b),
+                                                ScopedValue::object(loc2),
+                                            ])
+                                            .build()
+                                            .unwrap(),
+                                        ),
+                                        F::not(F::pred(PredicateBuilder::equality(
+                                            ScopedValue::bound(b),
+                                            ScopedValue::object(box3),
+                                        ))),
+                                    ]),
+                                    F::pred(
+                                        collected
+                                            .values(vec![ScopedValue::bound(b)])
+                                            .build()
+                                            .unwrap(),
+                                    ),
+                                ))
+                            })
+                            .build()
+                            .unwrap(),
+                    ),
+                    F::pred(
+                        isolated
+                            .values(vec![ScopedValue::object(loc2)])
+                            .build()
+                            .unwrap(),
+                    ),
+                ]))
             })
             .build()
             .unwrap();

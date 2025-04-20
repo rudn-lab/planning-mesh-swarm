@@ -91,12 +91,6 @@ impl<T: Handleable, S: Storage<T>> PartialEq<&SmartHandle<T, S>> for SmartHandle
     }
 }
 
-impl<T: Handleable, S: Storage<T>> PartialEq<SmartHandle<T, S>> for &SmartHandle<T, S> {
-    fn eq(&self, other: &SmartHandle<T, S>) -> bool {
-        **self == *other
-    }
-}
-
 impl<T: Handleable, S: Storage<T>> Eq for SmartHandle<T, S> {}
 
 /// Fields that have interior mutability aren't being used here

@@ -266,18 +266,16 @@ impl LiftedPredicate {
             .collect::<Vec<_>>()
     }
 
-    /// Returns only [ActionParameter]s
-    /// and their indices from this predicate's values array
-    pub fn action_parameters(&self) -> Vec<(usize, &ActionParameter)> {
+    /// Returns only the [ActionParameter]s
+    pub fn action_parameters(&self) -> BTreeSet<&ActionParameter> {
         self.values
             .iter()
-            .enumerate()
-            .filter_map(|(i, v)| match v {
+            .filter_map(|v| match v {
                 Value::Object(_) => None,
-                Value::ActionParameter(ap) => Some((i, ap)),
+                Value::ActionParameter(ap) => Some(ap),
                 Value::BoundVariable(_) => None,
             })
-            .collect::<Vec<_>>()
+            .collect()
     }
 }
 
