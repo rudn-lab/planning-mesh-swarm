@@ -1,6 +1,5 @@
 use crate::{InternerSymbol, INTERNER};
-use alloc::{collections::BTreeMap, vec::Vec};
-use itertools::Itertools;
+use alloc::collections::BTreeMap;
 
 pub trait Named {
     fn name(&self) -> InternerSymbol;
@@ -18,8 +17,8 @@ impl<T: Named + Clone> NamedStorage<T> {
         self.0.get(&INTERNER.lock().get_or_intern(name))
     }
 
-    pub fn as_vec(&self) -> Vec<T> {
-        self.0.values().cloned().collect_vec()
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.0.values()
     }
 }
 

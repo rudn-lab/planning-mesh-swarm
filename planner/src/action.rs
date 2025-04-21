@@ -17,7 +17,10 @@ use alloc::{
     collections::{BTreeMap, BTreeSet},
     vec::Vec,
 };
-use core::{fmt::Debug, marker::PhantomData};
+use core::{
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 use gazebo::dupe::Dupe;
 use getset::Getters;
 use itertools::Itertools;
@@ -100,9 +103,9 @@ impl Action {
     )]
     pub fn ground_effect<'a>(
         &'a self,
-        parameter_groundings: &'a BTreeSet<ParameterGrounding<'a>>,
+        grounding: &ParameterGrounding<'a>,
         state: &impl EvaluationContext<GroundPredicate>,
-    ) -> Result<BTreeSet<BTreeSet<ModifyState>>, PredicateError> {
+    ) -> Result<BTreeSet<ModifyState>, PredicateError> {
         fn ground_effect_flat(
             effect: &ActionEffect,
             grounding: &BTreeMap<&ActionParameter, ObjectHandle>,
@@ -140,15 +143,22 @@ impl Action {
                 },
             }
         }
+        ground_effect_flat(&self.effect, &grounding.0, state)
+    }
 
-        parameter_groundings
+    pub fn ground<'a>(
+        &'a self,
+        grounding: &'a ParameterGrounding<'a>,
+    ) -> Result<GroundAction, ActionError> {
+        self.parameters
             .iter()
-            .flat_map(|grounding| {
-                grounding
-                    .as_simple()
-                    .map(|grounding| ground_effect_flat(&self.effect, &grounding, state))
+            .map(|ap| grounding.0.get(ap).map(Dupe::dupe))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(ActionError::IncorrectGrounding)
+            .map(|parameters| GroundAction {
+                name: self.name,
+                parameters,
             })
-            .collect::<Result<BTreeSet<_>, _>>()
     }
 }
 
@@ -156,6 +166,28 @@ impl Named for Action {
     fn name(&self) -> InternerSymbol {
         self.name
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GroundAction {
+    name: InternerSymbol,
+    parameters: Vec<ObjectHandle>,
+}
+
+impl Display for GroundAction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "({}", INTERNER.lock().resolve(self.name).unwrap())?;
+        for v in &self.parameters {
+            write!(f, " {}", v)?;
+        }
+        write!(f, ")")
+    }
+}
+
+pub enum ActionError {
+    /// The specified [ParameterGrounding]
+    /// cannot be applied to this [Action].
+    IncorrectGrounding,
 }
 
 #[allow(private_bounds)]
@@ -380,13 +412,16 @@ mod tests {
         assert!(!res.is_empty());
 
         let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x.clone()])),
-            (&action_params[1], BTreeSet::from([y.clone()])),
+            (&action_params[0], x.clone()),
+            (&action_params[1], y.clone()),
         ]))]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([ModifyState::Del(
             p3.values(vec![y.dupe()]).build().unwrap(),
         )])]);
@@ -395,7 +430,10 @@ mod tests {
 
         let state = State::default().with_predicates(vec![gp1, gp2, gp3]);
         let res = state.ground_action(&action);
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
             ModifyState::Del(p3.values(vec![y.dupe()]).build().unwrap()),
@@ -454,12 +492,15 @@ mod tests {
 
         let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
             &action_params[0],
-            BTreeSet::from([x.clone()]),
+            x.dupe(),
         )]))]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Add(p2.values(vec![x.dupe(), y1.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![x.dupe(), y2.dupe()]).build().unwrap()),

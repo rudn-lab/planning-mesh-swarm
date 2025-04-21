@@ -12,6 +12,7 @@ pub mod calculus;
 pub mod entity;
 pub mod parser;
 pub mod problem;
+pub mod solver;
 pub mod state;
 mod util;
 

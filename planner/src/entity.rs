@@ -6,7 +6,7 @@ use alloc::{
 };
 use core::{
     cell::{Ref, RefCell},
-    fmt::Debug,
+    fmt::{Debug, Display},
 };
 use gazebo::dupe::Dupe;
 
@@ -87,6 +87,12 @@ impl Object {
 impl Handleable for Object {}
 
 pub type ObjectHandle = SmartHandle<Object, EntityStorage>;
+
+impl Display for ObjectHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", INTERNER.lock().resolve(self.inner().name).unwrap())
+    }
+}
 
 impl ObjectHandle {
     pub fn r#type(&self) -> TypeHandle {

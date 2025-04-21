@@ -31,7 +31,7 @@ impl From<&GroundPredicate> for PredicateKey {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Default, PartialOrd, Ord)]
 pub struct State {
     predicates: BTreeMap<PredicateKey, BTreeSet<GroundPredicate>>,
 }
@@ -50,29 +50,17 @@ impl State {
         }
         self
     }
+
+    pub fn predicates(&self) -> impl Iterator<Item = &GroundPredicate> {
+        self.predicates.values().flat_map(|v| v.iter())
+    }
 }
 
 /// All possible valid groundings for action parameters.
 ///
 /// All permutations of the values are valid groundings in a state.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ParameterGrounding<'a>(pub(crate) BTreeMap<&'a ActionParameter, BTreeSet<ObjectHandle>>);
-
-impl<'a> ParameterGrounding<'a> {
-    /// Transforms the inner map of [ActionParameter] to multiple [ObjectHandle]s
-    /// into several simple maps of [ActionParameter] to one [ObjectHandle].
-    pub(crate) fn as_simple(
-        &'a self,
-    ) -> impl Iterator<Item = BTreeMap<&'a ActionParameter, ObjectHandle>> + use<'a> {
-        self.0.values().multi_cartesian_product().map(|s| {
-            self.0
-                .keys()
-                .copied()
-                .zip(s.into_iter().map(Dupe::dupe))
-                .collect::<BTreeMap<_, _>>()
-        })
-    }
-}
+pub struct ParameterGrounding<'a>(pub(crate) BTreeMap<&'a ActionParameter, ObjectHandle>);
 
 pub fn eval_dnf_clause_with_quantifier_prefix(
     prefix: &[QuantifierSymbol],
@@ -160,19 +148,19 @@ impl State {
                 .map(|&k| (k, BTreeSet::new()))
                 .collect::<BTreeMap<_, _>>()
         };
+
         self.predicates
             .get(&predicate.into())
             .map(|preds| {
                 preds
                     .iter()
-                    .filter(|rp| rp.is_ground_form(predicate))
+                    .filter(|gp| gp.is_ground_of(predicate))
                     // Get only those values that correspond to an action parameter
-                    .flat_map(|rp| {
+                    .flat_map(|gp| {
                         keys.iter()
-                            .zip(keys.iter().map(|k| rp.values()[k.idx()].dupe()))
+                            .zip(keys.iter().map(|k| gp.values()[k.idx()].dupe()))
                             .collect_vec()
                     })
-                    // This just transforms a list of GroundPredicates to the output type
                     .fold(acc(), |mut acc, (lv, v)| {
                         acc.entry(*lv)
                             .and_modify(|s: &mut BTreeSet<_>| {
@@ -318,6 +306,14 @@ impl State {
                     })
                     .collect::<BTreeMap<_, _>>()
             })
+            .flat_map(|g| {
+                let (keys, values): (Vec<_>, Vec<_>) = g.into_iter().unzip();
+                values
+                    .into_iter()
+                    .map(|s| s.into_iter().collect_vec())
+                    .multi_cartesian_product()
+                    .map(move |s| keys.iter().copied().zip(s).collect::<BTreeMap<_, _>>())
+            })
             .map(ParameterGrounding)
             .collect::<BTreeSet<_>>()
     }
@@ -326,10 +322,11 @@ impl State {
         clippy::mutable_key_type,
         reason = "See SmartHandle Hash and Ord impls."
     )]
-    pub fn apply_modification(&mut self, modifications: BTreeSet<ModifyState>) {
+    pub fn modify(&self, modifications: BTreeSet<ModifyState>) -> Self {
+        let mut predicates = self.predicates.clone();
         modifications.into_iter().for_each(|m| {
             match m {
-                ModifyState::Add(p) => match self.predicates.entry((&p).into()) {
+                ModifyState::Add(p) => match predicates.entry((&p).into()) {
                     Entry::Vacant(e) => {
                         let _ = e.insert(BTreeSet::from([p]));
                     }
@@ -337,7 +334,7 @@ impl State {
                         let _ = e.get_mut().insert(p);
                     }
                 },
-                ModifyState::Del(p) => match self.predicates.entry((&p).into()) {
+                ModifyState::Del(p) => match predicates.entry((&p).into()) {
                     Entry::Vacant(_) => {
                         // No-op, TODO: add logging
                     }
@@ -347,6 +344,7 @@ impl State {
                 },
             };
         });
+        State { predicates }
     }
 }
 
@@ -524,13 +522,16 @@ mod tests {
         assert!(!res.is_empty());
 
         let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x.clone()])),
-            (&action_params[1], BTreeSet::from([y.clone()])),
+            (&action_params[0], x.dupe()),
+            (&action_params[1], y.dupe()),
         ]))]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![y.dupe()]).build().unwrap()),
@@ -541,8 +542,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -592,13 +592,16 @@ mod tests {
         assert!(!res.is_empty());
 
         let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x.clone()])),
-            (&action_params[1], BTreeSet::from([y.clone()])),
+            (&action_params[0], x.dupe()),
+            (&action_params[1], y.dupe()),
         ]))]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![x.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![y.dupe()]).build().unwrap()),
@@ -609,8 +612,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -665,13 +667,16 @@ mod tests {
         assert!(!res.is_empty());
 
         let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x2.dupe()])),
-            (&action_params[1], BTreeSet::from([y2.dupe()])),
+            (&action_params[0], x2.dupe()),
+            (&action_params[1], y2.dupe()),
         ]))]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Add(p1.values(vec![x2.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![y2.dupe()]).build().unwrap()),
@@ -682,8 +687,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -780,7 +784,10 @@ mod tests {
         println!("{:?}", res);
         assert!(res.is_empty());
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::new();
 
         assert_eq!(effects, correct_effects);
@@ -788,8 +795,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -856,14 +862,23 @@ mod tests {
         let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([x1.dupe()])),
-            (&action_params[1], BTreeSet::from([y1.dupe(), y3.dupe()])),
-        ]))]);
+        let correct_grounding = BTreeSet::from([
+            ParameterGrounding(BTreeMap::from([
+                (&action_params[0], x1.dupe()),
+                (&action_params[1], y1.dupe()),
+            ])),
+            ParameterGrounding(BTreeMap::from([
+                (&action_params[0], x1.dupe()),
+                (&action_params[1], y3.dupe()),
+            ])),
+        ]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(p1.values(vec![x2.dupe(), x1.dupe()]).build().unwrap()),
@@ -880,8 +895,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -947,26 +961,41 @@ mod tests {
         let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
+        // Correctness is easier to express like this
+        let correct_grounding = BTreeMap::from([
             // Getting both `x`s and `xx`s, because `xx`s of type `tt1`,
             // and the predicate is declared with `t1` which is a supertype of `tt1`
             (
                 &action_params[0],
-                BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
+                BTreeSet::from([x1.dupe(), x2.dupe(), xx1.dupe(), xx2.dupe()]),
             ),
             // This predicate is defined with type `tt1`, which has no subentities,
             // so only values of this type will be ground
-            (
-                &action_params[1],
-                BTreeSet::from([xx1.clone(), xx2.clone()]),
-            ),
+            (&action_params[1], BTreeSet::from([xx1.dupe(), xx2.dupe()])),
             // Same as above, no subentities
-            (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
-        ]))]);
+            (&action_params[2], BTreeSet::from([y1.dupe(), y2.dupe()])),
+        ]);
 
-        assert_eq!(res, correct_grounding);
+        println!("{:?}", res);
+        let mapped_grounding = res.iter().map(|g| g.0.clone()).fold(
+            BTreeMap::<&ActionParameter, BTreeSet<_>>::new(),
+            |mut acc, g| {
+                for &k in g.keys() {
+                    acc.entry(k)
+                        .and_modify(|e| {
+                            let _ = e.insert(g[k].dupe());
+                        })
+                        .or_insert_with(|| BTreeSet::from([g[k].dupe()]));
+                }
+                acc
+            },
+        );
+        assert_eq!(mapped_grounding, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([
             BTreeSet::from([
                 ModifyState::Del(p1.values(vec![x1.dupe()]).build().unwrap()),
@@ -1007,8 +1036,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -1039,21 +1067,31 @@ mod tests {
         let res = state.ground_action(&action);
         assert!(!res.is_empty());
 
-        let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
+        let correct_grounding = BTreeMap::from([
             (
                 &action_params[0],
-                BTreeSet::from([x1.clone(), x2.clone(), xx1.clone(), xx2.clone()]),
+                BTreeSet::from([x1.dupe(), x2.dupe(), xx1.dupe(), xx2.dupe()]),
             ),
             // This predicate is defined with `t1`, but it was turned into a specific
             // with `tt1`, so it should only ground with `tt1`
-            (
-                &action_params[1],
-                BTreeSet::from([xx1.clone(), xx2.clone()]),
-            ),
-            (&action_params[2], BTreeSet::from([y1.clone(), y2.clone()])),
-        ]))]);
+            (&action_params[1], BTreeSet::from([xx1.dupe(), xx2.dupe()])),
+            (&action_params[2], BTreeSet::from([y1.dupe(), y2.dupe()])),
+        ]);
 
-        assert_eq!(res, correct_grounding);
+        let mapped_grounding = res.iter().map(|g| g.0.clone()).fold(
+            BTreeMap::<&ActionParameter, BTreeSet<_>>::new(),
+            |mut acc, g| {
+                for &k in g.keys() {
+                    acc.entry(k)
+                        .and_modify(|e| {
+                            let _ = e.insert(g[k].dupe());
+                        })
+                        .or_insert_with(|| BTreeSet::from([g[k].dupe()]));
+                }
+                acc
+            },
+        );
+        assert_eq!(mapped_grounding, correct_grounding);
     }
 
     #[test]
@@ -1105,13 +1143,16 @@ mod tests {
         assert!(!res.is_empty());
 
         let correct_grounding = BTreeSet::from([ParameterGrounding(BTreeMap::from([
-            (&action_params[0], BTreeSet::from([a.dupe()])),
-            (&action_params[1], BTreeSet::from([y.dupe()])),
+            (&action_params[0], a.dupe()),
+            (&action_params[1], y.dupe()),
         ]))]);
 
         assert_eq!(res, correct_grounding);
 
-        let effects = action.ground_effect(&res, &state).unwrap();
+        let effects = res
+            .iter()
+            .map(|res| action.ground_effect(res, &state).unwrap())
+            .collect::<BTreeSet<_>>();
         let correct_effects = BTreeSet::from([BTreeSet::from([
             ModifyState::Del(p1.values(vec![a.dupe()]).build().unwrap()),
             ModifyState::Add(p2.values(vec![a.dupe(), y.dupe()]).build().unwrap()),
@@ -1122,8 +1163,7 @@ mod tests {
         assert!(effects
             .into_iter()
             .map(|modifications| {
-                let mut st = state.clone();
-                st.apply_modification(modifications.clone());
+                let st = state.modify(modifications.clone());
                 (st, modifications)
             })
             .all(|(st, modifications)| {
@@ -1176,10 +1216,10 @@ mod tests {
         let state = State::default().with_predicates(vec![pred_a.clone(), pred_b.clone()]);
 
         let res = state.ground_action(&action);
-        let correct = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
-            &action.parameters()[0],
-            BTreeSet::from([x.dupe(), y.dupe()]),
-        )]))]);
+        let correct = BTreeSet::from([
+            ParameterGrounding(BTreeMap::from([(&action.parameters()[0], x.dupe())])),
+            ParameterGrounding(BTreeMap::from([(&action.parameters()[0], y.dupe())])),
+        ]);
 
         assert_eq!(res, correct);
     }
@@ -1228,7 +1268,7 @@ mod tests {
         let res = state.ground_action(&action);
         let expected = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
             &action.parameters()[0],
-            BTreeSet::from([x.dupe()]),
+            x.dupe(),
         )]))]);
 
         assert_eq!(res, expected);
@@ -1297,7 +1337,7 @@ mod tests {
         let res = state.ground_action(&action);
         let expected = BTreeSet::from([ParameterGrounding(BTreeMap::from([(
             &action.parameters()[0],
-            BTreeSet::from([x.dupe()]),
+            x.dupe(),
         )]))]);
 
         assert_eq!(res, expected);

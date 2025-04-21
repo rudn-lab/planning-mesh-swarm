@@ -1,7 +1,7 @@
 use crate::{
     action::Action,
     calculus::{
-        first_order::QuantifiedFormula,
+        first_order::{Pdnf, QuantifiedFormula},
         predicate::{GroundPredicate, PredicateDefinition, PredicateError, ScopedPredicate},
     },
     entity::{EntityStorage, ObjectStorage, TypeStorage},
@@ -37,7 +37,7 @@ impl Domain {
             &BTreeSet<Requirement>,
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
-            &mut NamedStorage<GroundPredicate>,
+            &mut Vec<GroundPredicate>,
         ) -> Result<(), BuildError>,
         G: Fn(
             &BTreeSet<Requirement>,
@@ -76,7 +76,7 @@ pub struct Problem {
     pub entities: EntityStorage,
     pub actions: NamedStorage<Action>,
     pub init: State,
-    pub goal: QuantifiedFormula<ScopedPredicate>,
+    pub goal: Pdnf<ScopedPredicate>,
 }
 
 pub const SUPPORTED_REQUIREMENTS: [Requirement; 9] = [
@@ -529,7 +529,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundPredicate>,
+        &mut Vec<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -558,7 +558,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundPredicate>,
+        &mut Vec<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -590,7 +590,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundPredicate>,
+        &mut Vec<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -622,7 +622,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundPredicate>,
+        &mut Vec<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -654,7 +654,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut NamedStorage<GroundPredicate>,
+        &mut Vec<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -665,14 +665,14 @@ where
 {
     pub fn build(self) -> Result<Problem, BuildError> {
         let mut entities = self.domain.entities;
-        let mut init = NamedStorage::default();
+        let mut init = Vec::new();
         let predicate_definitions = self.domain.predicate_definitions;
         let requirements = self.domain.requirements;
 
         self.add_objects.unwrap()(&requirements, &entities.clone(), &mut entities).and_then(|_| {
             self.add_init.unwrap()(&requirements, &entities, &predicate_definitions, &mut init)
                 .and_then(|_| {
-                    let init = State::default().with_predicates(init.as_vec());
+                    let init = State::default().with_predicates(init);
                     self.add_goal.unwrap()(
                         &requirements,
                         &entities,
@@ -685,7 +685,7 @@ where
                         entities,
                         actions: self.domain.actions,
                         init,
-                        goal,
+                        goal: goal.into(),
                     })
                 })
         })
@@ -776,7 +776,7 @@ mod tests {
             })
             .init(|_, objects, predicates, init| {
                 let o1 = objects.get_object("a").unwrap();
-                init.insert(
+                init.push(
                     predicates
                         .get("foo")
                         .unwrap()
@@ -810,7 +810,7 @@ mod tests {
             })
             .init(|_, objects, predicates, init| {
                 let o3 = objects.get_object("c").unwrap();
-                init.insert(
+                init.push(
                     predicates
                         .get("foo")
                         .unwrap()

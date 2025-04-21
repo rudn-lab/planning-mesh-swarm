@@ -291,7 +291,7 @@ pub type GroundPredicate = Predicate<ObjectHandle>;
 
 impl GroundPredicate {
     /// Checks whether this predicate is a possible groundings of another predicate
-    pub fn is_ground_form(&self, predicate: &LiftedPredicate) -> bool {
+    pub fn is_ground_of(&self, predicate: &LiftedPredicate) -> bool {
         if predicate.name() != self.name() || predicate.arguments().len() != self.arguments().len()
         {
             return false;
