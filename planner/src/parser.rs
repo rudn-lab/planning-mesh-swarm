@@ -732,7 +732,9 @@ pub fn parse_problem<'a>(
                 .map(|i| match i {
                     pddl::InitElement::Literal(lit) => match lit {
                         pddl::Literal::AtomicFormula(pred) => {
-                            parse_ground_predicate(pred, objects, predicates).map(|p| init.push(p))
+                            parse_ground_predicate(pred, objects, predicates).map(|p| {
+                                let _ = init.insert(p);
+                            })
                         }
                         pddl::Literal::NotAtomicFormula(_) => {
                             Err(BE::UnsupportedFeature(UF::NegationInInit))
@@ -998,9 +1000,9 @@ mod tests {
 
                 let on_site = predicates.get("on-site").unwrap();
 
-                init.push(on_site.values(vec![b.dupe(), s1.dupe()]).build().unwrap());
-                init.push(on_site.values(vec![c.dupe(), s1.dupe()]).build().unwrap());
-                init.push(on_site.values(vec![w.dupe(), s1.dupe()]).build().unwrap());
+                init.insert(on_site.values(vec![b.dupe(), s1.dupe()]).build().unwrap());
+                init.insert(on_site.values(vec![c.dupe(), s1.dupe()]).build().unwrap());
+                init.insert(on_site.values(vec![w.dupe(), s1.dupe()]).build().unwrap());
 
                 Ok(())
             })
@@ -1444,23 +1446,23 @@ mod tests {
                 let at = predicates.get("at").unwrap();
                 let size_smaller = predicates.get("size-smaller").unwrap();
 
-                init.push(at.values(vec![box1.dupe(), loc1.dupe()]).build().unwrap());
-                init.push(at.values(vec![box2.dupe(), loc1.dupe()]).build().unwrap());
-                init.push(at.values(vec![box3.dupe(), loc1.dupe()]).build().unwrap());
+                init.insert(at.values(vec![box1.dupe(), loc1.dupe()]).build().unwrap());
+                init.insert(at.values(vec![box2.dupe(), loc1.dupe()]).build().unwrap());
+                init.insert(at.values(vec![box3.dupe(), loc1.dupe()]).build().unwrap());
 
-                init.push(
+                init.insert(
                     size_smaller
                         .values(vec![box1.dupe(), box2.dupe()])
                         .build()
                         .unwrap(),
                 );
-                init.push(
+                init.insert(
                     size_smaller
                         .values(vec![box1.dupe(), box3.dupe()])
                         .build()
                         .unwrap(),
                 );
-                init.push(
+                init.insert(
                     size_smaller
                         .values(vec![box2.dupe(), box3.dupe()])
                         .build()

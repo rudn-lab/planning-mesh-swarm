@@ -37,7 +37,7 @@ impl Domain {
             &BTreeSet<Requirement>,
             &dyn ObjectStorage,
             &NamedStorage<PredicateDefinition>,
-            &mut Vec<GroundPredicate>,
+            &mut BTreeSet<GroundPredicate>,
         ) -> Result<(), BuildError>,
         G: Fn(
             &BTreeSet<Requirement>,
@@ -529,7 +529,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut Vec<GroundPredicate>,
+        &mut BTreeSet<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -558,7 +558,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut Vec<GroundPredicate>,
+        &mut BTreeSet<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -590,7 +590,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut Vec<GroundPredicate>,
+        &mut BTreeSet<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -622,7 +622,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut Vec<GroundPredicate>,
+        &mut BTreeSet<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -654,7 +654,7 @@ where
         &BTreeSet<Requirement>,
         &dyn ObjectStorage,
         &NamedStorage<PredicateDefinition>,
-        &mut Vec<GroundPredicate>,
+        &mut BTreeSet<GroundPredicate>,
     ) -> Result<(), BuildError>,
     G: Fn(
         &BTreeSet<Requirement>,
@@ -663,9 +663,13 @@ where
         &NamedStorage<PredicateDefinition>,
     ) -> Result<QuantifiedFormula<ScopedPredicate>, BuildError>,
 {
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "See SmartHandle Hash and Ord impls."
+    )]
     pub fn build(self) -> Result<Problem, BuildError> {
         let mut entities = self.domain.entities;
-        let mut init = Vec::new();
+        let mut init = BTreeSet::new();
         let predicate_definitions = self.domain.predicate_definitions;
         let requirements = self.domain.requirements;
 
@@ -776,7 +780,7 @@ mod tests {
             })
             .init(|_, objects, predicates, init| {
                 let o1 = objects.get_object("a").unwrap();
-                init.push(
+                init.insert(
                     predicates
                         .get("foo")
                         .unwrap()
@@ -810,7 +814,7 @@ mod tests {
             })
             .init(|_, objects, predicates, init| {
                 let o3 = objects.get_object("c").unwrap();
-                init.push(
+                init.insert(
                     predicates
                         .get("foo")
                         .unwrap()

@@ -37,7 +37,10 @@ pub struct State {
 }
 
 impl State {
-    pub fn with_predicates(mut self, predicates: Vec<GroundPredicate>) -> Self {
+    pub fn with_predicates<C: IntoIterator<Item = GroundPredicate>>(
+        mut self,
+        predicates: C,
+    ) -> Self {
         for p in predicates {
             match self.predicates.entry((&p).into()) {
                 Entry::Vacant(e) => {
