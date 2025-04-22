@@ -15,14 +15,14 @@ pub trait Solver {
     /// that these [Requirement]s enable.
     fn can_solve(&self, requirements: BTreeSet<Requirement>) -> bool;
     /// Solve the given [Problem] and return a [Plan].
-    fn solve(&self, problem: Problem) -> Result<Option<Plan>, Self::Error>;
+    fn solve(&self, problem: &Problem) -> Result<Option<Plan>, Self::Error>;
 }
 
 /// A sequence of actions that
 /// lead from the initial to the goal [State](crate::state::State).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Plan {
-    steps: Vec<GroundAction>,
+    pub(crate) steps: Vec<GroundAction>,
 }
 
 impl Display for Plan {

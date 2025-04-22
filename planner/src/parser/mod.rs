@@ -28,13 +28,18 @@ use pddl::{
     Parser, PreconditionGoalDefinition, PreferenceGD, PrimitiveType, Requirement, StructureDef,
     Term, Type, TypedList, TypedNames, Variable,
 };
+pub use plan::{parse_plan, PlanParseError};
+
+pub mod plan;
 
 #[derive(Debug)]
-pub enum ParseError<'a> {
+pub enum ConstructionError<'a> {
     /// The file is written incorrectly.
     SyntaxError(Err<pddl::parsers::ParseError<'a>>),
-    /// Error when building a domain or a problem.
-    BuildError(BE),
+    /// Error when building a [Domain] or a [Problem].
+    TaskBuildError(BE),
+    /// Error parsing a [Plan](crate::solver::Plan).
+    PlanBuildError(PlanParseError<'a>),
 }
 
 fn parse_type(r#type: &Type) -> Result<&PrimitiveType, BE> {
@@ -555,11 +560,11 @@ fn add_objects(
         .map(|_| ())
 }
 
-pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
-    let domain = pddl::Domain::from_str(definition).map_err(ParseError::SyntaxError)?;
+pub fn parse_domain(definition: &'_ str) -> Result<Domain, ConstructionError<'_>> {
+    let domain = pddl::Domain::from_str(definition).map_err(ConstructionError::SyntaxError)?;
 
     if !domain.extends().is_empty() {
-        return Err(ParseError::BuildError(BE::UnsupportedFeature(
+        return Err(ConstructionError::TaskBuildError(BE::UnsupportedFeature(
             UF::ExtendsDomain,
         )));
     }
@@ -676,14 +681,14 @@ pub fn parse_domain(definition: &'_ str) -> Result<Domain, ParseError<'_>> {
                 .map(|_| ())
         })
         .build()
-        .map_err(ParseError::BuildError)
+        .map_err(ConstructionError::TaskBuildError)
 }
 
 pub fn parse_problem<'a>(
     definition: &'a str,
     domain: &'a Domain,
-) -> Result<Problem, ParseError<'a>> {
-    let problem = pddl::Problem::from_str(definition).map_err(ParseError::SyntaxError)?;
+) -> Result<Problem, ConstructionError<'a>> {
+    let problem = pddl::Problem::from_str(definition).map_err(ConstructionError::SyntaxError)?;
 
     {
         let interner = INTERNER.lock();
@@ -692,32 +697,32 @@ pub fn parse_problem<'a>(
             .expect("Domain name should be in interner because it was constructed with it.");
 
         if problem.domain() != domain_name {
-            return Err(ParseError::BuildError(BE::BadDefinition(BD::WrongDomain(
-                problem.domain().to_string(),
-            ))));
+            return Err(ConstructionError::TaskBuildError(BE::BadDefinition(
+                BD::WrongDomain(problem.domain().to_string()),
+            )));
         }
     }
 
     if !problem.constraints().is_empty() {
-        return Err(ParseError::BuildError(BE::UnsupportedFeature(
+        return Err(ConstructionError::TaskBuildError(BE::UnsupportedFeature(
             UF::Constraints,
         )));
     }
 
     if problem.metric_spec().is_some() {
-        return Err(ParseError::BuildError(BE::UnsupportedFeature(
+        return Err(ConstructionError::TaskBuildError(BE::UnsupportedFeature(
             UF::MetricSpec,
         )));
     }
 
     if problem.length_spec().is_some() {
-        return Err(ParseError::BuildError(BE::UnsupportedFeature(
+        return Err(ConstructionError::TaskBuildError(BE::UnsupportedFeature(
             UF::LengthSpec,
         )));
     }
 
     if !problem.requirements().is_empty() {
-        return Err(ParseError::BuildError(BE::UnsupportedFeature(
+        return Err(ConstructionError::TaskBuildError(BE::UnsupportedFeature(
             UF::ProblemRequirements,
         )));
     }
@@ -773,7 +778,7 @@ pub fn parse_problem<'a>(
                 .map(|g| maybe_and(g, QuantifiedFormula::And))
         })
         .build()
-        .map_err(ParseError::BuildError)
+        .map_err(ConstructionError::TaskBuildError)
 }
 
 #[cfg(test)]
@@ -1568,7 +1573,9 @@ mod tests {
     "#;
 
         let result = parse_domain(domain);
-        if let Err(ParseError::BuildError(BuildError::MissingRequirements(missing))) = result {
+        if let Err(ConstructionError::TaskBuildError(BuildError::MissingRequirements(missing))) =
+            result
+        {
             assert_eq!(missing, vec![Requirement::Strips, Requirement::Typing]);
         } else {
             println!("{:?}", result);
@@ -1594,7 +1601,7 @@ mod tests {
         let result = parse_domain(domain);
         assert!(matches!(
             result,
-            Err(ParseError::BuildError(BuildError::Requires(
+            Err(ConstructionError::TaskBuildError(BuildError::Requires(
                 Requirement::Equality
             )))
         ));
@@ -1637,7 +1644,7 @@ mod tests {
         let result = parse_domain(domain);
         assert!(matches!(
             result,
-            Err(ParseError::BuildError(BuildError::Requires(
+            Err(ConstructionError::TaskBuildError(BuildError::Requires(
                 Requirement::DisjunctivePreconditions
             )))
         ));
@@ -1683,7 +1690,7 @@ mod tests {
         let result = parse_domain(domain);
         assert!(matches!(
             result,
-            Err(ParseError::BuildError(BuildError::Requires(
+            Err(ConstructionError::TaskBuildError(BuildError::Requires(
                 Requirement::UniversalPreconditions
             )))
         ));
@@ -1725,7 +1732,7 @@ mod tests {
         let result = parse_domain(domain);
         assert!(matches!(
             result,
-            Err(ParseError::BuildError(BuildError::Requires(
+            Err(ConstructionError::TaskBuildError(BuildError::Requires(
                 Requirement::ConditionalEffects
             )))
         ));
@@ -1767,7 +1774,7 @@ mod tests {
         let result = parse_domain(domain);
         assert!(matches!(
             result,
-            Err(ParseError::BuildError(BuildError::Requires(
+            Err(ConstructionError::TaskBuildError(BuildError::Requires(
                 Requirement::NegativePreconditions
             )))
         ));
@@ -1810,7 +1817,7 @@ mod tests {
         let result = parse_domain(domain);
         assert!(matches!(
             result,
-            Err(ParseError::BuildError(BuildError::Requires(
+            Err(ConstructionError::TaskBuildError(BuildError::Requires(
                 Requirement::ExistentialPreconditions
             )))
         ));
@@ -1852,7 +1859,9 @@ mod tests {
 
         let result = parse_domain(domain);
 
-        if let Err(ParseError::BuildError(BuildError::UnsupportedRequirements(reqs))) = result {
+        if let Err(ConstructionError::TaskBuildError(BuildError::UnsupportedRequirements(reqs))) =
+            result
+        {
             assert_eq!(reqs, vec![Requirement::DurativeActions])
         } else {
             println!("{:?}", result);

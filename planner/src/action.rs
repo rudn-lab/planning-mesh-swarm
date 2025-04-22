@@ -174,6 +174,15 @@ pub struct GroundAction {
     parameters: Vec<ObjectHandle>,
 }
 
+impl GroundAction {
+    pub(crate) fn new(name: &str, parameters: Vec<ObjectHandle>) -> Self {
+        Self {
+            name: INTERNER.lock().get_or_intern(name),
+            parameters,
+        }
+    }
+}
+
 impl Display for GroundAction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({}", INTERNER.lock().resolve(self.name).unwrap())?;

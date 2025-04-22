@@ -20,6 +20,10 @@ impl<T: Named + Clone> NamedStorage<T> {
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.0.values()
     }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.0.contains_key(&INTERNER.lock().get_or_intern(name))
+    }
 }
 
 impl<T: Named + Clone> Default for NamedStorage<T> {

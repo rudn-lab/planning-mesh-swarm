@@ -27,7 +27,7 @@ impl Solver for AStar {
         true
     }
 
-    fn solve(&self, problem: Problem) -> Result<Option<Plan>, Self::Error> {
+    fn solve(&self, problem: &Problem) -> Result<Option<Plan>, Self::Error> {
         let mut open = BinaryHeap::new();
 
         open.push(Node {
@@ -175,7 +175,7 @@ mod tests {
 
         let solver = AStar;
 
-        let maybe_plan = solver.solve(problem);
+        let maybe_plan = solver.solve(&problem);
         if let Ok(Some(plan)) = maybe_plan {
             assert_eq!(plan.steps, vec![]);
         } else {
@@ -211,7 +211,7 @@ mod tests {
 
         let solver = AStar;
 
-        let maybe_plan = solver.solve(problem);
+        let maybe_plan = solver.solve(&problem);
         if let Ok(Some(plan)) = maybe_plan {
             assert_eq!(plan.steps.len(), 1);
         } else {
@@ -258,9 +258,10 @@ mod tests {
 
         let solver = AStar;
 
-        let maybe_plan = solver.solve(problem);
+        let maybe_plan = solver.solve(&problem);
         if let Ok(Some(plan)) = maybe_plan {
-            assert_eq!(format!("{}", plan), solution.trim());
+            let correct_plan = parse_plan(solution, &problem).unwrap();
+            assert_eq!(plan, correct_plan);
         } else {
             println!("{:?}", maybe_plan);
             panic!("Error.");

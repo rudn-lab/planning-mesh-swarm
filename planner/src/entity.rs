@@ -134,7 +134,7 @@ pub trait TypeStorage: Debug {
 /// Trait that exposes methods related to objects of [EntityStorage]
 pub trait ObjectStorage: Debug {
     fn get_or_create_object(&mut self, object_name: &str, r#type: &TypeHandle) -> ObjectHandle;
-    /// Returns the object with this name and this type
+    /// Returns the object with this name
     fn get_object(&self, object_name: &str) -> Option<ObjectHandle>;
     fn get_type_for(&self, object: &ObjectHandle) -> TypeHandle;
 }
