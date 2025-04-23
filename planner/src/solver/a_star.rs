@@ -84,8 +84,6 @@ impl Solver for AStar {
                                     new_path
                                 },
                             });
-                        } else {
-                            todo!("Handle possible action grounding error.")
                         }
                     }
                 }
