@@ -116,7 +116,7 @@ impl Evaluable<GroundPredicate> for GroundPredicate {
 }
 
 impl<V: PredicateValue> IsPredicate for Predicate<V> {
-    default fn unique_marker(&self) -> Marker {
+    fn unique_marker(&self) -> Marker {
         self.unique_marker
     }
 }
