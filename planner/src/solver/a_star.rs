@@ -179,8 +179,7 @@ mod tests {
         if let Ok(Some(plan)) = maybe_plan {
             assert_eq!(plan.steps, vec![]);
         } else {
-            println!("{:?}", maybe_plan);
-            panic!("Error.");
+            panic!("{:?}", maybe_plan);
         }
     }
 
@@ -215,8 +214,7 @@ mod tests {
         if let Ok(Some(plan)) = maybe_plan {
             assert_eq!(plan.steps.len(), 1);
         } else {
-            println!("{:?}", maybe_plan);
-            panic!("Error.");
+            panic!("{:?}", maybe_plan);
         }
     }
 
@@ -263,8 +261,7 @@ mod tests {
             let correct_plan = parse_plan(solution, &problem).unwrap();
             assert_eq!(plan, correct_plan);
         } else {
-            println!("{:?}", maybe_plan);
-            panic!("Error.");
+            panic!("{:?}", maybe_plan);
         }
     }
 }

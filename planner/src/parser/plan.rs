@@ -326,10 +326,10 @@ mod tests {
 
         let astar = AStar;
 
-        let plan = astar.solve(&problem);
+        let maybe_plan = astar.solve(&problem);
 
-        let Ok(Some(plan)) = plan else {
-            panic!("Error!");
+        let Ok(Some(plan)) = maybe_plan else {
+            panic!("{:?}", maybe_plan);
         };
 
         let str_plan = format!("{}", plan);
