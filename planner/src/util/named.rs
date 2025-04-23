@@ -17,6 +17,10 @@ impl<T: Named + Clone> NamedStorage<T> {
         self.0.get(&INTERNER.lock().get_or_intern(name))
     }
 
+    pub fn get_by_symbol(&self, symbol: &InternerSymbol) -> Option<&T> {
+        self.0.get(symbol)
+    }
+
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.0.values()
     }

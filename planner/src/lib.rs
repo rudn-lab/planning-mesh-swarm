@@ -15,6 +15,7 @@ pub mod problem;
 pub mod solver;
 pub mod state;
 mod util;
+pub mod validator;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 

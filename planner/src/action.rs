@@ -170,8 +170,8 @@ impl Named for Action {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroundAction {
-    name: InternerSymbol,
-    parameters: Vec<ObjectHandle>,
+    pub name: InternerSymbol,
+    pub parameters: Vec<ObjectHandle>,
 }
 
 impl GroundAction {
