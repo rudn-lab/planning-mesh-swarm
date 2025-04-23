@@ -1,7 +1,8 @@
 use super::*;
 use crate::{action::GroundAction, calculus::Evaluable, problem::Problem, state::State};
 use alloc::{
-    collections::{BTreeSet, BinaryHeap},
+    collections::{BTreeMap, BTreeSet, BinaryHeap},
+    rc::Rc,
     vec::Vec,
 };
 use core::{cmp::Ordering, error::Error, fmt::Display};
@@ -29,39 +30,54 @@ impl Solver for AStar {
 
     fn solve(&self, problem: &Problem) -> Result<Option<Plan>, Self::Error> {
         let mut open = BinaryHeap::new();
+        let mut closed: BTreeMap<Rc<State>, usize> = BTreeMap::new();
 
         open.push(Node {
-            state: problem.init.clone(),
+            state: Rc::new(problem.init.clone()),
             cost: 0,
-            estimated_total: heuristic(&problem.init),
+            estimate: heuristic(&problem.init),
             path: Vec::new(),
         });
 
         while let Some(Node {
             state,
             cost,
-            estimated_total: _,
+            estimate: _,
             path,
         }) = open.pop()
         {
-            if problem.goal.eval(&state) {
+            closed.insert(Rc::clone(&state), cost);
+
+            if problem.goal.eval(&*state) {
                 return Ok(Some(Plan { steps: path }));
             }
 
             for action in problem.actions.values() {
                 for grounding in state.ground_action(action) {
-                    let effects = action.ground_effect(&grounding, &state);
+                    let effects = action.ground_effect(&grounding, &*state);
                     if let Ok(effects) = effects {
-                        let new_state = state.modify(effects.clone());
+                        let new_state = Rc::new(state.modify(effects.clone()));
+
+                        if Rc::ptr_eq(&new_state, &state) {
+                            // Nothing changed
+                            continue;
+                        }
 
                         let new_cost = cost + 1; // uniform cost
                         let new_estimated_total = new_cost + heuristic(&new_state);
+
+                        if let Some(&prev_cost) = closed.get(&new_state) {
+                            // Already seen new_state with better cost
+                            if new_cost >= prev_cost {
+                                continue;
+                            }
+                        }
 
                         if let Ok(ground_action) = action.ground(&grounding) {
                             open.push(Node {
                                 state: new_state,
                                 cost: new_cost,
-                                estimated_total: new_estimated_total,
+                                estimate: new_estimated_total,
                                 path: {
                                     let mut new_path = path.clone();
                                     new_path.push(ground_action);
@@ -81,15 +97,15 @@ impl Solver for AStar {
 
 #[derive(Debug, Clone)]
 struct Node {
-    state: State,
+    state: Rc<State>,
     cost: usize,
-    estimated_total: usize,
+    estimate: usize,
     path: Vec<GroundAction>,
 }
 
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
-        self.estimated_total == other.estimated_total
+        self.estimate == other.estimate
     }
 }
 
@@ -97,13 +113,13 @@ impl Eq for Node {}
 
 impl PartialOrd for Node {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(other.estimated_total.cmp(&self.estimated_total)) // min-heap
+        Some(other.estimate.cmp(&self.estimate)) // min-heap
     }
 }
 
 impl Ord for Node {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.estimated_total.cmp(&self.estimated_total)
+        other.estimate.cmp(&self.estimate)
     }
 }
 
@@ -117,6 +133,25 @@ fn heuristic(_state: &State) -> usize {
 mod tests {
     use super::*;
     use crate::parser::*;
+
+    #[test]
+    fn test_use_min_heap() {
+        let a = Node {
+            state: Rc::new(State::default()),
+            cost: 1,
+            estimate: 1,
+            path: vec![],
+        };
+        let b = Node {
+            state: Rc::new(State::default()),
+            cost: 1,
+            estimate: 2,
+            path: vec![],
+        };
+
+        // a is greater because estimate is lower
+        assert_eq!(a.cmp(&b), Ordering::Greater)
+    }
 
     const DOMAIN: &str = r#"
 (define (domain robot-domain)
