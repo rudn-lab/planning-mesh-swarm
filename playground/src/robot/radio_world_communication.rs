@@ -52,7 +52,8 @@ pub(crate) fn update_robot_radios(
         if let Some((sleep_time, ok)) = robot_state.radio_sleep_state.take() {
             if time.get_instant() >= sleep_time {
                 robot_state.radio_sleep_state = None;
-                ok.send(()).unwrap();
+                ok.send(())
+                    .expect("failed to send ack for Sleep into radio script");
             } else {
                 // put back the value
                 robot_state.radio_sleep_state = Some((sleep_time, ok));
@@ -66,10 +67,13 @@ pub(crate) fn update_robot_radios(
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::Log((msg, ok)) => {
                     robot_state.log.push((time.get_instant(), msg));
-                    ok.send(()).unwrap();
+                    ok.send(())
+                        .expect("failed to send ack for Log into radio script");
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::GetSelfPeerId(sender) => {
-                    sender.send(robot_state.id).unwrap();
+                    sender
+                        .send(robot_state.id)
+                        .expect("failed to send GetSelfPeerId response into radio script");
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::Receive(sender) => {
                     robot_state.msg_receivers.push(sender);
@@ -153,7 +157,9 @@ pub(crate) fn update_robot_radios(
                     let Some(nic) = my_nics.get_mut(idx) else {
                         sender
                             .send(Err(format!("robot has no NIC with idx {}", idx)))
-                            .unwrap();
+                            .expect(
+                                "failed to send error for GetPeerOfTransmitter into radio script",
+                            );
                         continue;
                     };
 
@@ -162,7 +168,7 @@ pub(crate) fn update_robot_radios(
                     // If the NIC is not paired, return Ok(None).
                     match nic.peer_connection {
                         None => {
-                            sender.send(Ok(None)).unwrap();
+                            sender.send(Ok(None)).expect("failed to send response for GetPeerOfTransmitter into radio script");
                             continue;
                         }
                         Some(peer_connection_entity) => {
@@ -171,7 +177,7 @@ pub(crate) fn update_robot_radios(
                             let Ok(connection) = connection else {
                                 // The connection disappeared when we weren't looking
                                 nic.peer_connection = None;
-                                sender.send(Ok(None)).unwrap();
+                                sender.send(Ok(None)).expect("failed to send response for GetPeerOfTransmitter into radio script");
                                 continue;
                             };
 
@@ -189,7 +195,7 @@ pub(crate) fn update_robot_radios(
                                             peer_id: state.id,
                                             rssi,
                                         })))
-                                        .unwrap();
+                                        .expect("failed to send response for GetPeerOfTransmitter into radio script");
                                 }
                                 Err(_) => {
                                     // The paired robot disappeared while we still have a paired connection to it.
@@ -199,7 +205,7 @@ pub(crate) fn update_robot_radios(
                                             peer_id: connection.destination_peer_id,
                                             rssi: RSSI::from_float(0.0),
                                         })))
-                                        .unwrap();
+                                        .expect("failed to send response for GetPeerOfTransmitter into radio script");
                                 }
                             }
                         }
@@ -209,10 +215,14 @@ pub(crate) fn update_robot_radios(
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     match my_nics.get_mut(idx) {
                         None => {
-                            sender.send(false).unwrap();
+                            sender
+                                .send(false)
+                                .expect("failed to send ack for Ping into radio script");
                         }
                         Some(_nic) => {
-                            sender.send(true).unwrap();
+                            sender
+                                .send(true)
+                                .expect("failed to send ack for Ping into radio script");
                         }
                     }
                 }
@@ -221,7 +231,7 @@ pub(crate) fn update_robot_radios(
                     let Some(nic) = my_nics.get_mut(idx) else {
                         sender
                             .send(Err(format!("robot has no NIC with idx {}", idx)))
-                            .unwrap();
+                            .expect("failed to send error for GetReachablePeers into radio script");
                         continue;
                     };
 
@@ -242,14 +252,16 @@ pub(crate) fn update_robot_radios(
                             reachable_peers.push(peer_state.id);
                         }
                     }
-                    sender.send(Ok(reachable_peers)).unwrap();
+                    sender
+                        .send(Ok(reachable_peers))
+                        .expect("failed to send response for GetReachablePeers into radio script");
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::Pair(idx, pair_with, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
                         sender
                             .send(Err(format!("robot has no NIC with idx {}", idx)))
-                            .unwrap();
+                            .expect("failed to send error for Pair into radio script");
                         continue;
                     };
 
@@ -283,20 +295,24 @@ pub(crate) fn update_robot_radios(
                                 ))
                                 .id();
                             nic.peer_connection = Some(new_connection);
-                            sender.send(Ok(true)).unwrap();
+                            sender
+                                .send(Ok(true))
+                                .expect("failed to send ack for Pair into radio script");
                             continue 'next_message;
                         }
                     }
 
                     // If we haven't found a match, return a message saying we couldn't pair.
-                    sender.send(Ok(false)).unwrap();
+                    sender
+                        .send(Ok(false))
+                        .expect("failed to send ack for Pair into radio script");
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::Unpair(idx, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
                         sender
                             .send(Err(format!("robot has no NIC with idx {}", idx)))
-                            .unwrap();
+                            .expect("failed to send error for Unpair into radio script");
                         continue;
                     };
 
@@ -306,14 +322,16 @@ pub(crate) fn update_robot_radios(
                         commands.entity(connection).despawn_recursive();
                         nic.peer_connection = None;
                     }
-                    sender.send(Ok(())).unwrap();
+                    sender
+                        .send(Ok(()))
+                        .expect("failed to send ack for Unpair into radio script");
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::Send(idx, message_type, sender) => {
                     let my_nics = nics.entry(command_sender_robot_entity).or_default();
                     let Some(nic) = my_nics.get_mut(idx) else {
                         sender
                             .send(Err(format!("robot has no NIC with idx {}", idx)))
-                            .unwrap();
+                            .expect("failed to send error for Send into radio script");
                         continue;
                     };
 
@@ -323,7 +341,7 @@ pub(crate) fn update_robot_radios(
                         // This NIC is not paired.
                         sender
                             .send(Err(format!("the NIC {} is not paired", idx)))
-                            .unwrap();
+                            .expect("failed to send error for Send into radio script");
                         continue;
                     };
 
@@ -335,7 +353,7 @@ pub(crate) fn update_robot_radios(
                                 "the NIC {} was paired, but the connection was deleted",
                                 idx
                             )))
-                            .unwrap();
+                            .expect("failed to send error for Send into radio script");
                         continue;
                     };
 
@@ -347,7 +365,7 @@ pub(crate) fn update_robot_radios(
                                 "the NIC {} was paired with robot {}, but the robot was deleted",
                                 idx, peer_robot
                             )))
-                            .unwrap();
+                            .expect("failed to send error for Send into radio script");
                         continue;
                     };
 
@@ -360,7 +378,9 @@ pub(crate) fn update_robot_radios(
                     {
                         continue;
                     }
-                    let my_robot_id = robot_ids.get(&command_sender_robot_entity).unwrap();
+                    let my_robot_id = robot_ids.get(&command_sender_robot_entity).expect(
+                        "could not find the entity for the robot that issued a Send command",
+                    );
 
                     // for instant delivery:
                     // peer_state
@@ -376,7 +396,9 @@ pub(crate) fn update_robot_radios(
                     });
 
                     // Message delivered successfully
-                    sender.send(Ok(())).unwrap();
+                    sender
+                        .send(Ok(()))
+                        .expect("failed to send ack for Send into radio script");
                     continue 'next_message;
                 }
                 crate::radio::virtual_nic::VirtualRadioRequest::Log(_) => unreachable!(),
