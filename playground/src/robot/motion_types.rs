@@ -156,6 +156,10 @@ pub(crate) struct RobotState {
     /// Messages that have been received by the receiver NIC,
     /// but not yet seen by the radio logic.
     pub(crate) queued_messages: Vec<(VirtualPeerId, MessageType)>,
+
+    /// What color is the robot displaying?
+    /// Available as an RGB triple.
+    pub(crate) led_color: [u8; 3],
 }
 
 impl RobotState {

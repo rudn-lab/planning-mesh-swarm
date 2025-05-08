@@ -92,12 +92,30 @@ impl RobotBundle {
 
                 log: vec![],
                 radio_sleep_state: None,
+                led_color: [255, 255, 255],
             },
             robot_props: RobotProps {
                 drive_speed,
                 turn_speed,
             },
             idle_robot: IdleRobot,
+        }
+    }
+}
+
+fn update_robot_colors(
+    robot_query: Query<(&RobotState, &MeshMaterial2d<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    // For every robot, set its associated color material
+    // to match the robot state.
+    for (state, material) in robot_query.iter() {
+        if let Some(mat) = materials.get_mut(material.id()) {
+            let [r, g, b] = state.led_color;
+            let r = r as f32 / 255.0;
+            let g = g as f32 / 255.0;
+            let b = b as f32 / 255.0;
+            mat.color = Srgba::new(r, g, b, 1.0).into();
         }
     }
 }
@@ -219,6 +237,7 @@ pub(crate) struct RobotBehaviorPlugin;
 
 impl Plugin for RobotBehaviorPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Update, update_robot_colors);
         app.add_systems(FixedUpdate, update_idle_robots);
         app.add_systems(FixedUpdate, update_busy_robots);
         app.add_systems(FixedUpdate, update_sleeping_robots);

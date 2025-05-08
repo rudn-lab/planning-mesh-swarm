@@ -81,6 +81,7 @@ fn peer_connection_update(
             (source_robot.translation.x + destination_robot.translation.x) / 2.0;
         transform.translation.y =
             (source_robot.translation.y + destination_robot.translation.y) / 2.0;
+        transform.translation.z = -0.5;
 
         // The angle of the line is the angle between the two robots.
         let angle = (source_robot.translation.x - destination_robot.translation.x)

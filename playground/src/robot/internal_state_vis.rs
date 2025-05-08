@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use egui::{Color32, RichText};
+use egui::{Button, Color32, RichText};
 
 use crate::{
     radio::{
@@ -66,16 +66,35 @@ fn visualize_internal_state(
             .open(&mut should_be_open)
             .max_height(300.0)
             .show(ctx, |ui| {
-                ui.columns(2, |col| {
+                ui.columns_const(|[left, right]| {
                     let mut label = |text: &'static str, value: String| {
-                        col[0].label(text);
-                        col[1].label(format!("{}", value));
+                        left.label(text);
+                        right.label(format!("{}", value));
                     };
 
                     label("ID", robot_state.id.to_string());
                     label("Grid Position", format!("{:?}", robot_state.grid_pos));
                     // label("Drive rate", robot_state.drive_rate.to_string());
                     // label("Turn rate", robot_state.turn_rate.to_string());
+                });
+
+                ui.columns_const(|[a, b, c, d]| {
+                    a.label("LED color:");
+                    let mut f32_color = robot_state.led_color.map(|v| v as f32 / 255.0);
+                    if b.color_edit_button_rgb(&mut f32_color).changed() {
+                        robot_state.led_color = f32_color.map(|f| (f * 255.0) as u8);
+                    }
+
+                    if c.button("Randomize").clicked() {
+                        let hue: f32 = rand::random_range(0.0..360.0);
+                        let color = Hsva::hsv(hue, 1.0, 1.0);
+                        let rgb_color = bevy::color::LinearRgba::from(color);
+                        robot_state.led_color = rgb_color.to_u8_array_no_alpha();
+                    }
+
+                    if d.button("Publish!").clicked() {
+                        todo!();
+                    }
                 });
 
                 ui.separator();

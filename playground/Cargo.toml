@@ -23,6 +23,7 @@ oneshot = "0.1.10"
 routing = { version = "0.1.0", path = "../routing" }
 async-recursion = "1.1.1"
 bevy_arrows_plugin = "0.1.0"
+rand = "0.9.1"
 
 [target.'cfg(unix)'.dependencies]
 bevy = { version = "0.15.0", features = ["file_watcher"] }
