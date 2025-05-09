@@ -5,6 +5,8 @@ pub(crate) enum VirtualChassisCommand {
     Motion((MotionCommand, oneshot::Sender<()>)),
     Log((String, oneshot::Sender<()>)),
     Sleep((core::time::Duration, oneshot::Sender<()>)),
+    LedColorSet(([u8; 3], oneshot::Sender<()>)),
+    LedColorGet(oneshot::Sender<[u8; 3]>),
 }
 
 trait IntoCmd {
@@ -81,5 +83,19 @@ impl Chassis for VirtualChassis {
 
     fn utils(&self) -> impl high_level_cmds::AsyncUtils {
         VirtualAsyncUtils { tx: &self.tx }
+    }
+
+    async fn get_led_color(&self) -> [u8; 3] {
+        let (tx, rx) = oneshot::channel();
+        let cmd = VirtualChassisCommand::LedColorGet(tx);
+        self.tx.send(cmd).await.unwrap();
+        rx.await.expect("failed to get color")
+    }
+
+    async fn set_led_color(&mut self, color: [u8; 3]) {
+        let (tx, rx) = oneshot::channel();
+        let cmd = VirtualChassisCommand::LedColorSet((color, tx));
+        self.tx.send(cmd).await.unwrap();
+        rx.await.expect("failed to set color");
     }
 }

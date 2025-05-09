@@ -44,5 +44,13 @@ pub trait Chassis {
         }
     }
 
+    /// Get the color currently shown on the indicator LED.
+    /// If the indicator LED is not available, this returns a constant value.
+    async fn get_led_color(&self) -> [u8; 3];
+
+    /// Set the color shown on the indicator LED.
+    /// If the indicator LED is not available, this function does nothing.
+    async fn set_led_color(&mut self, color: [u8; 3]);
+
     fn utils(&self) -> impl AsyncUtils + Send;
 }

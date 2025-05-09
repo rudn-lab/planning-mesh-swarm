@@ -11,7 +11,14 @@ pub(crate) mod ui;
 
 use core::f32;
 
-use bevy::{prelude::*, winit::WinitSettings};
+use bevy::{
+    core_pipeline::{
+        bloom::Bloom,
+        tonemapping::{DebandDither, Tonemapping},
+    },
+    prelude::*,
+    winit::WinitSettings,
+};
 use bevy_pancam::{DirectionKeys, PanCam};
 use bg_grid::Grid;
 use fps_monitor::FpsMonitorPlugin;
@@ -60,16 +67,45 @@ fn setup_system(world: &mut World) {
     log::info!("Preparing shapes");
 
     //commands.spawn(Camera2d);
-    world.commands().spawn(PanCam {
-        grab_buttons: vec![MouseButton::Right, MouseButton::Middle, MouseButton::Left],
-        move_keys: DirectionKeys::arrows_and_wasd(),
-        speed: 200.0,
-        enabled: true,
-        zoom_to_cursor: true,
-        min_scale: 1.0,
-        max_scale: 10.0,
-        ..Default::default()
-    });
+
+    // let three_d_camera = world
+    //     .commands()
+    //     .spawn((
+    //         Camera {
+    //             order: 0,
+    //             hdr: true,
+    //             clear_color: ClearColorConfig::None,
+    //             ..Default::default()
+    //         },
+    //         Camera3d {
+    //             ..Default::default()
+    //         },
+    //     ))
+    //     .id();
+
+    world
+        .commands()
+        .spawn(PanCam {
+            grab_buttons: vec![MouseButton::Right, MouseButton::Middle, MouseButton::Left],
+            move_keys: DirectionKeys::arrows_and_wasd(),
+            speed: 200.0,
+            enabled: true,
+            zoom_to_cursor: true,
+            min_scale: 1.0,
+            max_scale: 10.0,
+            ..Default::default()
+        })
+        .insert(Camera2d {})
+        .insert(Camera {
+            hdr: true,
+            order: 1,
+            // clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..Default::default()
+        })
+        .insert(Bloom::NATURAL)
+        .insert(Tonemapping::BlenderFilmic)
+        .insert(DebandDither::Enabled);
+    //.add_child(three_d_camera);
 
     let nic = NicBundle::new(world, Srgba::GREEN, 0);
     let robot_nic_child = world.commands().spawn(nic).id();
@@ -79,6 +115,20 @@ fn setup_system(world: &mut World) {
 
     let robot = RobotBundle::new(1, (-3, 2), world, 0.5, 1.0);
     world.commands().spawn(robot);
+
+    // let cube = world
+    //     .get_resource_mut::<Assets<Mesh>>()
+    //     .unwrap()
+    //     .add(Cuboid::new(10.0, 10.0, 10.0));
+    // let mat = world
+    //     .get_resource_mut::<Assets<StandardMaterial>>()
+    //     .unwrap()
+    //     .add(Color::srgb(0.8, 0.7, 0.6));
+    // world.commands().spawn((
+    //     Mesh3d(cube),
+    //     MeshMaterial3d(mat),
+    //     Transform::from_xyz(0.0, 0.5, 0.0),
+    // ));
 
     world.add_observer(on_click_robot);
 }

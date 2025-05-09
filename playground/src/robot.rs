@@ -115,6 +115,10 @@ fn update_robot_colors(
             let r = r as f32 / 255.0;
             let g = g as f32 / 255.0;
             let b = b as f32 / 255.0;
+            let intensity = 7.5;
+            let r = r * intensity;
+            let g = g * intensity;
+            let b = b * intensity;
             mat.color = Srgba::new(r, g, b, 1.0).into();
         }
     }
@@ -165,6 +169,15 @@ fn update_idle_robots(
                         started_at: time.get_instant(),
                         on_complete: Some(on_complete),
                     });
+                }
+                virtual_chassis::VirtualChassisCommand::LedColorSet((color, tx)) => {
+                    robot_state.led_color = color;
+                    tx.send(()).expect("failed to send ack for LedColorSet");
+                }
+                virtual_chassis::VirtualChassisCommand::LedColorGet(sender) => {
+                    sender
+                        .send(robot_state.led_color)
+                        .expect("failed to send result for LedColorGet");
                 }
             }
         }
