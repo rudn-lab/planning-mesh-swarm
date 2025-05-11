@@ -1,0 +1,16 @@
+*aux
+*log
+*pdf
+*abs
+*bcf
+*fdb_latexmk
+*fls
+*out
+_minted*
+*run.xml
+*bbl
+*blg
+*html
+*dvi
+*-SAVE-ERROR
+*toc

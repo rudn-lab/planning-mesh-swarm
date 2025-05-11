@@ -1,0 +1,76 @@
+\documentclass{report}
+
+\usepackage[T2A]{fontenc}
+\usepackage[english,russian]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{paracol}
+\usepackage[14pt]{extsizes}
+\usepackage[left=30mm, top=20mm, right=20mm, bottom=30mm, footskip=15mm]{geometry}
+\usepackage[style=gost-numeric,sorting=none]{biblatex}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{minted}
+\usepackage{caption}
+\usepackage{tabularx}
+\usepackage{changepage}
+\usepackage{titlesec}
+\usepackage{lipsum}
+\usepackage[normalem]{ulem}
+\usepackage{indentfirst}
+\usepackage{ragged2e}
+\usepackage{longtable}
+\usepackage{setspace}
+\usepackage{url}
+
+\setlength\parindent{1.25cm}
+
+\titleformat{\chapter}[hang]
+  {\normalfont\LARGE\bfseries}{\thechapter}{1em}{}
+
+\setminted{fontsize=\footnotesize}
+\setminted{breaklines=true}
+
+\captionsetup[listing]{name=Листинг}
+
+\addbibresource{sources.bib}
+
+\graphicspath{ {./assets/} }
+
+% Planner Component
+% these are important parts of the planner
+\newcommand{\pc}[1]{\textit{#1}}
+% CoDe element
+% these are the specific structs or traits
+% and so on in the program
+\newcommand{\cd}[1]{\texttt{#1}}
+% JARgon
+% and other important things,
+% like pattern names
+\newcommand{\jar}[1]{\textit{#1}}
+
+\hyphenpenalty=2000
+\exhyphenpenalty=5000
+
+\begin{document}
+
+\include{titlepage}
+\include{abstract}
+
+\setstretch{1.5}
+
+\setcounter{page}{3}  
+
+\tableofcontents
+
+\include{intro}
+\include{review}
+\include{singleagent}
+\include{multiagent}
+\include{conclusion}
+
+\chapter*{Список литературы}
+\addcontentsline{toc}{chapter}{Список литературы}
+\printbibliography[heading=none]
+
+\end{document}
