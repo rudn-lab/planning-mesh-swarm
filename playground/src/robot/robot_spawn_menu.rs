@@ -8,7 +8,7 @@ use crate::{
 
 use super::{
     motion_types::{RobotOrientation, RobotState},
-    RobotBundle, ROBOT_WIDTH,
+    RobotBundle, RobotId, ROBOT_WIDTH,
 };
 
 pub(crate) struct GhostRobotPlugin;
@@ -165,12 +165,12 @@ fn materialize_ghost_robot_inner(world: &mut World) {
         .iter(world)
         .map(|robot| robot.id)
         .max()
-        .unwrap_or(1);
+        .unwrap_or(RobotId(1));
 
     let mut query = world.query::<(Entity, &mut GhostRobot)>();
     let (entity, ghost_robot) = query.single(world);
 
-    let bundle = RobotBundle::new(max_id + 1, ghost_robot.grid_pos, world, 0.1, 0.2);
+    let bundle = RobotBundle::new(max_id.0 + 1, ghost_robot.grid_pos, world, 0.1, 0.2);
 
     let commands = &mut world.commands();
     commands.spawn(bundle);

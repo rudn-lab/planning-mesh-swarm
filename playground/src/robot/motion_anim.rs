@@ -23,7 +23,7 @@ pub(crate) fn get_tween(
         MotionCommand::TurnRight(n) => get_turn_tween(n.get() as i32, props, state),
     }
     // When the tween is complete, send an event to the robot to wake up.
-    .with_completed_event(state.id)
+    .with_completed_event(state.id.0)
 }
 
 /// The shortest possible duration for a tween. Should be almost instant.

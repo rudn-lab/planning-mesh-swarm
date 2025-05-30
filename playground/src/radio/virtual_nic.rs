@@ -3,7 +3,9 @@ use high_level_cmds::{
     AsyncUtils,
 };
 
-pub(crate) type VirtualPeerId = u64;
+use crate::robot::RobotId;
+
+pub(crate) type VirtualPeerId = RobotId;
 pub(crate) type AckTx = oneshot::Sender<()>;
 
 pub(crate) fn new_virtual_network_kit<const SENDER_COUNT: usize>(

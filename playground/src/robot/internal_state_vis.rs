@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
-use egui::{Button, Color32, RichText};
+use egui::{Color32, RichText};
 
 use crate::{
     radio::{
         antenna::AntennaReach,
         nic_components::{add_nic_to_robot, VirtualNetworkInterface},
     },
+    utils::format_duration,
     CENTIMETER,
 };
 
@@ -21,17 +22,6 @@ impl Plugin for InternalStatePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, visualize_internal_state);
     }
-}
-
-fn format_duration(duration: core::time::Duration) -> String {
-    let secs = duration.as_secs();
-    let nanos = duration.subsec_nanos();
-
-    let fractional = nanos as f64 / 1_000_000_000.0; // Convert to seconds
-    let formatted_fractional = format!("{:.3}", fractional); // Format to 3 decimal places
-    let formatted_fractional = formatted_fractional.trim_start_matches("0.");
-
-    format!("{}.{}", secs, formatted_fractional)
 }
 
 fn visualize_internal_state(

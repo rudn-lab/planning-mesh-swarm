@@ -5,15 +5,15 @@
 \contentsline {section}{\numberline {1.1}Методы обзора}{14}{}%
 \contentsline {subsection}{\numberline {1.1.1}Протокол и регистрация}{14}{}%
 \contentsline {subsection}{\numberline {1.1.2}Критерии отбора}{14}{}%
-\contentsline {subsection}{\numberline {1.1.3}Источники информации}{15}{}%
+\contentsline {subsection}{\numberline {1.1.3}Источники информации}{16}{}%
 \contentsline {subsection}{\numberline {1.1.4}Стратегия поиска}{16}{}%
-\contentsline {subsection}{\numberline {1.1.5}Выборка источников}{16}{}%
-\contentsline {subsection}{\numberline {1.1.6}Анализ данных}{17}{}%
+\contentsline {subsection}{\numberline {1.1.5}Выборка источников}{17}{}%
+\contentsline {subsection}{\numberline {1.1.6}Анализ данных}{18}{}%
 \contentsline {subsection}{\numberline {1.1.7}Исходные данные}{18}{}%
 \contentsline {subsubsection}{Сбор и обобщение результатов}{18}{}%
 \contentsline {subsubsection}{Отчетность}{18}{}%
-\contentsline {section}{\numberline {1.2}Результаты}{18}{}%
-\contentsline {subsection}{\numberline {1.2.1}Подборка источников}{18}{}%
+\contentsline {section}{\numberline {1.2}Результаты}{19}{}%
+\contentsline {subsection}{\numberline {1.2.1}Подборка источников}{19}{}%
 \contentsline {subsubsection}{Анализ временных рамок}{20}{}%
 \contentsline {subsubsection}{Географическое распределение публикаций}{22}{}%
 \contentsline {section}{\numberline {1.3}Определение текущих трендов}{22}{}%
@@ -21,26 +21,26 @@
 \contentsline {subsubsection}{IoT-оборудование}{25}{}%
 \contentsline {subsubsection}{Основные вопросы маршрутизации}{27}{}%
 \contentsline {subsubsection}{Исследуемые алгоритмы}{28}{}%
-\contentsline {subsection}{\numberline {1.3.2}Методы оценки результатов}{31}{}%
-\contentsline {subsubsection}{Симуляторное программное обеспечение}{31}{}%
-\contentsline {subsubsection}{Практическое тестирование}{32}{}%
-\contentsline {subsubsection}{Особенности алгоритмов в зависимости от задачи}{33}{}%
-\contentsline {subsubsection}{Измеряемые метрики и цели}{35}{}%
+\contentsline {subsection}{\numberline {1.3.2}Методы оценки результатов}{30}{}%
+\contentsline {subsubsection}{Симуляторное программное обеспечение}{30}{}%
+\contentsline {subsubsection}{Практическое тестирование}{31}{}%
+\contentsline {subsubsection}{Особенности алгоритмов в зависимости от задачи}{32}{}%
+\contentsline {subsubsection}{Измеряемые метрики и цели}{34}{}%
 \contentsline {section}{\numberline {1.4}Обсуждение}{37}{}%
 \contentsline {subsection}{\numberline {1.4.1}Обобщение результатов}{37}{}%
-\contentsline {subsection}{\numberline {1.4.2}Ограничения}{40}{}%
-\contentsline {subsubsection}{Отсутствие стандартов оценивания эффективности}{40}{}%
-\contentsline {subsubsection}{Зависимость от результатов симуляций}{41}{}%
-\contentsline {chapter}{\numberline {2}Разработка симулятора}{44}{}%
-\contentsline {section}{\numberline {2.1}Беспроводное оборудование}{45}{}%
-\contentsline {section}{\numberline {2.2}Геометрия симулятора}{47}{}%
-\contentsline {section}{\numberline {2.3}API для пользовательского кода}{50}{}%
-\contentsline {section}{\numberline {2.4}Ограничение памяти в микроконтроллерах}{56}{}%
-\contentsline {section}{\numberline {2.5}Архитектура симулятора}{58}{}%
-\contentsline {subsection}{\numberline {2.5.1}Сущность: Робот}{59}{}%
-\contentsline {subsection}{\numberline {2.5.2}Сущность: Интерфейс}{59}{}%
-\contentsline {subsection}{\numberline {2.5.3}Сущность: Сообщение}{60}{}%
-\contentsline {chapter}{\numberline {3}Разработка алгоритмов маршрутизации}{61}{}%
-\contentsline {section}{\numberline {3.1}Реализация в симуляторе}{65}{}%
-\contentsline {chapter}{Заключение}{69}{}%
-\contentsline {chapter}{Список литературы}{72}{}%
+\contentsline {subsection}{\numberline {1.4.2}Ограничения}{39}{}%
+\contentsline {subsubsection}{Отсутствие стандартов оценивания эффективности}{39}{}%
+\contentsline {subsubsection}{Зависимость от результатов симуляций}{40}{}%
+\contentsline {chapter}{\numberline {2}Разработка симулятора}{43}{}%
+\contentsline {section}{\numberline {2.1}Беспроводное оборудование}{44}{}%
+\contentsline {section}{\numberline {2.2}Геометрия симулятора}{46}{}%
+\contentsline {section}{\numberline {2.3}API для пользовательского кода}{48}{}%
+\contentsline {section}{\numberline {2.4}Ограничение памяти в микроконтроллерах}{51}{}%
+\contentsline {section}{\numberline {2.5}Архитектура симулятора}{56}{}%
+\contentsline {subsection}{\numberline {2.5.1}Сущность: Робот}{57}{}%
+\contentsline {subsection}{\numberline {2.5.2}Сущность: Интерфейс}{58}{}%
+\contentsline {subsection}{\numberline {2.5.3}Сущность: Сообщение}{58}{}%
+\contentsline {chapter}{\numberline {3}Разработка алгоритмов маршрутизации}{60}{}%
+\contentsline {section}{\numberline {3.1}Реализация в симуляторе}{64}{}%
+\contentsline {chapter}{Заключение}{68}{}%
+\contentsline {chapter}{Список литературы}{71}{}%

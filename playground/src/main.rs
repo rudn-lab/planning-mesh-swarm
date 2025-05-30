@@ -2,12 +2,14 @@ pub(crate) mod animator;
 pub(crate) mod bg_grid;
 pub(crate) mod bg_grid_mat;
 pub(crate) mod clock;
+pub(crate) mod event_log;
 pub(crate) mod fps_monitor;
 mod pause_controller;
 mod plugins;
 pub(crate) mod radio;
 pub(crate) mod robot;
 pub(crate) mod ui;
+pub(crate) mod utils;
 
 use core::f32;
 

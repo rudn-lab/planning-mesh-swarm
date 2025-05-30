@@ -1,6 +1,6 @@
 use bevy::{
     app::{Plugin, Update},
-    ecs::{entity::Entity, event::EventWriter, system::ResMut},
+    ecs::{entity::Entity, event::EventWriter, schedule::IntoSystemConfigs, system::ResMut},
     prelude::Query,
     time::Time,
 };
@@ -17,8 +17,7 @@ pub(crate) struct Ui;
 
 impl Plugin for Ui {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_systems(Update, left_panel);
-        // app.add_systems(Update, top_panel);
+        app.add_systems(Update, (left_panel, crate::event_log::bottom_panel).chain());
     }
 }
 

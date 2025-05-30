@@ -26,6 +26,15 @@ pub(crate) mod robot_spawn_menu;
 mod selection_reticle;
 pub(crate) mod virtual_chassis;
 
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Default)]
+pub(crate) struct RobotId(pub(crate) u64);
+
+impl std::fmt::Display for RobotId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Bundle)]
 pub(crate) struct RobotBundle {
     name: Name,
@@ -78,7 +87,7 @@ impl RobotBundle {
             ),
 
             robot_state: RobotState {
-                id,
+                id: RobotId(id),
                 grid_pos,
                 orientation: RobotOrientation::Up,
 
@@ -198,7 +207,7 @@ fn update_busy_robots(
     let mut robot_ids_to_update = vec![];
 
     for event in event_reader.read() {
-        robot_ids_to_update.push(event.user_data);
+        robot_ids_to_update.push(RobotId(event.user_data));
     }
 
     if robot_ids_to_update.is_empty() {

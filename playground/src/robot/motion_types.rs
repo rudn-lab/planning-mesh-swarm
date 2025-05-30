@@ -8,7 +8,7 @@ use crate::{
     radio::virtual_nic::{MessageType, VirtualPeerId, VirtualRadioRequest},
 };
 
-use super::virtual_chassis::VirtualChassisCommand;
+use super::{virtual_chassis::VirtualChassisCommand, RobotId};
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum RobotOrientation {
@@ -126,7 +126,7 @@ pub(crate) struct RobotProps {
 /// while the animation is running, the values represent its state at the start of the animation.
 #[derive(Component, Debug)]
 pub(crate) struct RobotState {
-    pub(crate) id: u64,
+    pub(crate) id: RobotId,
     pub(crate) grid_pos: (i32, i32),
     pub(crate) orientation: RobotOrientation,
 

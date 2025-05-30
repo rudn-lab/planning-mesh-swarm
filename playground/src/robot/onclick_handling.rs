@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::robot::selection_reticle::ReticleBundle;
 
-use super::motion_types::RobotState;
+use super::{motion_types::RobotState, RobotId};
 
 #[derive(Resource, Default)]
 pub(crate) struct SelectedRobot {
@@ -15,8 +15,11 @@ pub(crate) struct SelectedRobotMarker;
 
 #[derive(Event)]
 pub(crate) enum SelectionChanged {
-    /// The robot with the given ID is now selected.
+    /// The robot with the given entity is now selected.
     SelectedRobot(Entity),
+
+    /// The robot with the given RobotId is now selected.
+    SelectedRobotById(RobotId),
 
     /// No robots are selected now. The provided robot has just been deselected.
     DeselectedRobot(Entity),
@@ -57,6 +60,7 @@ pub(crate) fn on_selection_event(
     mut hovered_robot: ResMut<crate::radio::radio_reach_tooltip::HoveredRobot>,
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    all_robots: Query<(Entity, &RobotState)>,
 ) {
     for event in reader.read() {
         match event {
@@ -75,6 +79,30 @@ pub(crate) fn on_selection_event(
                 // No robot is now hovered (because we're now hovering over the robot we just clicked)
                 hovered_robot.0 = None;
             }
+            SelectionChanged::SelectedRobotById(robot_id) => {
+                // The old robot, if any, needs to be unselected
+                if let Some(old_selected_robot) = selected_robot.robot {
+                    commands
+                        .entity(old_selected_robot)
+                        .remove::<SelectedRobotMarker>();
+                }
+
+                // find the new robot
+                let Some((entity, robot_state)) = all_robots
+                    .iter()
+                    .find(|(_, robot_state)| robot_state.id == *robot_id)
+                else {
+                    return;
+                };
+
+                // The new robot is now selected
+                commands.entity(entity).insert(SelectedRobotMarker);
+                selected_robot.robot = Some(entity);
+
+                // No robot is now hovered (because we're now hovering over the robot we just clicked)
+                hovered_robot.0 = None;
+            }
+
             SelectionChanged::DeselectedRobot(entity) => {
                 commands.entity(*entity).remove::<SelectedRobotMarker>();
                 selected_robot.robot = None;
