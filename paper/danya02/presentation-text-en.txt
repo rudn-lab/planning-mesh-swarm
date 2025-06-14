@@ -1,0 +1,122 @@
+A mesh network is a network where
+each node communicates with its neighbors directly,
+rather than using a central hub
+like a Wi-Fi access point or a cellular tower.
+This makes these networks easier to deploy,
+and also more reliable:
+like a mesh fabric,
+the network retains its integrity
+even if some of the connections fail.
+
+This is a useful feature for Internet of Things
+applications, both domestic and industrial,
+which is what explains the relevance of working on it.
+In particular, the current debugging and development tools
+for mesh networks are fairly limited.
+
+We found that there are two classes of simulators commonly used.
+You can use a simulator like NS3,
+which is very versatile
+and useful for many other networks,
+like wired or cellular.
+But because of this,
+it uses an abstract hardware platform,
+and if you want to use it on a real platform,
+then you'd need to rewrite the code
+and potentially introduce additional bugs.
+Or you can use a simulator for a specific embedded OS,
+like Contiki Cooja for Contiki-NG,
+but that means you have to use a compatible microcontroller,
+which may not be available.
+
+So as part of this work, we developed our own mesh network simulator,
+which takes the same code as a physical microcontroller,
+eliminating bugs that come from porting the code.
+But the code itself can be compiled for many platforms,
+basically anywhere you can compile Rust code.
+
+We use Rust for the performance, safety and portability
+afforded by the ecosystem.
+Because of this, the simulator app itself
+can be run on desktop operating systems
+as well as the web-browser,
+and the robot code is compatible with bare metal embedded platforms.
+
+While developing the simulator,
+we had to make some architectural decisions,
+and these were based on the hardware we have available.
+For example, the basic element of the network
+is a directed connection between two nodes,
+with one node acting as a Wi-Fi access point 
+and another connecting to it.
+Most regular mesh network simulators
+use a broadcast model instead,
+but the point-to-point model
+can easily be implemented on top of it.
+
+Within a single robot,
+there are two modules, which we call "scripts".
+The radio script works to set up
+the wireless connections 
+and transfer data between the nodes,
+while the chassis script is responsible
+for the movement and behavior of the robot.
+The two scripts can be switched independently.
+
+That decision was taken because the robots could
+talk to each other in the same protocol
+but have different goals and behavior.
+This is useful because it allows using
+these robots for multi-agent planning --
+we collaborated with Matiukhin Grigorii for this.
+
+It also explains why our robots have this grip claw
+in front,
+despite it not being represented in the simulator:
+it's useful for a physical robot working in a simulated warehouse,
+but it's not part of my goal with the simulator.
+
+This also explains why the robots have to be aligned to a grid:
+the planner does not work in continuous coordinates,
+so the robots move in a discrete environment.
+The radio simulation itself works in a continuous way.
+
+The simulator has several features that aren't possible to implement
+in a physical environment.
+For example, you can change the rate of the passage of time
+or pause the entire simulation.
+There's debug logging, which is removed in the embedded builds for space efficiency.
+And it's possible to set breakpoints
+that stop all robots at the same time,
+which can't be done when these are separate microcontrollers located far away.
+
+With these simulator features,
+it's possible to implement some routing algorithms
+using the interfaces provided.
+One of the simplest ones is flooding,
+where each node transmits the new information to all its neighbors
+that don't have it yet.
+It's a very simple algorithm
+that forms the basis for more complicated ones,
+being used as part of the distance-vector routing algorithm
+or the spanning-tree protocol.
+
+We also implemented a kind of naive channel routing.
+In this approach, when a node wants to send a message to another,
+the intermediate nodes try to search for a path to connect them
+by moving that message to the peer with the most connections
+and backtracking when necessary: this is a kind of depth-first search.
+Once the route has been found, it's cached for a while
+so that the two endpoints can use the same path.
+
+In conclusion, we succeeded in our goal
+to make a highly compatible mesh network simulator.
+The provided interfaces could be used as a base for developing portable mesh network applications
+by writing either routing algorithms
+or hardware drivers for specific microcontroller platforms.
+
+The source code for the project is available on our Github repo,
+so if you want to check it out or try the web demo,
+you can follow these two QR codes.
+Otherwise, I thank you for your attention
+and hope to answer any questions you may have.
